@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquashield.dev/contracts/websocket_event.schema.json",
+  "title": "WebSocketEvent",
+  "description": "The typed envelope for every future WebSocket message beyond the current connectivity-check heartbeat/echo (architecture.md §23, backend/app/api/websocket/connectivity.py). No event_type below is emitted by the backend yet — this defines the shape future producers/consumers must agree on.",
+  "type": "object",
+  "properties": {
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "simulation_started",
+        "simulation_frame",
+        "simulation_paused",
+        "simulation_completed",
+        "simulation_error",
+        "risk_updated",
+        "alert_created",
+        "agent_update",
+        "recommendation_created"
+      ]
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "simulation_run_id": { "type": ["string", "null"], "format": "uuid" },
+    "payload": {
+      "description": "Shape depends on event_type — e.g. simulation_frame carries a TimelineFrame, recommendation_created carries a ResponseRecommendation.",
+      "type": "object"
+    }
+  },
+  "required": ["event_type", "timestamp", "payload"],
+  "additionalProperties": false
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquashield.dev/contracts/timeline_frame.schema.json",
+  "title": "TimelineFrame",
+  "description": "One renderable frame of a simulation's timeline — what the 3D renderer consumes to animate a scenario over time (architecture.md §7/§8). Not implemented by the renderer yet.",
+  "type": "object",
+  "properties": {
+    "simulation_run_id": { "type": "string", "format": "uuid" },
+    "timestep": { "type": "integer", "minimum": 0 },
+    "simulation_time": { "type": "string", "format": "date-time" },
+    "state": {
+      "description": "The SimulationState (or a render-ready projection of it) for this timestep.",
+      "type": "object"
+    },
+    "is_key_event": {
+      "description": "True if this frame represents a notable event worth jumping to directly (architecture.md §6 playback controls).",
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": ["simulation_run_id", "timestep", "state"],
+  "additionalProperties": false
+}

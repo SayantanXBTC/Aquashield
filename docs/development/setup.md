@@ -41,10 +41,22 @@ cp backend/.env.example backend/.env   # optional — defaults already work loca
 | `VITE_WS_URL` | `frontend/.env*` | Backend WebSocket URL (default `ws://127.0.0.1:8000/ws`) |
 | `HOST`, `PORT` | `backend/.env` | Uvicorn bind address |
 | `CORS_ORIGINS` | `backend/.env` | Allowed local dev origins (never `*` in production) |
+| `POSTGRES_USER/PASSWORD/HOST/PORT/DB` or `DATABASE_URL` | `backend/.env` | PostgreSQL/PostGIS connection — see docs/development/database.md |
 
 Root `.env.example` documents the full set of categories the platform will eventually need (LLM, embeddings,
 external data providers) — most are not consumed by any code yet. Never commit `.env`, `.env.local`, or
 `backend/.env`.
+
+## 6a. Database Setup
+
+```
+docker compose -f infrastructure/docker-compose.yml up -d   # PostgreSQL + PostGIS
+cd backend
+alembic upgrade head
+python -m app.db.seed
+```
+
+Full detail — schema, migrations gotchas, seed data, what belongs in Postgres vs. elsewhere: [docs/development/database.md](database.md).
 
 ## 7. Running the Frontend
 
@@ -68,7 +80,8 @@ uvicorn app.main:app --reload
 
 ```
 cd frontend && npm run test     # Vitest
-cd backend && pytest            # from within the activated venv
+cd backend && pytest            # from within the activated venv — DB tests skip
+                                 # cleanly if PostgreSQL isn't reachable
 ```
 
 ## 10. Running Lint / Type Checks

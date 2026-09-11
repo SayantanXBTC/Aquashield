@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquashield.dev/contracts/agent_request.schema.json",
+  "title": "AgentRequest",
+  "description": "A request dispatched to one AI agent (architecture.md §9/§24). The LLM itself is not implemented yet — this defines the shape a future orchestrator must send.",
+  "type": "object",
+  "properties": {
+    "request_id": { "type": "string", "format": "uuid" },
+    "agent_type": {
+      "type": "string",
+      "description": "e.g. state_evaluator, vulnerability, tactical, regulatory, command — see agents/agents/.",
+      "minLength": 1
+    },
+    "scenario_id": { "type": ["string", "null"], "format": "uuid" },
+    "simulation_run_id": { "type": ["string", "null"], "format": "uuid" },
+    "simulation_state": {
+      "description": "A SimulationState object, or null if this agent doesn't need one (e.g. a RAG-only regulatory lookup).",
+      "oneOf": [{ "type": "null" }, { "type": "object" }]
+    },
+    "task": { "type": "string", "minLength": 1 },
+    "context": { "type": "object" },
+    "metadata": { "type": "object" }
+  },
+  "required": ["request_id", "agent_type", "task"],
+  "additionalProperties": false
+}
