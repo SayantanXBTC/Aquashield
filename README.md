@@ -48,9 +48,11 @@ rules.
 
 ## Development status
 
-Technology bootstrap complete: frontend and backend both run, talk to each other, and have working
-lint/type-check/test pipelines. No application features implemented yet — see architecture.md's Technology
-Bootstrap section for exactly what's installed vs. implemented vs. planned.
+The scenario system is live end-to-end: create, save, view, edit (versioned), duplicate, archive a disaster
+scenario, and create simulation-run metadata — through both the API and a working Scenario Builder UI. See
+[docs/development/scenarios.md](docs/development/scenarios.md). No simulation physics, AI agents, or RAG yet —
+see architecture.md's Technology Bootstrap and Database & Shared Contract Foundation sections for exactly
+what's installed vs. implemented vs. planned.
 
 ## Development Setup
 
@@ -79,6 +81,7 @@ pytest
 
 Full setup, environment variables, and troubleshooting: [docs/development/setup.md](docs/development/setup.md).
 Database schema, migrations, seed data: [docs/development/database.md](docs/development/database.md).
+Scenario lifecycle, API, and frontend architecture: [docs/development/scenarios.md](docs/development/scenarios.md).
 
 ## Repository organization
 

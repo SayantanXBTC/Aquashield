@@ -33,8 +33,16 @@ class DisasterType(str, Enum):
 
 class ScenarioStatus(str, Enum):
     DRAFT = "draft"
-    ACTIVE = "active"
+    READY = "ready"
     ARCHIVED = "archived"
+
+
+class SimulationStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class RiskLevel(str, Enum):
@@ -118,6 +126,19 @@ class ScenarioVersion(BaseModel):
     label: str | None = None
     scenario_config: dict[str, Any] = Field(default_factory=dict)
     notes: str | None = None
+    created_at: datetime | None = None
+
+
+class SimulationRun(BaseModel):
+    id: UUID
+    scenario_version_id: UUID
+    status: SimulationStatus
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    duration_seconds: float | None = None
+    timestep_config: dict[str, Any] = Field(default_factory=dict)
+    model_identifier: str | None = None
+    error_message: str | None = None
     created_at: datetime | None = None
 
 

@@ -510,3 +510,47 @@ What the database/contract foundation phase (2026-09-11) actually built and veri
 - No automatic JSON Schema → Python/TypeScript code generation (see §22).
 - No simulation engine, AI agents, or RAG ingestion writing to these tables yet — they're the target, not the
   content, of this phase.
+
+## 26. Scenario System
+
+The first end-to-end functional vertical slice — full detail in docs/development/scenarios.md.
+
+```
+React Scenario Builder (frontend/src/features/scenario-builder/)
+        ↓
+Scenario API (backend/app/api/routes/scenarios.py — thin, no business logic)
+        ↓
+ScenarioService (backend/app/services/scenario_service.py — domain logic)
+        ↓
+ScenarioRepository / SimulationRunRepository (backend/app/repositories/ — persistence only)
+        ↓
+PostgreSQL/PostGIS (Scenario, ScenarioVersion, SimulationRun)
+        ↓
+Future Simulation Engine (not implemented)
+```
+
+**The scenario system is architecturally independent of simulation physics.** `SimulationRun` records that a
+run was requested and against which configuration — it never computes anything. Creating one only writes
+`status = pending` metadata; the response explicitly says the simulation engine hasn't executed.
+
+**Layering rule enforced here** (and expected of future features): routes never contain business logic,
+services never build SQLAlchemy queries directly (that's the repository's job), and repositories never make
+domain decisions (e.g. "should this scenario be archived" is a service decision, not a repository one).
+
+**Schema change made this phase:** `ScenarioStatus.ACTIVE` → `ScenarioStatus.READY` (Prompt 6 specifies the
+scenario lifecycle as draft/ready/archived; Prompt 5's original naming was draft/active/archived). Migration
+`32b3edf8f402` renames the Postgres enum value in place (`ALTER TYPE ... RENAME VALUE`) — existing rows keep
+their data, only the label changes. Updated everywhere: `backend/app/db/models/enums.py`,
+`backend/app/db/seed.py`, and all three shared-contract mirrors (`shared/contracts/scenario.schema.json`,
+`shared/schemas/python/contracts.py`, `shared/types/index.ts`, `shared/constants/enums.json`).
+
+**New shared contract:** `SimulationRun` (JSON Schema + Python + TypeScript) — the first contract added since
+the Prompt 5 foundation, following the same pattern. API-only request/response envelopes
+(`ScenarioCreateRequest`, `ScenarioDetail`, `Page<T>`, etc.) stay backend-owned
+(`backend/app/schemas/scenario.py`) and are mirrored only in `shared/types/index.ts` for the frontend — adding
+a second Python definition of the same shape was avoided (§22).
+
+**Frontend cross-domain import:** `frontend/src/features/scenario-builder/` imports `shared/types/index.ts`
+directly via a `@shared/*` alias (`frontend/vite.config.ts` + `tsconfig.json`), with Vite's dev-server
+`fs.allow` extended to permit reading outside `frontend/`'s own root — the first time frontend code actually
+consumes `shared/` rather than just mirroring it by hand.

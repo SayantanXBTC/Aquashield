@@ -8,7 +8,13 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      "@shared": fileURLToPath(new URL("../shared", import.meta.url)),
     },
+  },
+  server: {
+    // Allows importing from ../shared — the repo's cross-domain contracts
+    // (see architecture.md §22) — since it lives outside frontend/'s own root.
+    fs: { allow: [fileURLToPath(new URL("..", import.meta.url))] },
   },
   test: {
     environment: "jsdom",

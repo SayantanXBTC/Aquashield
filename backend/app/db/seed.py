@@ -77,7 +77,7 @@ def seed(session: Session, force: bool = False) -> None:
         disaster_type=DisasterType.FLOOD,
         location_name="Ganges-Brahmaputra Delta (demo)",
         location=from_shape(Point(90.40, 23.00), srid=4326),
-        status=ScenarioStatus.ACTIVE,
+        status=ScenarioStatus.READY,
         created_by="seed:dev-demo",
     )
     session.add(flood_scenario)
@@ -175,7 +175,7 @@ def seed(session: Session, force: bool = False) -> None:
         disaster_type=DisasterType.OIL_SPILL,
         location_name="Arabian Sea (demo)",
         location=from_shape(Point(65.00, 20.00), srid=4326),
-        status=ScenarioStatus.ACTIVE,
+        status=ScenarioStatus.READY,
         created_by="seed:dev-demo",
     )
     session.add(spill_scenario)

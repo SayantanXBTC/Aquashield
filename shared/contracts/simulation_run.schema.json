@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquashield.dev/contracts/simulation_run.schema.json",
+  "title": "SimulationRun",
+  "description": "Metadata for one execution of a ScenarioVersion. Creating one does NOT run a simulation — the engine that consumes these is not implemented yet (Prompt 7+). Mirrors backend/app/db/models/simulation_run.py.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "scenario_version_id": { "type": "string", "format": "uuid" },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "running", "completed", "failed", "cancelled"]
+    },
+    "started_at": { "type": ["string", "null"], "format": "date-time" },
+    "completed_at": { "type": ["string", "null"], "format": "date-time" },
+    "duration_seconds": { "type": ["number", "null"] },
+    "timestep_config": { "type": "object" },
+    "model_identifier": { "type": ["string", "null"] },
+    "error_message": { "type": ["string", "null"] },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["id", "scenario_version_id", "status"],
+  "additionalProperties": false
+}
