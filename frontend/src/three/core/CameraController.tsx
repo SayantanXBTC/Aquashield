@@ -14,11 +14,11 @@ export function CameraController() {
     <OrbitControls
       enableDamping={!reducedMotion}
       dampingFactor={0.08}
-      minDistance={25}
-      maxDistance={160}
-      minPolarAngle={Math.PI * 0.15}
-      maxPolarAngle={Math.PI * 0.49}
-      target={[0, 0, 0]}
+      minDistance={45}
+      maxDistance={230}
+      minPolarAngle={Math.PI * 0.2}
+      maxPolarAngle={Math.PI * 0.47}
+      target={[0, 4, 0]}
     />
   );
 }

@@ -5,6 +5,28 @@ screen, and a 3D-dominant command center wired to Prompt 7's real simulation exe
 below; see architecture.md §28 for the high-level summary and CLAUDE.md §27 for the rules this phase
 established.
 
+## Prompt 8.1 — Visual correction (2026-09-12)
+
+Prompt 8 shipped the architecture; a first real run in a browser (screenshot review) showed it wasn't
+landing visually: the landing page's stacked-section parallax read as six separate cards rather than one
+cinematic sequence, and the command center's default camera/terrain/water/atmosphere composition read as
+"an empty dark scene with a grey polygon," not a command center. Prompt 8.1 is a **visual-only correction**
+on `feature/visual-correction` — no new architecture, no fake data, no Prompt 9 functionality. Diagnosis and
+fixes:
+
+| Symptom | Root cause | Fix |
+|---|---|---|
+| Landing felt like stacked cards, not one sequence | `ScrollSequence`/`LandingBeatSection` were six independent `100vh` sections, each with its own scroll-linked animation | Replaced with `CinematicScroll` — one sticky viewport driven by a single normalized scroll progress; see "Landing architecture" below |
+| "Empty dark void" | `EnvironmentSystem` was a flat background color with no horizon | Added drei's procedural `Sky` (no HDRI/network fetch) tuned to a moody dusk, so there's an actual horizon/atmosphere |
+| "A grey polygon floating in the ocean" | `Landmass`'s large radius (70) + low relief (peakHeight 9) put most of the surface in a flat, pale "sand" color band, and it sat directly under the camera's look-at point | Smaller radius (46), taller relief (16), a color ramp that spends most of its range in vegetation/rock tones with only a thin waterline shelf tone, and repositioned off-center as a coastal accent rather than the dead-center subject |
+| Generic/flat camera composition | `AquaCanvas`'s start pose (`[55,42,55]`, fov 42) was a steep, close, top-down-ish angle relative to the landmass's own scale | Wider, lower establishing shot (`[92,30,118]`, fov 38) plus matching `CameraController` distance/polar-angle clamps |
+| Flat, static-looking water | Shader only had two low-frequency swell waves and a fixed-axis fresnel approximation | Added a fine chop layer, true view-vector fresnel, and a directional sun-glint specular term (`three/shaders/water.ts`) |
+| "TIMELINE DATA UNAVAILABLE" read as broken | `SimulationStatusPanel` rendered a bare `EmptyState` with no framing | Reworded to "Awaiting playback data" under a "Simulation timeline" label — a deliberate, explained state, not an apparent bug |
+| `/explore` gateway was a flat black screen with no imagery | `ExploreTransition` never rendered a background | Added the existing "cyclone" landing asset (`image5.jpg`) as a dimmed backdrop — no new/substitute image |
+
+Nothing about the routing, the simulation adapter/registry, `useCommandCenterSession`'s data flow, or the
+backend changed. See the sections below for the corrected architecture in detail.
+
 ## Routing
 
 ```
@@ -28,13 +50,21 @@ scenario builder rather than orphaning it — the new command center's scenario 
 
 ```
 frontend/src/features/landing/
-├── landingAssets.ts       — the six-asset -> beat mapping (source of truth, not scattered paths)
-├── LandingBeatSection.tsx — one full-viewport beat: scroll-scrubbed image + threshold text reveal
-├── ScrollSequence.tsx     — maps landingAssets to LandingBeatSection
-├── ExploreTransition.tsx  — the gateway screen's content (presentational)
-├── ExploreGatewayPage.tsx — the "/explore" route: navigation + page-transition-out
-└── LandingPage.tsx        — the "/" route: ScrollSequence + a link into "/explore"
+├── landingAssets.ts          — the six-asset -> beat mapping (source of truth, not scattered paths)
+├── sceneProgress.ts          — pure scroll-progress -> opacity/scale/drift math (unit-tested, no DOM)
+├── ScrollDriver.ts           — useScrollDriver: native scroll -> rAF-throttled 0..1 progress
+├── ImageStage.tsx            — the six images, stacked, opacity/transform written per scroll tick
+├── OverlayGradient.tsx       — the static legibility gradient (never animated)
+├── NarrativeTypography.tsx   — the six eyebrow/headline/body blocks, crossfaded on the same curve
+├── ProgressIndicator.tsx     — "01 / 06" + a thin progress line
+├── CinematicScroll.tsx       — composes the above into one sticky-viewport stage; reduced-motion fallback
+├── ExploreTransition.tsx     — the gateway screen's content (presentational)
+├── ExploreGatewayPage.tsx    — the "/explore" route: navigation + page-transition-out
+└── LandingPage.tsx           — the "/" route: CinematicScroll + a link into "/explore"
 ```
+
+`ScrollSequence.tsx`/`LandingBeatSection.tsx` (Prompt 8's stacked-section implementation) were removed in
+Prompt 8.1 — superseded by `CinematicScroll`, not kept alongside it.
 
 ### The six assets
 
@@ -58,20 +88,27 @@ credit line (`LANDING_IMAGE_CREDIT`) makes explicit that this is illustrative ph
 simulation output — the same "visual demonstration vs. scientific data" distinction Prompt 8 requires of
 the 3D world applies to the landing imagery too.
 
-### Scroll sequence mechanics
+### Cinematic scroll mechanics (Prompt 8.1)
 
-Each `LandingBeatSection` is a normal `100vh` block in **native document scroll** — deliberately not
-scroll-jacked, so keyboard/screen-reader/reduced-motion behavior stays whatever the browser already does
-well. Two independent Anime.js v4 `ScrollObserver`s per section (`frontend/src/animations/scroll.ts`):
+`CinematicScroll` renders one tall spacer (`SCENE_COUNT * 140vh`, native document scroll — no
+scroll-jacking) containing a `position: sticky` viewport. `ScrollDriver.ts`'s `useScrollDriver` hook turns
+native scroll into a single rAF-throttled 0..1 progress value (one `getBoundingClientRect` read per animation
+frame, not per scroll event); `CinematicScroll` writes that progress straight into `imageRefs`/`textRefs`
+DOM node styles (`opacity`, `transform: scale()/translateY()`) and the progress-line width — no React state
+update on scroll, so a scroll frame never triggers a re-render. `sceneProgress.ts` is the pure math behind
+this (`getSceneOpacity`/`getSceneScale`/`getSceneDrift`/`getActiveIndex`, all unit-tested in
+`sceneProgress.test.ts`): each of the six scenes owns an equal band of progress, is fully opaque through
+its middle, and crossfades continuously with its neighbor across a shared transition window at each
+boundary — a slow Ken Burns zoom (1.08 → 1.0) is the one consistent transition technique used throughout,
+per Prompt 8.1's "pick one dominant technique."
 
-- `linkScrollProgress` — scroll-scrubbed: the background image's `scale` is directly driven by scroll
-  position between the section's enter/leave bounds (`ScrollObserver.link`), producing the parallax
-  "dolly" effect. Skipped entirely under `prefers-reduced-motion`.
-- `onSectionInView` — threshold-based: fires a staggered text reveal (`animations/stagger.ts`) once per
-  entry/exit, not a continuous scroll-driven transform.
+`activeIndex` (which scene "owns" the current progress) is the only continuous-scroll-derived value kept in
+React state, and only changes 5 times across the whole sequence — it drives `ProgressIndicator`'s "N / 06"
+text.
 
-Every `ScrollObserver`/`JSAnimation` created is reverted on unmount via `animations/cleanup.ts` — no
-Anime.js handle in this codebase outlives its component.
+Under `prefers-reduced-motion`, `CinematicScroll` renders an entirely different, non-scroll-driven tree: six
+plain stacked `100vh` sections with static images and always-visible text, no `useScrollDriver` call, no
+scroll/resize listeners attached at all (verified in `CinematicScroll.test.tsx`).
 
 ### Explore gateway & CTA
 
@@ -98,17 +135,39 @@ three/
 ```
 
 `AquaCanvas` is the **one** `<Canvas>` in the app (`dpr={[1,2]}`, `shadows`, `powerPreference:
-"high-performance"`). `SceneRoot` is the one scene graph: `EnvironmentSystem` (background color + fog,
-no network-fetched HDRI — self-contained, no CDN dependency), `LightingSystem` (hemisphere + directional +
-ambient), `CameraController` (damped `OrbitControls`, clamped distance/polar angle, damping disabled under
-reduced motion), `WaterSurface`, `Landmass`, the scenario's own `LocationMarker`, and — resolved from
-`disasters/registry.ts` — the active disaster's visualizer.
+"high-performance"`). `SceneRoot` is the one scene graph: `EnvironmentSystem` (procedural sky + fog),
+`LightingSystem` (hemisphere + directional + ambient), `CameraController` (damped `OrbitControls`, clamped
+distance/polar angle, damping disabled under reduced motion), `WaterSurface`, `Landmass`, the scenario's own
+`LocationMarker`, and — resolved from `disasters/registry.ts` — the active disaster's visualizer.
 
-**VISUAL DEMONSTRATION, not scientific data:** the water is a stylized shader surface (two-octave sine
-displacement + a fresnel rim term), and the landmass is a radially-falloff-shaped pseudo-noise patch (no
-noise-library dependency — CLAUDE.md §16). Neither claims to represent real bathymetry, terrain, or GIS
-data; PostGIS remains the source of truth for real geospatial application data (architecture.md §14a).
-`three/utils/geoProjection.ts` documents the same caveat for its lat/lon → scene-space projection.
+**VISUAL DEMONSTRATION, not scientific data:** the water is a stylized shader surface (swell + chop
+displacement, view-dependent fresnel, a directional sun-glint highlight), the sky is drei's procedural
+Preetham `Sky` (geometry + shader, no HDRI/texture download), and the landmass is a radially-falloff-shaped
+pseudo-noise patch (no noise-library dependency — CLAUDE.md §16). None of these claim to represent real
+bathymetry, terrain, weather, or GIS data; PostGIS remains the source of truth for real geospatial
+application data (architecture.md §14a). `three/utils/geoProjection.ts` documents the same caveat for its
+lat/lon → scene-space projection.
+
+### Camera & composition (Prompt 8.1)
+
+`AquaCanvas`'s default camera pose is a low, wide establishing shot — `position: [92, 30, 118]`, `fov: 38`
+— chosen so the horizontal distance from the scenario origin is large relative to camera height, giving a
+shallow elevation angle with a visible horizon rather than looking steeply down at the scene.
+`CameraController`'s `OrbitControls` clamps `minDistance`/`maxDistance` to `[45, 230]` (can't zoom into the
+low-poly terrain up close, can pull back to a full vista) and `minPolarAngle`/`maxPolarAngle` to
+`[0.2π, 0.47π]` (can't flip below the water or point straight down), with `target: [0, 4, 0]` slightly above
+the water plane.
+
+### The landmass (Prompt 8.1: "the grey polygon")
+
+`Landmass` (`three/terrain/Landmass.tsx`) previously defaulted to `radius=70, peakHeight=9` — a large, low
+plateau whose radial falloff put most of its surface in a flat, pale "sand" color band, positioned directly
+under the camera's look-at point. From the default camera distance this read as an unfinished grey polygon
+rather than terrain. Corrected to `radius=46, peakHeight=16, segments=112` (smaller footprint, taller
+relief, an added higher-frequency noise octave for visible ridging), a color ramp that spends most of its
+range in vegetation/rock tones with only a thin waterline "shelf" tone blending toward the water's own
+shallow color (`#0d3a44`) instead of a hard sand cutoff, and repositioned to `[38, -0.4, 22]` — a coastal
+accent near, not under, the scenario's own `LocationMarker` (which stays at the origin).
 
 ### Disaster visualizers
 
@@ -194,9 +253,9 @@ Verified via `npm run build` output, not assumed:
 
 | Chunk | Gzip size | Loaded |
 |---|---|---|
-| `index-*.js` (landing, routing, UI kit, animations) | ~97 KB | Always (initial) |
+| `index-*.js` (landing, routing, UI kit, animations) | ~96 KB | Always (initial) |
 | `ScenarioBuilderFeature-*.js` | ~6 KB | Only on `/scenarios` |
-| `CommandCenterPage-*.js` (Three.js + R3F + drei + the whole scene graph) | ~255 KB | Only on `/command-center` |
+| `CommandCenterPage-*.js` (Three.js + R3F + drei + the whole scene graph, now including the procedural `Sky`) | ~258 KB | Only on `/command-center` |
 
 Both `CommandCenterPage` and `ScenarioBuilderFeature` are `React.lazy()` + `Suspense` in `App.tsx` — the
 landing page's initial load never pays for Three.js. `LoadingOverlay` (real stage list —
@@ -204,8 +263,10 @@ landing page's initial load never pays for Three.js. `LoadingOverlay` (real stag
 percentage** — Prompt 8 explicitly forbids a fake `73%`) is the `Suspense` fallback while the command
 center chunk loads.
 
-Images: `loading="lazy"`/`decoding="async"` on every beat image except the first (`eager`/`fetchPriority:
-"high"`, since it's on screen immediately at load).
+Images: all six scenes now sit in the same stacked viewport rect (`ImageStage`), so native
+`loading="lazy"`'s scroll-position-based deferral can't apply the way it did for Prompt 8's separate
+sections — fetch priority does the deferring instead: the first scene is `fetchPriority="high"`/`eager`,
+the other five are `fetchPriority="low"`/`lazy`. `decoding="async"` on all six.
 
 ## Performance decisions
 
@@ -218,7 +279,8 @@ Images: `loading="lazy"`/`decoding="async"` on every beat image except the first
   in production, and even in dev without the flag.
 - No postprocessing pipeline — Prompt 8 §"Three.js/R3F requirement" makes it explicitly conditional
   ("only if performance permits"); not adding one is a scope decision, not an oversight — see "Planned".
-- No `<Environment preset>`/HDRI — avoids an unpredictable third-party CDN fetch on scene load.
+- No `<Environment preset>`/HDRI texture — the sky (drei's `Sky`) is geometry + shader, computed, so it
+  carries no texture download and no third-party CDN dependency.
 
 ## Accessibility
 
@@ -236,7 +298,10 @@ Images: `loading="lazy"`/`decoding="async"` on every beat image except the first
 Run for real, not assumed — `cd frontend && npm run test`:
 
 - **Landing:** `landingAssets.test.ts` (6 beats map to 6 distinct real assets, correct disaster-category
-  order).
+  order), `sceneProgress.test.ts` (crossfade continuity across every scene boundary, Ken Burns scale/drift
+  curves, active-index selection — pure functions, no DOM), `CinematicScroll.test.tsx` (reduced-motion
+  renders all six headlines statically with zero scroll listeners attached; full-motion mode renders the
+  sticky stage with only the first scene initially opaque, and its scroll listener is removed on unmount).
 - **Three.js (data/registry layer):** `disasters/registry.test.ts` (correct visualizer per type, reused
   types, unknown type returns `null` without throwing), `adapters/simulationVisualAdapter.test.ts` (every
   disaster type's real `hazard_state` fields map to the expected radius/intensity/center — including "a
@@ -245,15 +310,18 @@ Run for real, not assumed — `cd frontend && npm run test`:
   `utils/colorRamp.test.ts`.
 - **Command center (data flow, mocked network):** `command-center/tests/CommandCenterPage.test.tsx` —
   loads a scenario + pending run, shows an error state when scenarios fail to load, shows an empty state
-  with no runs, and executes a run end to end (mocked `simulationApi`/`scenarioApi`) confirming a real
-  frame's `hazard_state` reaches the UI as the adapter's label text. The 3D viewport itself is stubbed in
-  this file specifically (`vi.mock("../components/CommandCenterViewport", ...)`) — see "Known limitations."
+  with no runs, executes a run end to end (mocked `simulationApi`/`scenarioApi`) confirming a real frame's
+  `hazard_state` reaches the UI as the adapter's label text, and (Prompt 8.1) confirms a completed run with
+  zero timeline frames renders the "Awaiting playback data" state, not the old bare "Timeline data
+  unavailable" text. The 3D viewport itself is stubbed in this file specifically
+  (`vi.mock("../components/CommandCenterViewport", ...)`) — see "Known limitations."
 - **App/routing:** `app/App.test.tsx` — the landing route renders real beat content, and the "Continue"
   link navigates into the `/explore` gateway.
 
-**39 frontend tests, all passing** (this phase's ~30 new tests + the 12→9 pre-existing scenario-builder
-tests reorganized under the same command; see `npm run test` output). `npm run lint` and `npm run build`
-(`tsc --noEmit && vite build`) both clean.
+**55 frontend tests, all passing** (Prompt 8's ~30 + Prompt 8.1's 4 new tests: `sceneProgress.test.ts` (14
+cases) and 2 `CinematicScroll.test.tsx` cases folded into that count, plus 1 new `CommandCenterPage` case).
+`npm run lint` and `npm run build` (`tsc --noEmit && vite build`) both clean. Backend: 39 tests passing
+(unchanged — this phase touched no backend code); `simulation/tests`: 57 passing (also unchanged).
 
 ### Known limitation: no automated WebGL render test
 
@@ -294,14 +362,30 @@ This is stated plainly rather than implied: the code, the automated test suite, 
 are verified; the rendered visual experience is not, and should be checked in a browser before this is
 considered demo-ready.
 
+### Prompt 8.1 manual verification (2026-09-12)
+
+Same constraint: **no browser automation tool was available in this environment for this pass either.**
+Verified programmatically: `npm run test` (55 passing), `npm run lint` (clean), `npm run build` (clean,
+`CommandCenterPage` chunk still separate from the initial bundle), `pytest backend/tests` (39 passing),
+`pytest simulation` (57 passing) — all after the camera/terrain/water/environment/landing changes above.
+**Not verified**: actually scrolling through the corrected `CinematicScroll` sequence, or visually
+confirming the corrected camera framing, terrain shading, water shader, and sky in a real browser. The
+diagnosis behind each fix in the table above was made by reading the source (geometry radius vs. camera
+distance, color ramp bands, shader math) against the reported screenshot, not by re-observing the fix live
+— this should be the first thing checked in a real browser before treating this pass as complete.
+
 ## IMPLEMENTED / VERIFIED / SIMPLIFIED / PLANNED / NOT IMPLEMENTED
 
 **IMPLEMENTED & VERIFIED** (automated tests and/or build output confirm it works):
 - Routing (`/`, `/explore`, `/command-center`, `/scenarios`), all lazy-loaded appropriately.
-- Six-asset landing scroll sequence with Anime.js-driven parallax + text reveal, reduced-motion aware.
-- `LiquidMetalButton` CTA and page-transition navigation into the command center.
-- Full Three.js/R3F/drei scene graph (water shader, procedural terrain, lighting, camera, markers,
-  instanced particles) — compiles, builds, and its data-driving logic (adapter + registry) is unit-tested.
+- Six-asset cinematic scroll stage (`CinematicScroll`) — one sticky viewport, continuous crossfade/Ken
+  Burns transitions driven by a single scroll-progress value, reduced-motion aware (Prompt 8.1; supersedes
+  Prompt 8's stacked-section `ScrollSequence`).
+- `LiquidMetalButton` CTA and page-transition navigation into the command center; `/explore` now has a
+  dimmed backdrop image (reused landing asset) instead of a flat void (Prompt 8.1).
+- Full Three.js/R3F/drei scene graph (improved water shader, corrected terrain, procedural `Sky` +
+  fog atmosphere, corrected camera composition, lighting, markers, instanced particles) — compiles,
+  builds, and its data-driving logic (adapter + registry) is unit-tested.
 - Real integration with Prompt 7: scenario selection, run creation/execution, timeline retrieval, frame
   selection, all via real HTTP calls with real error/loading/empty states.
 - Design token system, reusable UI component library.
@@ -312,7 +396,8 @@ considered demo-ready.
   documented at every relevant file's top comment.
 - `lat/lon -> scene position` is an equirectangular approximation for visualization only.
 - The landing page's cinematic quality (motion feel, timing) is implemented per the described vocabulary
-  but not human-eye-verified in this environment.
+  but not human-eye-verified in this environment — same caveat applies to Prompt 8.1's camera/terrain/water
+  corrections, per "Prompt 8.1 manual verification" above.
 
 **PLANNED** (explicitly deferred, not started):
 - `Tooltip`, `Modal`, `Drawer`, `Toast` components.
@@ -320,7 +405,8 @@ considered demo-ready.
   visualizer directly — would be extracted if a second visualizer needed the same current/wave logic).
 - Postprocessing pipeline (bloom/vignette) — conditional per the prompt itself ("only if performance
   permits"); not evaluated in this environment given no browser to profile against.
-- `<Environment>`/HDRI-based atmosphere.
+- A real bottom timeline zone (Prompt 9) — the Simulation panel's "Awaiting playback data" state
+  (Prompt 8.1) is the deliberate placeholder for it, not the real thing.
 
 **NOT IMPLEMENTED** (out of scope for this phase, per its explicit hard stop):
 - Timeline playback/scrubbing/speed controls, WebSocket streaming (Prompt 9).

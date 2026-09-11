@@ -660,3 +660,16 @@ IMPLEMENTED/VERIFIED/SIMPLIFIED/PLANNED/NOT IMPLEMENTED breakdown): timeline pla
 streaming (Prompt 9), risk/vulnerability analysis (Prompt 10), AI agents/RAG/response planning
 (Prompts 11-13), and — notably — automated WebGL scene-render testing and live browser visual verification,
 both blocked by environment limitations documented there rather than skipped silently.
+
+### 28a. Prompt 8.1 — Visual correction
+
+A visual-only correction pass (`feature/visual-correction`), not a re-architecture: the landing page's
+stacked-section scroll (`ScrollSequence`/`LandingBeatSection`) was replaced with `CinematicScroll` — one
+sticky viewport whose six scenes crossfade continuously off a single scroll-progress value
+(`sceneProgress.ts`, pure and unit-tested) instead of six independently-animated cards. In the command
+center, `AquaCanvas`'s camera pose, `Landmass`'s scale/relief/color ramp/position, the water shader's
+fresnel/specular terms, and `EnvironmentSystem`'s atmosphere (added drei's procedural `Sky`) were all
+corrected against a specific reported symptom (documented per-symptom in
+docs/development/command-center.md's "Prompt 8.1 — Visual correction" table) — the scene graph's shape
+(`SceneRoot`'s composition, the disaster registry/adapter seam) is unchanged. No shared contract, routing,
+or backend change.

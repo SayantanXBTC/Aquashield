@@ -173,4 +173,27 @@ describe("CommandCenterPage", () => {
     await waitFor(() => expect(simulationApi.executeRun).toHaveBeenCalledWith("run1"));
     expect(await screen.findByText(/water level 1\.50 m/i)).toBeInTheDocument();
   });
+
+  it("shows a deliberate awaiting-playback-data state for a completed run with no frames", async () => {
+    mockScenariosResolved();
+    const completedRun = { ...PENDING_RUN, status: "completed" as const, model_identifier: "demo-placeholder-v0" };
+    vi.mocked(simulationApi.executeRun).mockResolvedValue(completedRun);
+    vi.mocked(simulationApi.getTimeline).mockResolvedValue({
+      simulation_run_id: "run1",
+      frame_count: 0,
+      frames: [],
+    });
+
+    const user = userEvent.setup();
+    render(<CommandCenterPage />);
+
+    const executeButton = await screen.findByRole("button", { name: /^execute$/i });
+    await waitFor(() => expect(executeButton).toBeEnabled());
+    await user.click(executeButton);
+
+    // Not the old bare "Timeline data unavailable" — a deliberate state that
+    // says what's actually happening (Prompt 8.1 §16).
+    expect(await screen.findByText(/awaiting playback data/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^timeline data unavailable$/i)).not.toBeInTheDocument();
+  });
 });

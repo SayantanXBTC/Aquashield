@@ -1,5 +1,57 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-12 — Visual Correction: Cinematic Landing Scroll & Command Center Refinement
+
+**Added/Changed:**
+- Landing: replaced the stacked-section scroll (`ScrollSequence`/`LandingBeatSection`, removed) with
+  `CinematicScroll` — one sticky viewport whose image/text/progress children are driven by a single
+  normalized scroll-progress value (`ScrollDriver.ts`'s `useScrollDriver`), applied via direct DOM style
+  writes (no per-frame React state). New pure logic module `sceneProgress.ts` (crossfade/Ken-Burns-zoom/
+  drift/active-index math, fully unit-tested) plus `ImageStage`/`OverlayGradient`/`NarrativeTypography`/
+  `ProgressIndicator` leaf components. Reduced motion renders a separate, non-scroll-driven static stack —
+  no scroll listeners attached at all in that mode. Same six existing assets, same `landingAssets.ts`
+  mapping — no new/replacement/generated images.
+- `/explore` gateway now has a dimmed background image (the existing "cyclone" landing asset,
+  `image5.jpg`) instead of a flat void.
+- Command center 3D scene, corrected against a specific reported "empty scene / grey polygon" screenshot:
+  `AquaCanvas`'s camera pose (wider, lower establishing shot), `CameraController`'s distance/polar-angle
+  clamps, `Landmass`'s radius/relief/color ramp/position (smaller, taller relief, vegetation/rock-dominant
+  palette, moved off-center as a coastal accent), the water shader (`three/shaders/water.ts` — added a
+  chop layer, true view-vector fresnel, a directional sun-glint specular term), and `EnvironmentSystem`
+  (added drei's procedural `Sky`, no HDRI/texture download, for an actual horizon).
+- `SimulationStatusPanel`'s bare "Timeline data unavailable" replaced with a deliberate "Awaiting playback
+  data" state under a "Simulation timeline" label.
+- 4 new/changed frontend tests (`sceneProgress.test.ts`, `CinematicScroll.test.tsx`, one new
+  `CommandCenterPage.test.tsx` case) — 55 total, all passing.
+- `docs/development/command-center.md` (new "Prompt 8.1 — Visual correction" section + updates throughout),
+  `architecture.md` §28a.
+
+**Why:**
+- A real run in a browser (screenshot review) showed the shipped Prompt 8 visuals diverging from intent:
+  stacked landing cards instead of one cinematic sequence, and a command center that read as an empty dark
+  scene with an unfinished-looking grey polygon rather than a command center. This is a corrective pass,
+  not a new feature — no architecture change, no fake data, no Prompt 9 functionality.
+
+**Files/Modules:**
+- `frontend/src/features/landing/{sceneProgress,ScrollDriver,ImageStage,OverlayGradient,
+  NarrativeTypography,ProgressIndicator,CinematicScroll}.{ts,tsx}` (new),
+  `frontend/src/features/landing/{ScrollSequence,LandingBeatSection}.tsx` (removed),
+  `frontend/src/features/landing/{LandingPage,ExploreTransition}.tsx`.
+- `frontend/src/three/core/{AquaCanvas,CameraController,EnvironmentSystem}.tsx`,
+  `frontend/src/three/terrain/Landmass.tsx`, `frontend/src/three/shaders/water.ts`,
+  `frontend/src/three/water/waterMaterial.ts`.
+- `frontend/src/features/command-center/components/SimulationStatusPanel.tsx`.
+- `docs/development/command-center.md`, `architecture.md`.
+
+**Future Context:**
+- No browser automation was available in this environment for this pass either — verified programmatically
+  (`npm run test`/`lint`/`build`, `pytest backend/tests`, `pytest simulation`), not visually. Actually
+  scrolling the corrected sequence and observing the corrected camera/terrain/water/sky in a real browser
+  remains the first thing to check before treating this as demo-ready.
+- Branch: `feature/visual-correction`, off `develop`.
+- Routing, the simulation adapter/registry, `useCommandCenterSession`'s data flow, and the backend are
+  unchanged — this was a visual-only pass, exactly as scoped.
+
 ### 2026-09-12 — AAA 3D Command Center & Landing
 
 **Added/Changed:**
