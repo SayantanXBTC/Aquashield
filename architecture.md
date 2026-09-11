@@ -554,3 +554,67 @@ a second Python definition of the same shape was avoided (§22).
 directly via a `@shared/*` alias (`frontend/vite.config.ts` + `tsconfig.json`), with Vite's dev-server
 `fs.allow` extended to permit reading outside `frontend/`'s own root — the first time frontend code actually
 consumes `shared/` rather than just mirroring it by hand.
+
+## 27. Simulation Engine
+
+The deterministic, disaster-agnostic time-based simulation engine — full detail in
+docs/development/simulation.md.
+
+```
+ScenarioVersion.scenario_config
+        ↓
+SimulationRun (backend/app/api/routes/simulation_runs.py — thin)
+        ↓
+SimulationService (backend/app/services/simulation_service.py — orchestration only)
+        ↓
+SimulationEngine (simulation/core/engine.py — standalone package, no FastAPI/SQLAlchemy dependency)
+        ↓
+DisasterModel (simulation/models/<type>/model.py — flood, tsunami, cyclone, oil_spill, search_rescue)
+        ↓
+TimelineFrame × N (simulation/core/state.py)
+        ↓
+SimulationArtifact (JSON file in simulation/outputs/ + PostgreSQL metadata row)
+```
+
+`simulation/` is a sibling top-level domain to `backend/` (§18/§21), not a backend-owned package, and this
+monorepo has no per-domain packaging step (ADR-002) — so `backend/app/main.py` and `backend/tests/
+conftest.py` each insert the repo root onto `sys.path` before any import that could reach `simulation.*`.
+This is the one place that bootstrap lives; see docs/development/simulation.md for why.
+
+**Model registry, not an if/elif chain:** `simulation/core/registry.py`'s `MODEL_REGISTRY` maps a
+`disaster_type` string to a `DisasterModel` subclass. `flash_flood`/`coastal_flood` reuse `FloodModel`,
+`storm_surge` reuses `CycloneModel`, `chemical_pollution` reuses `OilSpillModel` — the same reuse pattern
+`backend/app/schemas/scenario_config.py`'s `DISASTER_CONFIG_SCHEMAS` already uses for config validation.
+
+**Every model is a SIMPLIFIED DEMONSTRATION MODEL** (`flood-demo-v1`, `tsunami-demo-v1`,
+`cyclone-demo-v1`, `oil-spill-demo-v1`, `search-rescue-demo-v1`) — illustrative physics only, never claimed
+as scientifically validated (CLAUDE.md §12 predecessor rule / §26 this file). `DisasterModel.describe()`
+returns a model card (`type`, `purpose`, `scientific_validation`, `assumptions`) persisted into every
+completed run's `SimulationArtifact.extra_metadata`.
+
+**Determinism:** same `disaster_type` + `scenario_config` + `timestep_config` + `seed` always produces the
+same `TimelineFrame` sequence — required for replay/comparison (§7/§11) and auditability. No model uses
+uncontrolled randomness; the engine hands every model a seeded `random.Random`, and the seed used is
+recorded in `SimulationRun.timestep_config["seed"]` on completion.
+
+**Lifecycle:** `PENDING` (Prompt 6, unchanged) → `RUNNING` → `COMPLETED`/`FAILED`, driven by `POST
+/simulation-runs/{run_id}/execute`. A run executes at most once — re-running means creating a new
+`SimulationRun` against the same (or a different) `ScenarioVersion`, never resetting an existing run's
+status. Execution is currently synchronous — a documented Prompt 7 §26 prototype choice, not an oversight;
+introducing a job queue (Celery/Redis) is a future, explicitly-instructed change, not a default.
+
+**Storage:** per §14a, PostgreSQL never holds full timestep data — `SimulationService` writes one JSON file
+per run to `simulation/outputs/{run_id}.json` (gitignored) and a `SimulationArtifact` row pointing at it.
+This is the prototype storage strategy Prompt 7 explicitly sanctions; a future phase can replace the file
+format (NetCDF/Zarr/object storage) without changing the `SimulationRun`/`SimulationArtifact` schema or the
+timeline API shape.
+
+**API:** `GET /simulation-runs/{run_id}` (detail), `POST /simulation-runs/{run_id}/execute` (run, returns
+the same detail shape), `GET /simulation-runs/{run_id}/timeline` (all frames — empty before execution).
+Distinct from `POST /scenarios/{id}/runs` (Prompt 6, creates `PENDING` metadata only) — creation and
+execution stay separate endpoints, per Prompt 7 §26.
+
+**Not yet built** (later phases, per Prompt 7's explicit hard stop): 3D visualization consuming these
+frames (Prompt 8), WebSocket streaming of frames as they're produced (Prompt 9), a risk engine reading
+`SimulationState.hazard_state`/`environmental_state` (Prompt 10), AI agents/RAG interpreting this output
+(Prompts 11-12).

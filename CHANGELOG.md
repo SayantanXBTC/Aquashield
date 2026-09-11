@@ -1,5 +1,67 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-12 — Simulation Engine Foundation
+
+**Added/Changed:**
+- Standalone `simulation/` package (no FastAPI/SQLAlchemy/React dependency): `simulation/core/` —
+  `SimulationClock`/`build_clock` (integer-minute arithmetic), `SimulationState`/`TimelineFrame`
+  dataclasses, `DisasterModel` ABC, `MODEL_REGISTRY`/`get_model_class`, `SimulationEngine`
+  (initialize/step/run/is_complete), plain great-circle geo helpers (`haversine_km`/`move_point`/
+  `circle_polygon`), and `SimulationConfigError`/`SimulationExecutionError`.
+- Five SIMPLIFIED DEMONSTRATION disaster models (`simulation/models/<type>/model.py`): `flood-demo-v1`,
+  `tsunami-demo-v1`, `cyclone-demo-v1`, `oil-spill-demo-v1`, `search-rescue-demo-v1` — each declares its
+  assumptions/scientific-validation disclaimer via `describe()`. `flash_flood`/`coastal_flood` reuse
+  `FloodModel`, `storm_surge` reuses `CycloneModel`, `chemical_pollution` reuses `OilSpillModel`.
+- `backend/app/services/simulation_service.py` — orchestrates execution: `PENDING → RUNNING →
+  COMPLETED`/`FAILED`, writes a JSON timeline artifact (`simulation/outputs/{run_id}.json`) plus a
+  `SimulationArtifact` metadata row, records the seed used back onto `SimulationRun.timestep_config`.
+- `backend/app/repositories/simulation_artifact_repository.py`, `backend/app/schemas/simulation.py`.
+- New API: `GET /simulation-runs/{run_id}`, `POST /simulation-runs/{run_id}/execute`, `GET
+  /simulation-runs/{run_id}/timeline` (`backend/app/api/routes/simulation_runs.py`) — distinct from Prompt
+  6's `POST /scenarios/{id}/runs` (still metadata-only creation). New exception handlers in `app/main.py`
+  (404/409/400/500).
+- `sys.path` repo-root bootstrap in `backend/app/main.py` and `backend/tests/conftest.py` so
+  `app.services.simulation_service` can import the sibling `simulation/` domain (ADR-002: no per-domain
+  packaging).
+- 57 simulation-package tests (`simulation/tests/`) — engine, clock, geo, registry, determinism,
+  per-model behavior, performance — plus 9 new backend integration tests
+  (`backend/tests/api/test_simulation_runs.py`) against real PostgreSQL/PostGIS; 39 backend tests total,
+  all passing. `alembic check` clean (no schema change — `SimulationRun`/`SimulationArtifact` tables
+  already existed from Prompt 5).
+- `docs/development/simulation.md`; updates to architecture.md (§27), CLAUDE.md (§23, §26),
+  `backend/.env.example`.
+
+**Why:**
+- Establishes the deterministic, time-based simulation architecture every future subsystem (3D
+  visualization, WebSocket streaming, risk engine, AI agents, RAG) consumes — per CLAUDE.md §5, the engine
+  computes hazard/environmental state; it never invents a risk conclusion or response recommendation.
+- Determinism (explicit seed, no uncontrolled randomness) is required for scenario replay/comparison,
+  debugging, and auditability (architecture.md §7/§11) — verified directly by tests, not assumed.
+- Synchronous execution and a local JSON artifact are deliberate, documented Prompt 7 prototype choices
+  (§21/§22/§26), not oversights — both are called out as the first thing a future phase would replace.
+
+**Files/Modules:**
+- `simulation/__init__.py`, `simulation/core/{__init__,time,state,model,engine,registry,geo,errors}.py`,
+  `simulation/models/{flood,tsunami,cyclone,oil_spill,search_rescue}/{__init__,model}.py`,
+  `simulation/tests/*.py` (removed now-redundant `.gitkeep` files from populated directories).
+- `backend/app/services/simulation_service.py`, `backend/app/repositories/simulation_artifact_repository.py`,
+  `backend/app/schemas/simulation.py`, `backend/app/api/routes/simulation_runs.py`, `backend/app/main.py`,
+  `backend/app/config/settings.py` (`simulation_output_dir`), `backend/tests/conftest.py`,
+  `backend/tests/api/test_simulation_runs.py`, `backend/.env.example`.
+- `docs/development/simulation.md`, `architecture.md`, `CLAUDE.md`.
+
+**Future Context:**
+- No 3D visualization, WebSocket streaming, risk engine, AI agents, or RAG — this phase stops at a
+  `SimulationRun` producing structured `TimelineFrame`s a future renderer/risk engine can consume, exactly
+  as scoped (Prompt 7's explicit hard stop).
+- `SimulationState.risk_state`/`infrastructure_impacts` stay empty — populated by the future risk engine
+  (Prompt 10) from this engine's raw `hazard_state`/`environmental_state`/`affected_area` output.
+- Execution is synchronous and storage is a local JSON file — both explicitly flagged in
+  docs/development/simulation.md as the first things a future phase (async job queue; NetCDF/Zarr/object
+  storage) would replace, without needing to change the `SimulationRun`/`SimulationArtifact` schema or the
+  timeline API shape.
+- Branch: `feature/simulation-engine`, off `develop`. Not merged into `main` in this task, per instruction.
+
 ### 2026-09-11 — Scenario Management Foundation
 
 **Added/Changed:**

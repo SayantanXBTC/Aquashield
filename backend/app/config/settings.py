@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -36,6 +38,22 @@ class Settings(BaseSettings):
             f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
+
+    # --- Simulation artifacts ---
+    # Where SimulationService writes prototype JSON timeline artifacts.
+    # Defaults to the gitignored simulation/outputs/ directory (architecture.md
+    # §24: PostgreSQL stores metadata + a reference, never the timeseries
+    # itself) — override only if that directory shouldn't be used.
+    simulation_output_dir_override: str | None = Field(
+        default=None, validation_alias="SIMULATION_OUTPUT_DIR"
+    )
+
+    @property
+    def simulation_output_dir(self) -> str:
+        if self.simulation_output_dir_override:
+            return self.simulation_output_dir_override
+        repo_root = Path(__file__).resolve().parents[3]
+        return str(repo_root / "simulation" / "outputs")
 
 
 settings = Settings()

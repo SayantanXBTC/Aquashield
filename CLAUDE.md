@@ -617,6 +617,7 @@ Full detail (verification results, pinned-version constraints): architecture.md 
 | Testing — Playwright | PLANNED |
 | Deck.gl | PLANNED / OPTIONAL |
 | Rasterio | PLANNED |
+| Simulation Engine — `simulation/core` + 5 demo disaster models + execution API | BOOTSTRAPPED (Prompt 7 — deterministic, synchronous, JSON artifact only; see docs/development/simulation.md) |
 
 "Dependency foundation only" means the package is installed and import-verified, with no AQUASHIELD logic
 built on it — do not treat its presence in `node_modules`/the venv as a green light to start implementing the
@@ -663,3 +664,29 @@ Full detail: docs/development/scenarios.md. Architecture: architecture.md §26.
 - Adding a disaster-specific config field: update both `backend/app/schemas/scenario_config.py` (validation)
   and `frontend/src/features/scenario-builder/disasterFieldSpecs.ts` (form rendering) — they're intentionally
   parallel registries, not generated from each other.
+
+## 26. Simulation Engine Rules
+
+Full detail: docs/development/simulation.md. Architecture: architecture.md §27.
+
+- `simulation/` is a standalone Python package — no FastAPI, SQLAlchemy, React, or Three.js dependency.
+  `backend/app/services/simulation_service.py` is its only caller; never import `simulation.*` from a route
+  handler directly, and never add a `simulation/core` dependency on `backend/app`.
+- A disaster model is selected by `disaster_type` string through `simulation/core/registry.py`'s
+  `MODEL_REGISTRY` only — never an if/elif chain in `SimulationEngine`. Adding a disaster type/model means
+  registering it there, not branching inside the engine.
+- Every `DisasterModel` is a **SIMPLIFIED DEMONSTRATION MODEL** and must say so via its `describe()` output
+  (`type`, `purpose`, `scientific_validation`, `assumptions`) — never claim or imply real forecasting/
+  operational accuracy (CLAUDE.md §12/§31 predecessor rule; Prompt 7 §31).
+- Determinism is required: same `disaster_type` + `scenario_config` + `timestep_config` + `seed` must
+  produce the same `TimelineFrame` sequence. No model may use uncontrolled randomness — if randomness is
+  ever genuinely useful, it must go through the engine's seeded `random.Random`, with the seed recorded in
+  `SimulationRun.timestep_config["seed"]`.
+- `SimulationEngine`/`SimulationService` never store full timestep data in PostgreSQL — only a
+  `SimulationArtifact` metadata row pointing at the JSON file `simulation/outputs/{run_id}.json` (§24, this
+  file). Do not add a column to persist raw frame data.
+- A `SimulationRun` can only be executed once (`PENDING` → `RUNNING` → `COMPLETED`/`FAILED`) — re-running
+  means creating a new `SimulationRun`, never resetting an existing one's status back to `PENDING`.
+- Execution is currently synchronous (`POST /simulation-runs/{run_id}/execute` blocks until done) — a
+  deliberate, documented prototype choice (Prompt 7 §26), not an oversight. Don't introduce Celery/Redis/a
+  job queue without an explicit instruction to do so.
