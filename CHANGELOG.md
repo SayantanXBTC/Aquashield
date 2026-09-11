@@ -1,5 +1,54 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-11 — Scenario Management Foundation
+
+**Added/Changed:**
+- Scenario API: `POST/GET /scenarios`, `GET/PATCH/DELETE /scenarios/{id}`, `POST /scenarios/{id}/duplicate`,
+  `GET/POST /scenarios/{id}/versions`, `GET/POST /scenarios/{id}/runs` (`backend/app/api/routes/scenarios.py`).
+- Layered backend: `app/schemas/scenario.py` (API contracts) + `app/schemas/scenario_config.py`
+  (disaster-specific validation) → `app/services/scenario_service.py` (domain logic) →
+  `app/repositories/{scenario,simulation_run}_repository.py` (persistence) → PostgreSQL/PostGIS.
+- Scenario lifecycle (`draft`/`ready`/`archived` — renamed from `draft`/`active`/`archived`, migration
+  `32b3edf8f402`), immutable scenario versioning, duplication, archiving-not-hard-deleting, and pending
+  SimulationRun metadata creation (no physics, no fake results).
+- Pagination, filtering (disaster_type, status, search), and whitelisted sorting on `GET /scenarios`.
+- New shared contract: `SimulationRun` (JSON Schema + Python + TypeScript mirrors).
+- Scenario Builder frontend (`frontend/src/features/scenario-builder/`): dynamic disaster-specific form,
+  client-side validation, typed API client, Scenario List/Detail pages, version history, simulation-run
+  creation UI — wired into `App.tsx` as the app's main content.
+- Frontend now imports `shared/types/index.ts` directly via a `@shared/*` Vite/TS alias.
+- 30 backend tests (scenario API + existing DB suite) and 12 frontend tests, all passing against a real
+  PostgreSQL/PostGIS instance.
+- `docs/development/scenarios.md`; updates to README.md, CLAUDE.md, architecture.md, docs/development/setup.md.
+
+**Why:**
+- This is the first genuinely functional vertical slice — proves the full stack (React → FastAPI → service →
+  repository → PostgreSQL/PostGIS) works end-to-end before any simulation physics exists to build on top of it.
+- Strict route/service/repository layering now, before more features arrive, so the pattern is established
+  rather than retrofitted.
+- Scenario configuration is versioned (never overwritten) specifically to support future replay/comparison
+  ("what happens if we change X") — architecture.md §11/§7.
+
+**Files/Modules:**
+- `backend/app/api/routes/scenarios.py`, `backend/app/schemas/{scenario,scenario_config}.py`,
+  `backend/app/services/scenario_service.py`, `backend/app/repositories/{scenario,simulation_run}_repository.py`,
+  `backend/app/db/geo.py`, `backend/app/main.py` (exception handlers + router).
+- `backend/alembic/versions/32b3edf8f402_*.py` (ScenarioStatus rename), `backend/app/db/models/enums.py`,
+  `backend/app/db/seed.py`.
+- `backend/tests/api/test_scenarios.py`, `backend/tests/conftest.py` (added `client` fixture).
+- `shared/contracts/simulation_run.schema.json`, `shared/schemas/python/contracts.py`, `shared/types/index.ts`,
+  `shared/constants/enums.json`.
+- `frontend/src/features/scenario-builder/**`, `frontend/src/app/App.tsx`, `frontend/vite.config.ts`,
+  `frontend/tsconfig.json`.
+- `docs/development/scenarios.md`, architecture.md, CLAUDE.md, README.md, docs/development/setup.md.
+
+**Future Context:**
+- No simulation physics, AI agents, or RAG — `SimulationRun` creation is metadata-only, exactly as scoped.
+- No router installed on the frontend yet — the Scenario Builder feature uses local view-state switching;
+  add a router when the app has enough distinct views to need URL-addressable routes.
+- The next phase (simulation engine) consumes `SimulationRun` + `ScenarioVersion.scenario_config` and writes
+  `SimulationArtifact` rows — no schema changes anticipated for that integration.
+
 ### 2026-09-11 — Database & Shared Contract Foundation
 
 **Added/Changed:**

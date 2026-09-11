@@ -16,8 +16,11 @@ class DisasterType(str, enum.Enum):
 
 
 class ScenarioStatus(str, enum.Enum):
+    """Scenario lifecycle — distinct from SimulationStatus (a run's status).
+    See docs/development/scenarios.md."""
+
     DRAFT = "draft"
-    ACTIVE = "active"
+    READY = "ready"
     ARCHIVED = "archived"
 
 

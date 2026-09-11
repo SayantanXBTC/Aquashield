@@ -20,7 +20,9 @@ export type DisasterType =
   | "chemical_pollution"
   | "search_rescue";
 
-export type ScenarioStatus = "draft" | "active" | "archived";
+export type ScenarioStatus = "draft" | "ready" | "archived";
+
+export type SimulationStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
 export type RiskLevel = "low" | "moderate" | "high" | "critical";
 
@@ -83,6 +85,97 @@ export interface ScenarioVersion {
   scenario_config: Record<string, unknown>;
   notes?: string | null;
   created_at?: string;
+}
+
+export interface SimulationRun {
+  id: string;
+  scenario_version_id: string;
+  status: SimulationStatus;
+  started_at?: string | null;
+  completed_at?: string | null;
+  duration_seconds?: number | null;
+  timestep_config: Record<string, unknown>;
+  model_identifier?: string | null;
+  error_message?: string | null;
+  created_at?: string;
+}
+
+// --- API request/response envelopes ---
+//
+// These mirror backend/app/schemas/scenario.py, which is their source of
+// truth (there is no separate Python copy of these — only the domain types
+// above are mirrored on both sides; these are API-shape only).
+
+export interface ScenarioCreateRequest {
+  name: string;
+  description?: string | null;
+  disaster_type: DisasterType;
+  location_name?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  scenario_config?: Record<string, unknown>;
+  version_label?: string | null;
+  created_by?: string | null;
+}
+
+export interface ScenarioUpdateRequest {
+  name?: string | null;
+  description?: string | null;
+  location_name?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  status?: ScenarioStatus | null;
+  scenario_config?: Record<string, unknown> | null;
+  version_label?: string | null;
+  version_notes?: string | null;
+}
+
+export interface ScenarioVersionCreateRequest {
+  scenario_config: Record<string, unknown>;
+  label?: string | null;
+  notes?: string | null;
+}
+
+export interface ScenarioListItem {
+  id: string;
+  name: string;
+  disaster_type: DisasterType;
+  status: ScenarioStatus;
+  location_name?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  current_version_number?: number | null;
+  updated_at: string;
+}
+
+export interface ScenarioDetail {
+  id: string;
+  name: string;
+  description?: string | null;
+  disaster_type: DisasterType;
+  status: ScenarioStatus;
+  location_name?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  current_version: ScenarioVersion | null;
+  version_count: number;
+}
+
+export interface SimulationRunCreateRequest {
+  /** Defaults to the scenario's current (latest) version if omitted. */
+  scenario_version_id?: string | null;
+  model_identifier?: string | null;
+  timestep_config?: Record<string, unknown>;
+}
+
+export interface Page<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface SimulationState {

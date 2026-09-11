@@ -12,7 +12,7 @@
     "chemical_pollution",
     "search_rescue"
   ],
-  "ScenarioStatus": ["draft", "active", "archived"],
+  "ScenarioStatus": ["draft", "ready", "archived"],
   "SimulationStatus": ["pending", "running", "completed", "failed", "cancelled"],
   "RiskLevel": ["low", "moderate", "high", "critical"],
   "RiskCategory": [

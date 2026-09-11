@@ -641,3 +641,25 @@ Full detail: docs/development/database.md. Architecture/ADR: architecture.md ADR
 - Adding a new PostGIS geometry/geography column: read docs/development/database.md's note on the
   GeoAlchemy2/Alembic duplicate-spatial-index gotcha before generating the migration. Adding a new
   `str, enum.Enum` column: remember `downgrade()` must explicitly drop the Postgres ENUM type it creates.
+
+## 25. Scenario System Rules
+
+Full detail: docs/development/scenarios.md. Architecture: architecture.md §26.
+
+- Layering is enforced, not a suggestion: routes (`app/api/routes/`) contain no business logic — they call a
+  service; services (`app/services/`) contain no raw SQLAlchemy query-building — they call a repository;
+  repositories (`app/repositories/`) contain no domain decisions (status transitions, "should this create a
+  new version") — that belongs in the service. A change that blurs this is incomplete, not just untidy.
+  Extend this same layering when adding the next domain (simulation runs' actual execution, risk assessments,
+  etc.) rather than inventing a different pattern per feature.
+- `scenario_config` changes are versioned (a new immutable `ScenarioVersion`); every other Scenario field
+  (name, description, location, status) updates in place. Never modify an existing `ScenarioVersion` row.
+- `DELETE /scenarios/{id}` archives, it does not hard-delete — cascading deletes would destroy
+  `SimulationRun`/`ScenarioVersion` history. There is no hard-delete endpoint.
+- A `SimulationRun` created via the API is metadata only (`status=pending`). Never fabricate a completed run,
+  timestep results, or risk output — the simulation engine doesn't exist yet.
+- Client-side form validation (`frontend/src/features/scenario-builder/validation.ts`) is a UX convenience
+  only — the server is always authoritative; don't skip a server-side check because the client already has one.
+- Adding a disaster-specific config field: update both `backend/app/schemas/scenario_config.py` (validation)
+  and `frontend/src/features/scenario-builder/disasterFieldSpecs.ts` (form rendering) — they're intentionally
+  parallel registries, not generated from each other.

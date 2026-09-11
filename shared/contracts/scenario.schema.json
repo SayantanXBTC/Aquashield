@@ -32,7 +32,7 @@
         }
       ]
     },
-    "status": { "type": "string", "enum": ["draft", "active", "archived"] },
+    "status": { "type": "string", "enum": ["draft", "ready", "archived"] },
     "created_by": { "type": ["string", "null"] },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" }

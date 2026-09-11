@@ -55,3 +55,23 @@ def db_session(engine):
     session.close()
     outer_transaction.rollback()
     connection.close()
+
+
+@pytest.fixture()
+def client(db_session):
+    """A TestClient whose requests all run inside db_session's transaction,
+    so API-level tests get the same per-test isolation as db_session — every
+    change, including what a request's own get_db-scoped session commits, is
+    rolled back after the test."""
+    from fastapi.testclient import TestClient
+
+    from app.db.session import get_db
+    from app.main import app
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.pop(get_db, None)

@@ -1,19 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { App } from "./App";
 
-// R3F's <Canvas> needs a real WebGL context, unavailable in jsdom — mocked
-// out here since this is a smoke test of the Vitest/RTL pipeline, not the
-// 3D subsystem (which has no application scene to test yet).
-vi.mock("@/three/core/BootstrapCanvas", () => ({
-  BootstrapCanvas: () => null,
-}));
-
 describe("App", () => {
-  it("renders the bootstrap heading", () => {
+  it("renders the app shell heading and the scenario list", async () => {
     render(<App />);
-    expect(
-      screen.getByRole("heading", { name: /aquashield — bootstrap/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^aquashield$/i, level: 1 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /scenarios/i })).toBeInTheDocument();
   });
 });

@@ -58,6 +58,9 @@ python -m app.db.seed
 
 Full detail — schema, migrations gotchas, seed data, what belongs in Postgres vs. elsewhere: [docs/development/database.md](database.md).
 
+Once the database is seeded, `GET http://127.0.0.1:8000/scenarios` returns the 3 demo scenarios — full
+scenario API/lifecycle detail: [docs/development/scenarios.md](scenarios.md).
+
 ## 7. Running the Frontend
 
 ```
