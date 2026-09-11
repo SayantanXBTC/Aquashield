@@ -673,3 +673,21 @@ corrected against a specific reported symptom (documented per-symptom in
 docs/development/command-center.md's "Prompt 8.1 — Visual correction" table) — the scene graph's shape
 (`SceneRoot`'s composition, the disaster registry/adapter seam) is unchanged. No shared contract, routing,
 or backend change.
+
+### 28b. Prompt 9 — Timeline Playback Engine
+
+`feature/timeline-playback` extends `useCommandCenterSession`'s existing single-frame selector
+(`frames`/`frameIndex`/`setFrameIndex`/`currentFrame`) into full client-side playback — `isPlaying`,
+`playbackSpeed`, `play()`, `pause()`, `togglePlay()`, `setPlaybackSpeed()` — driven by a `setInterval` that
+advances `frameIndex` over the `TimelineFrame[]` already fetched from Prompt 7's timeline endpoint. No
+backend, WebSocket, or shared-contract change: this is 100% client-side pacing over data the app already
+has. The interval's pacing (600ms/1x, scaled by the speed multiplier) is a documented UI convenience, not a
+physical or simulated timing value — `TimelineFrame` carries no duration/fps field to derive one from.
+Playback stops (never loops) at the last frame, and is force-paused whenever the active scenario/run changes
+or the timeline reloads/empties, so a stale interval can never advance a `frameIndex` belonging to a
+different run. A new `PlaybackControls` component (Play/Pause, a 0.5x–4x speed selector, the existing scrub
+slider) integrates into `SimulationStatusPanel`'s existing frame area — no second slider, no new 3D/animation
+system; the scene keeps reacting through the existing `toVisualState`/registry seam one frame at a time.
+Full detail, including the interval/auto-pause state machine and its test coverage
+(`useCommandCenterSession.test.ts` with Vitest fake timers), in docs/development/command-center.md's
+"Prompt 9 — Timeline Playback Engine" section.

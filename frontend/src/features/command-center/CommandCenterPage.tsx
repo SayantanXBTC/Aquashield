@@ -60,6 +60,10 @@ export function CommandCenterPage() {
               frameIndex={session.frameIndex}
               onFrameIndexChange={session.setFrameIndex}
               currentFrameLabel={currentFrameLabel}
+              isPlaying={session.isPlaying}
+              onTogglePlay={session.togglePlay}
+              playbackSpeed={session.playbackSpeed}
+              onPlaybackSpeedChange={session.setPlaybackSpeed}
             />
           </div>
         </div>

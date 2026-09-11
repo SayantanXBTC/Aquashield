@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("@/features/scenario-builder/api/scenarioApi", () => ({
@@ -102,6 +102,10 @@ describe("CommandCenterPage", () => {
     vi.mocked(simulationApi.getTimeline).mockReset();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("loads the scenario, its pending run, and renders the viewport", async () => {
     mockScenariosResolved();
     render(<CommandCenterPage />);
@@ -195,5 +199,84 @@ describe("CommandCenterPage", () => {
     // says what's actually happening (Prompt 8.1 §16).
     expect(await screen.findByText(/awaiting playback data/i)).toBeInTheDocument();
     expect(screen.queryByText(/^timeline data unavailable$/i)).not.toBeInTheDocument();
+  });
+
+  function mockMultiFrameTimeline() {
+    vi.mocked(simulationApi.getTimeline).mockResolvedValue({
+      simulation_run_id: "run1",
+      frame_count: 3,
+      frames: [0, 1, 2].map((timestep) => ({
+        simulation_run_id: "run1",
+        timestep,
+        state: {
+          simulation_run_id: "run1",
+          timestep,
+          disaster_type: "flood",
+          environmental_state: {},
+          hazard_state: { water_level_m: timestep, affected_radius_km: 1 },
+          affected_area: null,
+          risk_state: {},
+          infrastructure_impacts: [],
+          metadata: {},
+        },
+        is_key_event: false,
+      })),
+    });
+  }
+
+  it("clicking Play/Pause toggles the button's accessible state (Prompt 9 playback)", async () => {
+    mockScenariosResolved();
+    const completedRun = { ...PENDING_RUN, status: "completed" as const, model_identifier: "flood-demo-v1" };
+    vi.mocked(simulationApi.executeRun).mockResolvedValue(completedRun);
+    mockMultiFrameTimeline();
+
+    // Deliberately real timers here: these two assertions are about
+    // synchronous click-driven state (aria-pressed toggling, scrub pausing),
+    // not interval-driven frame advancement (covered with fake timers in
+    // useCommandCenterSession.test.ts) — combining fake timers with this
+    // hook's startTransition-driven loading effects makes RTL's polling
+    // helpers (findBy*/waitFor) hang.
+    const user = userEvent.setup();
+    render(<CommandCenterPage />);
+
+    const executeButton = await screen.findByRole("button", { name: /^execute$/i });
+    await waitFor(() => expect(executeButton).toBeEnabled());
+    await user.click(executeButton);
+
+    const playButton = await screen.findByRole("button", { name: /play playback/i });
+    expect(playButton).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(playButton);
+    const pauseButton = await screen.findByRole("button", { name: /pause playback/i });
+    expect(pauseButton).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(pauseButton);
+    expect(await screen.findByRole("button", { name: /play playback/i })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("dragging the scrub slider while playing pauses playback", async () => {
+    mockScenariosResolved();
+    const completedRun = { ...PENDING_RUN, status: "completed" as const, model_identifier: "flood-demo-v1" };
+    vi.mocked(simulationApi.executeRun).mockResolvedValue(completedRun);
+    mockMultiFrameTimeline();
+
+    const user = userEvent.setup();
+    render(<CommandCenterPage />);
+
+    const executeButton = await screen.findByRole("button", { name: /^execute$/i });
+    await waitFor(() => expect(executeButton).toBeEnabled());
+    await user.click(executeButton);
+
+    const playButton = await screen.findByRole("button", { name: /play playback/i });
+    await user.click(playButton);
+    expect(await screen.findByRole("button", { name: /pause playback/i })).toBeInTheDocument();
+
+    const slider = screen.getByRole("slider", { name: /timeline frame/i });
+    fireEvent.change(slider, { target: { value: "2" } });
+
+    expect(await screen.findByRole("button", { name: /play playback/i })).toBeInTheDocument();
   });
 });
