@@ -367,3 +367,113 @@ export interface WebSocketEvent {
   simulation_run_id?: string | null;
   payload: Record<string, unknown>;
 }
+
+// --- Geospatial / hazard-footprint / exposure / impact (Prompt 10) --------
+// New contracts — nothing here existed before this phase. Added to
+// shared/types/index.ts per CLAUDE.md; backend/app/schemas/geospatial.py is
+// the matching Pydantic mirror.
+
+export type GeospatialDataQuality = "available" | "partial" | "unavailable" | "stale" | "unknown";
+
+export type GeospatialDataCoverage = "local" | "regional" | "global";
+
+export type GeographicDatasetType = "coastline" | "land_polygon" | "admin_boundary" | "other";
+
+/** A GeoJSON geometry object — deliberately untyped beyond `type`/`coordinates`
+ * since a hazard footprint or dataset feature may be a Point, LineString,
+ * Polygon, or Multi* depending on the disaster/source (never forced into one
+ * shape). */
+export interface GeoJSONGeometry {
+  type: string;
+  coordinates: unknown;
+}
+
+/** Real provenance for a piece of geographic/hazard data — who produced it,
+ * where from, under what license/version. Carried on every dataset/footprint/
+ * exposure/impact response, never only documented in prose. */
+export interface DataProvenance {
+  source_provider: string;
+  source_url: string;
+  license?: string | null;
+  version?: string | null;
+  data_quality: GeospatialDataQuality;
+  coverage?: GeospatialDataCoverage | null;
+}
+
+export interface GeographicDataset {
+  id: string;
+  name: string;
+  dataset_type: GeographicDatasetType;
+  source_provider: string;
+  source_url: string;
+  license: string;
+  version: string;
+  resolution?: string | null;
+  units?: string | null;
+  data_quality: GeospatialDataQuality;
+  coverage: GeospatialDataCoverage;
+  feature_count: number;
+  provenance: Record<string, unknown>;
+}
+
+export interface GeographicFeature {
+  id: string;
+  dataset_id: string;
+  feature_type: string;
+  geometry: GeoJSONGeometry;
+  properties: Record<string, unknown>;
+}
+
+/** Repackages one TimelineFrame's hazard_state/affected_area into a common
+ * shape — never a second physics computation (simulation/core/
+ * hazard_footprint.py builds this server-side; the frontend never derives
+ * one itself). */
+export interface HazardFootprint {
+  disaster_type: DisasterType;
+  simulation_run_id: string;
+  frame_index: number;
+  geometry: GeoJSONGeometry | null;
+  geometry_type?: string | null;
+  intensity: number | null;
+  intensity_units: string;
+  model_id: string;
+  model_version: string;
+  is_demo_model: true;
+}
+
+/** "within_hazard_footprint" (geometry intersects) or "potentially_exposed"
+ * (within a buffer distance but not intersecting) — never "damaged" /
+ * "destroyed" / "will be affected" (CLAUDE.md wording rule). */
+export type ExposureStatus = "within_hazard_footprint" | "potentially_exposed";
+
+export interface ExposureResult {
+  asset_id: string;
+  asset_name: string;
+  asset_type: string;
+  criticality: string;
+  status: ExposureStatus;
+  distance_km?: number | null;
+}
+
+/** AQUASHIELD's own UI severity band — not an official standard (see
+ * backend/app/services/impact_severity.py's documented thresholds). */
+export type ImpactSeverityBand = "low" | "moderate" | "high" | "critical";
+
+export interface ImpactFrame {
+  simulation_run_id: string;
+  frame_index: number | null;
+  disaster_type: DisasterType | null;
+  /** "unavailable" when the run has no executed frames yet — every other
+   * field is then a safe empty default, never fabricated. */
+  data_quality: GeospatialDataQuality;
+  severity_band: ImpactSeverityBand | null;
+  exposed_asset_count: number;
+  exposed_counts_by_type: Record<string, number>;
+  exposed_counts_by_criticality: Record<string, number>;
+  hazard_footprint: HazardFootprint | null;
+  exposure_results: ExposureResult[];
+  vulnerability_assessment_ids: string[];
+  risk_assessment_id: string | null;
+  is_demo_model: true;
+  cached: boolean;
+}

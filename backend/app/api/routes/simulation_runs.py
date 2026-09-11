@@ -1,17 +1,27 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db.models.simulation_run import SimulationRun
 from app.db.session import get_db
+from app.schemas.geospatial import (
+    ExposureResponse,
+    ExposureResultOut,
+    HazardFootprintListResponse,
+    HazardFootprintOut,
+    ImpactFrameOut,
+)
 from app.schemas.simulation import (
     SimulationArtifactOut,
     SimulationRunDetail,
     TimelineFrameOut,
     TimelineResponse,
 )
+from app.services.exposure_service import ExposureService
+from app.services.hazard_footprint_service import HazardFootprintService
+from app.services.impact_service import ImpactFrameNotFoundError, ImpactService
 from app.services.simulation_service import SimulationService
 
 router = APIRouter(prefix="/simulation-runs", tags=["simulation"])
@@ -21,7 +31,19 @@ def get_simulation_service(db: Annotated[Session, Depends(get_db)]) -> Simulatio
     return SimulationService(db)
 
 
+def get_hazard_footprint_service(
+    simulation_service: Annotated[SimulationService, Depends(get_simulation_service)],
+) -> HazardFootprintService:
+    return HazardFootprintService(simulation_service)
+
+
+def get_impact_service(db: Annotated[Session, Depends(get_db)]) -> ImpactService:
+    return ImpactService(db)
+
+
 SimulationServiceDep = Annotated[SimulationService, Depends(get_simulation_service)]
+HazardFootprintServiceDep = Annotated[HazardFootprintService, Depends(get_hazard_footprint_service)]
+ImpactServiceDep = Annotated[ImpactService, Depends(get_impact_service)]
 
 
 def _run_detail(service: SimulationService, run: SimulationRun) -> SimulationRunDetail:
@@ -67,3 +89,73 @@ def get_timeline(run_id: UUID, service: SimulationServiceDep) -> TimelineRespons
         frame_count=len(frames),
         frames=[TimelineFrameOut(**frame) for frame in frames],
     )
+
+
+@router.get("/{run_id}/hazard-footprints", response_model=HazardFootprintListResponse)
+def get_hazard_footprints(
+    run_id: UUID, service: HazardFootprintServiceDep
+) -> HazardFootprintListResponse:
+    """One HazardFootprint per persisted TimelineFrame — a repackaging of
+    hazard_state/affected_area (simulation/core/hazard_footprint.py), never a
+    new physics computation. Empty list before the run is executed."""
+    footprints = service.get_footprints(run_id)
+    return HazardFootprintListResponse(
+        simulation_run_id=run_id,
+        frame_count=len(footprints),
+        footprints=[HazardFootprintOut(**f.to_dict()) for f in footprints],
+    )
+
+
+@router.get("/{run_id}/exposure", response_model=ExposureResponse)
+def get_exposure(
+    run_id: UUID,
+    hazard_footprints: HazardFootprintServiceDep,
+    db: Annotated[Session, Depends(get_db)],
+    frame_index: Annotated[int | None, Query(description="Defaults to the latest frame")] = None,
+) -> ExposureResponse:
+    """InfrastructureAsset rows intersecting or near the hazard footprint at
+    `frame_index` (default: latest). "unavailable" data_quality (not a 404)
+    when the run has no executed frames yet."""
+    footprints = hazard_footprints.get_footprints(run_id)
+    if not footprints:
+        return ExposureResponse(
+            simulation_run_id=run_id, frame_index=frame_index, data_quality="unavailable", exposure_results=[]
+        )
+    if frame_index is None:
+        footprint = footprints[-1]
+    else:
+        matches = [f for f in footprints if f.frame_index == frame_index]
+        if not matches:
+            raise HTTPException(status_code=404, detail=f"No frame_index={frame_index} for run {run_id}")
+        footprint = matches[0]
+
+    if footprint.geometry is None:
+        return ExposureResponse(
+            simulation_run_id=run_id,
+            frame_index=footprint.frame_index,
+            data_quality="partial",
+            exposure_results=[],
+        )
+
+    results = ExposureService(db).compute_exposure(footprint.geometry)
+    return ExposureResponse(
+        simulation_run_id=run_id,
+        frame_index=footprint.frame_index,
+        data_quality="available",
+        exposure_results=[ExposureResultOut(**vars(r)) for r in results],
+    )
+
+
+@router.get("/{run_id}/impact", response_model=ImpactFrameOut)
+def get_impact(run_id: UUID, service: ImpactServiceDep) -> ImpactFrameOut:
+    """Impact summary (exposure + rule-based vulnerability, aggregated) for
+    the latest available frame."""
+    return ImpactFrameOut(**service.get_impact(run_id))
+
+
+@router.get("/{run_id}/impact/frames/{frame_index}", response_model=ImpactFrameOut)
+def get_impact_for_frame(run_id: UUID, frame_index: int, service: ImpactServiceDep) -> ImpactFrameOut:
+    try:
+        return ImpactFrameOut(**service.get_impact(run_id, frame_index))
+    except ImpactFrameNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
