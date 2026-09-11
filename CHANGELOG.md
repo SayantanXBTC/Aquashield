@@ -1,5 +1,144 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-11 — Scenario Management Foundation
+
+**Added/Changed:**
+- Scenario API: `POST/GET /scenarios`, `GET/PATCH/DELETE /scenarios/{id}`, `POST /scenarios/{id}/duplicate`,
+  `GET/POST /scenarios/{id}/versions`, `GET/POST /scenarios/{id}/runs` (`backend/app/api/routes/scenarios.py`).
+- Layered backend: `app/schemas/scenario.py` (API contracts) + `app/schemas/scenario_config.py`
+  (disaster-specific validation) → `app/services/scenario_service.py` (domain logic) →
+  `app/repositories/{scenario,simulation_run}_repository.py` (persistence) → PostgreSQL/PostGIS.
+- Scenario lifecycle (`draft`/`ready`/`archived` — renamed from `draft`/`active`/`archived`, migration
+  `32b3edf8f402`), immutable scenario versioning, duplication, archiving-not-hard-deleting, and pending
+  SimulationRun metadata creation (no physics, no fake results).
+- Pagination, filtering (disaster_type, status, search), and whitelisted sorting on `GET /scenarios`.
+- New shared contract: `SimulationRun` (JSON Schema + Python + TypeScript mirrors).
+- Scenario Builder frontend (`frontend/src/features/scenario-builder/`): dynamic disaster-specific form,
+  client-side validation, typed API client, Scenario List/Detail pages, version history, simulation-run
+  creation UI — wired into `App.tsx` as the app's main content.
+- Frontend now imports `shared/types/index.ts` directly via a `@shared/*` Vite/TS alias.
+- 30 backend tests (scenario API + existing DB suite) and 12 frontend tests, all passing against a real
+  PostgreSQL/PostGIS instance.
+- `docs/development/scenarios.md`; updates to README.md, CLAUDE.md, architecture.md, docs/development/setup.md.
+
+**Why:**
+- This is the first genuinely functional vertical slice — proves the full stack (React → FastAPI → service →
+  repository → PostgreSQL/PostGIS) works end-to-end before any simulation physics exists to build on top of it.
+- Strict route/service/repository layering now, before more features arrive, so the pattern is established
+  rather than retrofitted.
+- Scenario configuration is versioned (never overwritten) specifically to support future replay/comparison
+  ("what happens if we change X") — architecture.md §11/§7.
+
+**Files/Modules:**
+- `backend/app/api/routes/scenarios.py`, `backend/app/schemas/{scenario,scenario_config}.py`,
+  `backend/app/services/scenario_service.py`, `backend/app/repositories/{scenario,simulation_run}_repository.py`,
+  `backend/app/db/geo.py`, `backend/app/main.py` (exception handlers + router).
+- `backend/alembic/versions/32b3edf8f402_*.py` (ScenarioStatus rename), `backend/app/db/models/enums.py`,
+  `backend/app/db/seed.py`.
+- `backend/tests/api/test_scenarios.py`, `backend/tests/conftest.py` (added `client` fixture).
+- `shared/contracts/simulation_run.schema.json`, `shared/schemas/python/contracts.py`, `shared/types/index.ts`,
+  `shared/constants/enums.json`.
+- `frontend/src/features/scenario-builder/**`, `frontend/src/app/App.tsx`, `frontend/vite.config.ts`,
+  `frontend/tsconfig.json`.
+- `docs/development/scenarios.md`, architecture.md, CLAUDE.md, README.md, docs/development/setup.md.
+
+**Future Context:**
+- No simulation physics, AI agents, or RAG — `SimulationRun` creation is metadata-only, exactly as scoped.
+- No router installed on the frontend yet — the Scenario Builder feature uses local view-state switching;
+  add a router when the app has enough distinct views to need URL-addressable routes.
+- The next phase (simulation engine) consumes `SimulationRun` + `ScenarioVersion.scenario_config` and writes
+  `SimulationArtifact` rows — no schema changes anticipated for that integration.
+
+### 2026-09-11 — Database & Shared Contract Foundation
+
+**Added/Changed:**
+- PostgreSQL/PostGIS foundation (`infrastructure/docker-compose.yml`, `backend/app/db/`).
+- SQLAlchemy 2.0 models for all 10 core entities: Scenario, ScenarioVersion, SimulationRun, RiskAssessment,
+  VulnerabilityAssessment, ResponseRecommendation, IncidentActionPlan, InfrastructureAsset,
+  SimulationArtifact, AuditEvent.
+- Alembic wired to SQLAlchemy metadata (`backend/alembic/`), with GeoAlchemy2's `alembic_helpers` for correct
+  PostGIS type rendering. One migration (`foundational_schema`) creates the full schema.
+- `backend/app/db/seed.py` — synthetic dev/demo seed data (3 scenarios across flood/tsunami/oil_spill, versions,
+  runs, 3 infrastructure assets with Point/LineString/Polygon geometry, risk assessments, a recommendation).
+- `GET /health/db` — minimal FastAPI → SQLAlchemy → PostgreSQL connectivity check.
+- 13 shared contracts: canonical JSON Schema (`shared/contracts/*.schema.json`) + hand-maintained Pydantic v2
+  (`shared/schemas/python/contracts.py`) and TypeScript (`shared/types/index.ts`) mirrors, plus
+  `shared/constants/enums.json` as the canonical enum-value list.
+- `docs/development/database.md`; updates to README.md, CLAUDE.md, architecture.md (ADR-003, §14a, §25),
+  docs/development/setup.md.
+- 12 new backend tests (`backend/tests/db/`) covering config, connection, migrations, model CRUD/relationships,
+  PostGIS spatial storage/query, and seed data — all require a real PostgreSQL/PostGIS instance and skip
+  cleanly (not silently on SQLite) when one isn't reachable.
+
+**Why:**
+- Application state (scenarios, runs, risk/vulnerability results, recommendations, IAPs, infrastructure
+  assets) needs real transactions, foreign keys, and constraints — a relational database, not ad hoc JSON files.
+- PostGIS gives first-class geometry/geography types and GIST spatial indexing for infrastructure assets and
+  scenario locations in the same database, avoiding a second geospatial service.
+- Shared contracts prevent frontend, backend, and future agents/RAG code from independently inventing
+  incompatible shapes for the same concept (Scenario, SimulationState, etc.) — see architecture.md §22.
+
+**Files/Modules:**
+- `backend/app/db/` (base.py, session.py, init_db.py, models/, seed.py), `backend/alembic/`,
+  `backend/app/api/routes/health.py` (added `/health/db`), `backend/tests/db/`, `backend/tests/conftest.py`.
+- `infrastructure/docker-compose.yml`, root `requirements.txt` (sqlalchemy, alembic, geoalchemy2, psycopg).
+- `shared/contracts/*.schema.json`, `shared/schemas/python/contracts.py`, `shared/types/index.ts`,
+  `shared/constants/enums.json`.
+- `docs/development/database.md`, `docs/development/setup.md`, `README.md`, `CLAUDE.md`, `architecture.md`.
+
+**Future Context:**
+- Docker was unavailable in the environment this was built in; `infrastructure/docker-compose.yml` is written
+  and documented but was not itself run. All verification (migrations up/down/up, spatial queries, seed data,
+  `/health/db`, the full pytest suite) ran against a local Homebrew PostgreSQL 18 + PostGIS 3.6 instance
+  instead — same engine/extension. Confirm `docker compose -f infrastructure/docker-compose.yml up -d` works
+  in your environment before relying on it.
+- No CRUD API beyond `/health/db` — intentionally out of scope for this phase.
+- No simulation engine, AI agents, or RAG ingestion writes to these tables yet; they're the target of future
+  prompts, not this one.
+- Two documented GeoAlchemy2/Alembic gotchas future migrations must repeat correctly: duplicate spatial-index
+  creation, and Postgres ENUM types not being dropped by `drop_table` — see docs/development/database.md.
+
+### 2026-09-11 — TECHNOLOGY BOOTSTRAP
+
+**Added/Changed:**
+- Bootstrapped React + TypeScript + Vite frontend (`frontend/`), strict TypeScript, Tailwind CSS v4.
+- Added Three.js / React Three Fiber / Drei foundation — a minimal `BootstrapCanvas` verifies the render
+  pipeline; not an AQUASHIELD scene.
+- Added Anime.js foundation — a minimal `useFadeIn` micro-interaction hook verifies the integration.
+- Added ESLint (flat config) + Prettier; `npm run lint` and `npm run build` pass clean.
+- Added Vitest + React Testing Library; one smoke test passes.
+- Bootstrapped FastAPI backend (`backend/`) with `GET /health` and a `/ws` connectivity-check WebSocket.
+- Configured dev-only CORS on the backend for the Vite dev origin.
+- Added Python scientific/geospatial dependencies (NumPy, SciPy, xarray, Shapely, GeoPandas) — import-verified.
+- Added LangGraph + langchain-core, ChromaDB — import-verified, not implemented.
+- Added pytest backend test for `/health`.
+- Added `frontend/.env.example` and `backend/.env.example`; documented env vars in docs/development/setup.md.
+- Added docs/development/setup.md; updated root README.md with a Development Setup section.
+- Updated architecture.md (§23 Frontend Framework Decision, §24 Technology Bootstrap) and CLAUDE.md (§23
+  Bootstrap Status).
+
+**Why:**
+- A runnable skeleton (frontend serving, backend serving, frontend reaching backend over REST and WebSocket)
+  is required before any real feature work can build on top of it.
+- `react`/`react-dom` pinned to `19.2.8` (not `19.3.0`) because `@react-three/fiber@9.x` requires `react <19.3`.
+- `typescript` pinned to `5.9.3` (not the new `7.0.2` Go-based compiler line) because `typescript-eslint@8.70.0`
+  requires `typescript <6.1.0`.
+
+**Files/Modules:**
+- frontend/ (package.json, vite.config.ts, tsconfig.json, index.html, eslint.config.js, .prettierrc.json,
+  src/main.tsx, src/app/App.tsx(+test), src/api/health.ts, src/hooks/useHealthCheck.ts,
+  src/three/core/BootstrapCanvas.tsx, src/animations/micro-interactions/useFadeIn.ts, src/styles/index.css,
+  src/test/setup.ts, src/vite-env.d.ts, .env.example)
+- backend/ (app/main.py, app/config/settings.py, app/api/routes/health.py,
+  app/api/websocket/connectivity.py, tests/test_health.py, .env.example)
+- requirements.txt (pinned), architecture.md, CLAUDE.md, README.md, docs/development/setup.md.
+
+**Future Context:**
+- No disaster simulation, AI agents, RAG pipeline, or production 3D environment implemented yet.
+- `.venv/` is a single shared Python environment for backend/simulation/agents/rag (ADR-002) — created at repo
+  root, not inside `backend/`.
+- Branch: `feature/project-bootstrap`, off `develop`.
+
 ### 2026-09-11 — GIT FOUNDATION
 
 **Added/Changed:**

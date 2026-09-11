@@ -1,13 +1,35 @@
 # AQUASHIELD — Python dependencies (backend + simulation + agents + rag)
 # One shared manifest across all Python domains — see architecture.md ADR-002.
-# No packages pinned yet; each is added with a documented reason when first used.
+# Versions pinned to what was installed and verified (bootstrap phase, 2026-09-11).
 
 # --- backend (FastAPI, WebSockets, Pydantic) ---
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+pydantic==2.13.5
+pydantic-settings==2.15.0
 
-# --- simulation (NumPy, SciPy, xarray, GeoPandas, Shapely, Rasterio) ---
+# --- database (PostgreSQL/PostGIS via SQLAlchemy + Alembic) ---
+sqlalchemy==2.0.52
+alembic==1.19.2
+geoalchemy2==0.20.0
+psycopg[binary]==3.3.5
 
-# --- agents (LangGraph) ---
+# --- simulation (NumPy, SciPy, xarray, GeoPandas, Shapely) ---
+# Rasterio: PLANNED / INSTALL WHEN REQUIRED — not needed by the bootstrap.
+numpy==2.5.3
+scipy==1.18.1
+xarray==2026.7.0
+shapely==2.1.2
+geopandas==1.1.4
 
-# --- rag (ChromaDB, embeddings) ---
+# --- agents (LangGraph) — INSTALLED, NOT IMPLEMENTED ---
+langgraph==1.2.11
+langchain-core==1.6.2
 
-# --- testing (Python test runner) ---
+# --- rag (ChromaDB) — INSTALLED, NOT IMPLEMENTED ---
+chromadb==1.5.9
+
+# --- testing ---
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx==0.28.1

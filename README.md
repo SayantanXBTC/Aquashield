@@ -40,6 +40,7 @@ rules.
 
 - **Frontend:** React, TypeScript, Vite, React Three Fiber, Three.js, Tailwind CSS, Anime.js
 - **Backend:** Python, FastAPI, WebSockets, Pydantic
+- **Database:** PostgreSQL, PostGIS, SQLAlchemy 2.0, Alembic, GeoAlchemy2
 - **Simulation:** NumPy, SciPy, xarray, GeoPandas, Shapely, Rasterio
 - **AI:** LangGraph (LLM provider to be decided)
 - **RAG:** ChromaDB
@@ -47,7 +48,40 @@ rules.
 
 ## Development status
 
-Architecture and repository structure established. No application features implemented yet.
+The scenario system is live end-to-end: create, save, view, edit (versioned), duplicate, archive a disaster
+scenario, and create simulation-run metadata — through both the API and a working Scenario Builder UI. See
+[docs/development/scenarios.md](docs/development/scenarios.md). No simulation physics, AI agents, or RAG yet —
+see architecture.md's Technology Bootstrap and Database & Shared Contract Foundation sections for exactly
+what's installed vs. implemented vs. planned.
+
+## Development Setup
+
+**Frontend:**
+
+```
+cd frontend
+npm install
+npm run dev       # http://localhost:5173
+npm run build     # type-check + production build
+npm run test       # Vitest
+npm run lint       # ESLint
+```
+
+**Backend:**
+
+```
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+docker compose -f infrastructure/docker-compose.yml up -d   # PostgreSQL + PostGIS
+cd backend
+alembic upgrade head && python -m app.db.seed
+uvicorn app.main:app --reload   # http://127.0.0.1:8000
+pytest
+```
+
+Full setup, environment variables, and troubleshooting: [docs/development/setup.md](docs/development/setup.md).
+Database schema, migrations, seed data: [docs/development/database.md](docs/development/database.md).
+Scenario lifecycle, API, and frontend architecture: [docs/development/scenarios.md](docs/development/scenarios.md).
 
 ## Repository organization
 

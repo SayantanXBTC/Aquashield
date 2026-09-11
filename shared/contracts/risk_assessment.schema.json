@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquashield.dev/contracts/risk_assessment.schema.json",
+  "title": "RiskAssessment",
+  "description": "An application-level risk output for one SimulationRun. Not a claim of scientifically validated prediction (CLAUDE.md §7). Mirrors backend/app/db/models/risk_assessment.py.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "simulation_run_id": { "type": "string", "format": "uuid" },
+    "category": {
+      "type": "string",
+      "enum": ["overall", "population", "infrastructure", "environmental", "economic", "evacuation", "accessibility"]
+    },
+    "level": { "type": "string", "enum": ["low", "moderate", "high", "critical"] },
+    "score": { "type": ["number", "null"] },
+    "explanation": { "type": ["string", "null"] },
+    "timestep": { "type": ["integer", "null"] },
+    "metadata": { "type": "object" },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["id", "simulation_run_id", "category", "level"],
+  "additionalProperties": false
+}

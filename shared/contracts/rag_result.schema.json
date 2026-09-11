@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquashield.dev/contracts/rag_result.schema.json",
+  "title": "RAGResult",
+  "description": "One retrieved source for a RAGQuery. The system must never fabricate what a source says (CLAUDE.md §11). Not implemented yet.",
+  "type": "object",
+  "properties": {
+    "source_id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "source_type": { "type": ["string", "null"] },
+    "publisher": { "type": ["string", "null"] },
+    "publication_date": { "type": ["string", "null"], "format": "date" },
+    "relevance_score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "excerpt": {
+      "description": "A verbatim excerpt or a reference to one — never a paraphrase presented as a quote.",
+      "type": ["string", "null"]
+    },
+    "metadata": { "type": "object" }
+  },
+  "required": ["source_id", "title"],
+  "additionalProperties": false
+}

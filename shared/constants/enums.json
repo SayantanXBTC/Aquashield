@@ -1,0 +1,43 @@
+{
+  "$comment": "Canonical string-literal enums shared across domains. The JSON Schemas in shared/contracts/, the Python enums in backend/app/db/models/enums.py, and any TypeScript union types in shared/types/index.ts must all match these lists — this file is the source of truth for what the values ARE; each language's file is the source of truth for how they're expressed in that language. No code generation wires these together yet (see docs/development/database.md) — keep them in sync by hand and treat a mismatch as a bug.",
+
+  "DisasterType": [
+    "flood",
+    "flash_flood",
+    "coastal_flood",
+    "storm_surge",
+    "cyclone",
+    "tsunami",
+    "oil_spill",
+    "chemical_pollution",
+    "search_rescue"
+  ],
+  "ScenarioStatus": ["draft", "ready", "archived"],
+  "SimulationStatus": ["pending", "running", "completed", "failed", "cancelled"],
+  "RiskLevel": ["low", "moderate", "high", "critical"],
+  "RiskCategory": [
+    "overall",
+    "population",
+    "infrastructure",
+    "environmental",
+    "economic",
+    "evacuation",
+    "accessibility"
+  ],
+  "VulnerabilityLevel": ["low", "moderate", "high", "critical"],
+  "RecommendationPriority": ["P0", "P1", "P2", "P3"],
+  "RecommendationStatus": ["proposed", "accepted", "rejected", "implemented"],
+  "RecommendationSource": ["rule_based", "simulation_analysis", "ai_agent", "human_operator"],
+  "AgentResponseStatus": ["success", "partial", "error"],
+  "WebSocketEventType": [
+    "simulation_started",
+    "simulation_frame",
+    "simulation_paused",
+    "simulation_completed",
+    "simulation_error",
+    "risk_updated",
+    "alert_created",
+    "agent_update",
+    "recommendation_created"
+  ]
+}

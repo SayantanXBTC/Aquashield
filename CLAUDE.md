@@ -595,3 +595,71 @@ in architecture.md §19–22.
 - Rewrite shared/pushed history without permission.
 - Commit secrets, `.env`, credentials, or huge datasets.
 - Make silent architectural changes (see §20).
+
+## 23. Bootstrap Status
+
+Full detail (verification results, pinned-version constraints): architecture.md §24 Technology Bootstrap.
+
+| Piece | Status |
+|---|---|
+| Frontend — React + TypeScript + Vite | BOOTSTRAPPED |
+| 3D — Three.js + React Three Fiber + Drei | dependency foundation only |
+| Animation — Anime.js | dependency foundation only |
+| Styling — Tailwind CSS | BOOTSTRAPPED |
+| Backend — FastAPI + Pydantic + Uvicorn + WebSockets | BOOTSTRAPPED |
+| Database — PostgreSQL + PostGIS + SQLAlchemy 2.0 + Alembic + GeoAlchemy2 | BOOTSTRAPPED (schema, migrations, seed data — no CRUD API yet) |
+| Shared contracts — JSON Schema + Pydantic + TypeScript mirrors | BOOTSTRAPPED (13 contracts, no business logic) |
+| Scientific — NumPy + SciPy + xarray | dependency foundation only |
+| Geospatial — Shapely + GeoPandas | dependency foundation only |
+| AI — LangGraph | dependency foundation only |
+| RAG — ChromaDB | dependency foundation only |
+| Testing — Vitest / pytest | BOOTSTRAPPED |
+| Testing — Playwright | PLANNED |
+| Deck.gl | PLANNED / OPTIONAL |
+| Rasterio | PLANNED |
+
+"Dependency foundation only" means the package is installed and import-verified, with no AQUASHIELD logic
+built on it — do not treat its presence in `node_modules`/the venv as a green light to start implementing the
+feature it will eventually power without an explicit instruction to do so.
+
+## 24. Database Rules
+
+Full detail: docs/development/database.md. Architecture/ADR: architecture.md ADR-003, §14a, §25.
+
+- Never modify the database schema outside an Alembic migration. Model changes without a matching migration
+  are incomplete work.
+- Never store large scientific/simulation data (grids, particle trajectories, rasters, full timestep arrays)
+  in a PostgreSQL column — only metadata and a storage reference (`SimulationArtifact`). See §14a.
+- ChromaDB is not replaced by PostgreSQL — they serve different purposes (application state vs. vector/RAG
+  knowledge) and both stay.
+- Database credentials come only from environment configuration (`backend/.env`, never committed) — same rule
+  as every other secret (§18).
+- Adding a database dependency (SQLAlchemy, Alembic, GeoAlchemy2, a driver) goes in the shared root
+  `requirements.txt`, not a new manifest (ADR-002 still applies).
+- Backend `tests/db/*` require a real PostgreSQL/PostGIS instance and are marked to skip (not silently run
+  against SQLite) when one isn't reachable — don't "fix" a skip by swapping in SQLite.
+- Adding a new PostGIS geometry/geography column: read docs/development/database.md's note on the
+  GeoAlchemy2/Alembic duplicate-spatial-index gotcha before generating the migration. Adding a new
+  `str, enum.Enum` column: remember `downgrade()` must explicitly drop the Postgres ENUM type it creates.
+
+## 25. Scenario System Rules
+
+Full detail: docs/development/scenarios.md. Architecture: architecture.md §26.
+
+- Layering is enforced, not a suggestion: routes (`app/api/routes/`) contain no business logic — they call a
+  service; services (`app/services/`) contain no raw SQLAlchemy query-building — they call a repository;
+  repositories (`app/repositories/`) contain no domain decisions (status transitions, "should this create a
+  new version") — that belongs in the service. A change that blurs this is incomplete, not just untidy.
+  Extend this same layering when adding the next domain (simulation runs' actual execution, risk assessments,
+  etc.) rather than inventing a different pattern per feature.
+- `scenario_config` changes are versioned (a new immutable `ScenarioVersion`); every other Scenario field
+  (name, description, location, status) updates in place. Never modify an existing `ScenarioVersion` row.
+- `DELETE /scenarios/{id}` archives, it does not hard-delete — cascading deletes would destroy
+  `SimulationRun`/`ScenarioVersion` history. There is no hard-delete endpoint.
+- A `SimulationRun` created via the API is metadata only (`status=pending`). Never fabricate a completed run,
+  timestep results, or risk output — the simulation engine doesn't exist yet.
+- Client-side form validation (`frontend/src/features/scenario-builder/validation.ts`) is a UX convenience
+  only — the server is always authoritative; don't skip a server-side check because the client already has one.
+- Adding a disaster-specific config field: update both `backend/app/schemas/scenario_config.py` (validation)
+  and `frontend/src/features/scenario-builder/disasterFieldSpecs.ts` (form rendering) — they're intentionally
+  parallel registries, not generated from each other.

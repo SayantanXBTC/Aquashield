@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquashield.dev/contracts/rag_query.schema.json",
+  "title": "RAGQuery",
+  "description": "A query into the RAG pipeline, scoped by disaster type/location/simulation state (architecture.md §11/§25). Ingestion/retrieval are not implemented yet.",
+  "type": "object",
+  "properties": {
+    "disaster_type": {
+      "type": ["string", "null"],
+      "enum": ["flood", "flash_flood", "coastal_flood", "storm_surge", "cyclone", "tsunami", "oil_spill", "chemical_pollution", "search_rescue", null]
+    },
+    "location": { "type": ["string", "null"] },
+    "query": { "type": "string", "minLength": 1 },
+    "simulation_context": {
+      "description": "Relevant excerpt of a SimulationState, if the query is grounded in a live scenario.",
+      "type": ["object", "null"]
+    },
+    "required_source_type": { "type": ["string", "null"] },
+    "filters": { "type": "object" }
+  },
+  "required": ["query"],
+  "additionalProperties": false
+}

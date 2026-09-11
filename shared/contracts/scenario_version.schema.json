@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquashield.dev/contracts/scenario_version.schema.json",
+  "title": "ScenarioVersion",
+  "description": "One immutable, point-in-time configuration of a Scenario — enables replay/comparison. See architecture.md §7/§11.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "scenario_id": { "type": "string", "format": "uuid" },
+    "version_number": { "type": "integer", "minimum": 1 },
+    "label": { "type": ["string", "null"] },
+    "scenario_config": {
+      "description": "Disaster-specific parameters (flood: rainfall/river_level/...; tsunami: magnitude/source_location/...; see architecture.md §10). Shape varies by disaster_type — intentionally not fixed here.",
+      "type": "object"
+    },
+    "notes": { "type": ["string", "null"] },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["id", "scenario_id", "version_number", "scenario_config"],
+  "additionalProperties": false
+}

@@ -195,6 +195,9 @@ React, TypeScript, React Three Fiber, Three.js, Tailwind CSS, Anime.js, Deck.gl 
 **BACKEND**
 Python, FastAPI, WebSockets, Pydantic
 
+**DATABASE**
+PostgreSQL, PostGIS, SQLAlchemy 2.0, Alembic, GeoAlchemy2, psycopg 3
+
 **SIMULATION**
 NumPy, SciPy, xarray, GeoPandas, Shapely, Rasterio (where necessary)
 
@@ -227,9 +230,32 @@ Frontend tests, Python tests, Playwright E2E testing
 
 **Consequences:** If a domain later needs isolated packaging (e.g. `simulation` published as a standalone library), that domain gets its own `pyproject.toml` at that time, documented as a new ADR.
 
+### ADR-003: PostgreSQL + PostGIS + SQLAlchemy 2.0 + Alembic for application state
+
+**Decision:** PostgreSQL with the PostGIS extension is the primary application database, accessed through SQLAlchemy 2.0 (declarative `Mapped`/`mapped_column` style, not 1.x patterns) with GeoAlchemy2 for geometry/geography columns and psycopg 3 as the driver, migrated with Alembic. ChromaDB remains a separate vector store — Postgres does not replace it. Large scientific/simulation data (grids, particle trajectories, rasters, NetCDF/Zarr datasets) is never stored in Postgres columns — only metadata and a storage reference (`SimulationArtifact`).
+
+**Reason:** AQUASHIELD's application state (scenarios, versions, simulation run metadata, risk/vulnerability results, recommendations, incident action plans, infrastructure assets, audit events) is inherently relational and benefits from real transactions, foreign keys, and constraints. PostGIS gives first-class geometry/geography types and spatial indexing (GIST) for infrastructure assets and scenario locations without a second geospatial database. SQLAlchemy 2.0 + Alembic is the standard, well-documented combination for this in Python and integrates cleanly with FastAPI/Pydantic.
+
+**Alternatives:** A document database (MongoDB) — rejected because the domain is fundamentally relational (Scenario → ScenarioVersion → SimulationRun → {RiskAssessment, VulnerabilityAssessment, ResponseRecommendation, IncidentActionPlan}) and would need application-level joins for little benefit. Storing everything (including simulation output) in Postgres — rejected per CLAUDE.md §32/architecture.md §14a: large scientific arrays don't belong in a relational database. A separate PostGIS-less Postgres plus a standalone geospatial service — rejected as unnecessary operational complexity when PostGIS solves it in-process.
+
+**Consequences:** Every Python domain (backend, simulation, agents, rag) that touches the database depends on `sqlalchemy`, `alembic`, `geoalchemy2`, `psycopg` (added to the shared root `requirements.txt`, see ADR-002). A local PostgreSQL+PostGIS instance (via `infrastructure/docker-compose.yml`, or any equivalent) is now a development prerequisite for `backend/tests/db/*`, which skip cleanly (not silently substituted with SQLite) when it isn't reachable. See `docs/development/database.md` for full detail, including two documented GeoAlchemy2/Alembic interaction gotchas (duplicate spatial index creation, orphaned Postgres ENUM types on downgrade) and how they're handled.
+
 ## 14. Data Sources
 
 All external environmental/geospatial data providers are **PLANNED / TO BE DECIDED**. No data provider is selected or assumed at this stage.
+
+## 14a. Data Storage Architecture
+
+```
+APPLICATION STATE                    → PostgreSQL / PostGIS (ADR-003)
+VECTOR / RAG KNOWLEDGE               → ChromaDB (separate, unaffected by ADR-003)
+LARGE SCIENTIFIC / SIMULATION DATA   → NetCDF / Zarr / object or file storage (not chosen yet;
+                                        Postgres stores only metadata + reference — SimulationArtifact)
+TRANSIENT REAL-TIME STATE            → application memory, for now
+OPTIONAL FUTURE CACHE/COORDINATION   → Redis, only if a real requirement justifies it — not introduced
+```
+
+Never collapse all of this into PostgreSQL. A full simulation grid, particle trajectory set, or raster does not belong in a Postgres column — `SimulationArtifact.storage_location` is a pointer to where it actually lives, not the data itself.
 
 ## 15. Performance
 
@@ -263,7 +289,7 @@ Alternatives:
 Consequences:
 ```
 
-See ADR-001 and ADR-002 (Section 13) for the first recorded decisions. Future major decisions (database choice, LLM provider, deployment infrastructure, additional disaster model integrations) must be recorded here before being silently adopted.
+See ADR-001, ADR-002, and ADR-003 (Section 13) for the decisions recorded so far. Future major decisions (LLM provider, deployment infrastructure, additional disaster model integrations, large-scientific-data storage format) must be recorded here before being silently adopted.
 
 ## 18. Repository Architecture
 
@@ -307,13 +333,20 @@ conventions).
 - **Backend separation:** `backend/app/api/routes/` (REST) and `backend/app/api/websocket/` (streaming) stay
   thin; `backend/app/services/` calls into `simulation/` and `agents/` — simulation math and agent workflows
   are never implemented inline in a route handler.
+- **Database separation:** `backend/app/db/` owns the SQLAlchemy layer (`base.py`, `session.py`, `init_db.py`,
+  `models/`) and `backend/alembic/` owns migrations — see docs/development/database.md. Routes and services
+  depend on `app.db.session.get_db`, never construct their own engine/session.
 
 ### Shared contracts
 
-`shared/schemas`, `shared/types`, `shared/contracts`, and `shared/constants` are the only place cross-domain
-data shapes are defined (Scenario, Simulation state, Timeline frame, Risk assessment, Vulnerability result,
-Agent request/response, Incident Action Plan, WebSocket event, API response). Frontend types and backend/agent
-schemas should mirror these rather than each domain inventing its own version of the same shape.
+`shared/contracts/*.schema.json` (JSON Schema, draft 2020-12) is the canonical, cross-language source of truth
+for every cross-domain data shape (Scenario, ScenarioVersion, SimulationState, TimelineFrame, RiskAssessment,
+VulnerabilityResult, AgentRequest/Response, RAGQuery/Result, ResponseRecommendation, IncidentActionPlan,
+WebSocketEvent). `shared/schemas/python/contracts.py` (Pydantic v2) and `shared/types/index.ts` are
+hand-maintained mirrors for their respective languages — not code-generated, to avoid introducing a
+code-generation toolchain before it's actually needed (see §22 and docs/development/database.md). `shared/constants/enums.json` is the source of truth for the string-literal enum values every mirror must match.
+Frontend types and backend/agent code should import/mirror these rather than each domain inventing its own
+version of the same shape.
 
 ### Testing structure
 
@@ -375,12 +408,149 @@ through one domain reaching into another's internal files.
 ## 22. Shared Contract Strategy
 
 `shared/` exists so independent branches don't invent incompatible data shapes for the same concept — e.g. the
-frontend's idea of a "Scenario" must stay identical to the backend's and the agents'. Initial conceptual
-contracts (schemas only, no business logic):
+frontend's idea of a "Scenario" must stay identical to the backend's and the agents'. Contracts defined
+(schemas only, no business logic):
 
-`Scenario`, `SimulationState`, `TimelineFrame`, `RiskAssessment`, `VulnerabilityResult`, `AgentRequest`,
-`AgentResponse`, `RAGQuery`, `RAGResult`, `ResponseRecommendation`, `IncidentActionPlan`, `WebSocketEvent`.
+`Scenario`, `ScenarioVersion`, `SimulationState`, `TimelineFrame`, `RiskAssessment`, `VulnerabilityResult`,
+`AgentRequest`, `AgentResponse`, `RAGQuery`, `RAGResult`, `ResponseRecommendation`, `IncidentActionPlan`,
+`WebSocketEvent`.
+
+**Cross-language approach:** the project has a TypeScript frontend and a Python backend/agents/rag, so a
+contract needs to exist in both without silently drifting apart. JSON Schema (`shared/contracts/*.schema.json`)
+is the canonical shape; `shared/schemas/python/contracts.py` (Pydantic v2) and `shared/types/index.ts` are
+hand-maintained mirrors, kept in sync manually rather than through a code-generation pipeline — a generator
+(`datamodel-code-generator`, `quicktype`, etc.) would be reasonable to introduce later if these contracts grow
+large or numerous enough that manual sync becomes error-prone, but at this size it would be unnecessary
+complexity (CLAUDE.md §31/§18). A mismatch between a mirror and its JSON Schema is a bug, not a design choice.
 
 These stay small and domain-neutral — they describe data shape, not behavior. A shared contract change is
 treated as a deliberate, documented, cross-domain integration change (see `docs/development/git-workflow.md`
 § Shared Contract Changes), never a silent side effect of one branch's feature work.
+
+## 23. Frontend Framework Decision
+
+**Decision:** React + Vite.
+
+**Reason:** AQUASHIELD is primarily an interactive client-side visualization and real-time simulation
+interface (3D/WebGL, WebSocket-driven). Vite gives a simpler development architecture for React/WebGL/WebSocket
+workloads without introducing unnecessary server-side framework complexity at this stage. Next.js is not used
+unless a future requirement (e.g. SSR/SEO for a separate public-facing page) makes it clearly necessary — see
+ADR-001 (§13) for the full comparison and consequences.
+
+## 24. Technology Bootstrap
+
+What the bootstrap phase actually installed and verified (2026-09-11), separated by status. Dependency
+manifests (`frontend/package.json`, root `requirements.txt`) are the source of truth for exact versions.
+
+**IMPLEMENTED** (working, verified end-to-end):
+
+| Piece | Verified |
+|---|---|
+| React + TypeScript + Vite app | builds, type-checks (`strict: true`), dev server serves |
+| Tailwind CSS v4 (`@tailwindcss/vite`) | styles render via `src/styles/index.css` |
+| ESLint (flat config) + Prettier | `npm run lint` passes clean |
+| Vitest + React Testing Library | smoke test passes (`src/app/App.test.tsx`) |
+| FastAPI backend, `GET /health` | returns `{"status":"ok","service":"aquashield-backend"}` |
+| WebSocket `/ws` | accepts connection, sends heartbeat, echoes messages |
+| CORS (dev-only origins) | verified frontend origin allowed via `Origin` header round-trip |
+| Frontend ↔ backend connectivity | frontend's health hook fetches the live backend `/health` |
+| pytest | backend health test passes |
+
+**INSTALLED / NOT IMPLEMENTED** (dependency verified importable, no AQUASHIELD logic built on it yet):
+
+- Three.js, React Three Fiber, @react-three/drei — a `BootstrapCanvas` renders one static mesh purely to prove
+  the React → R3F → Three.js pipeline works; it is not an AQUASHIELD scene.
+- Anime.js — one `useFadeIn` micro-interaction hook proves the import/integration works; no disaster animation.
+- NumPy, SciPy, xarray, Shapely, GeoPandas — import-verified in the venv; no simulation model uses them yet.
+- LangGraph, langchain-core — import-verified; no agent graph exists yet.
+- ChromaDB — import-verified; no ingestion/retrieval pipeline exists yet.
+
+**PLANNED** (not installed):
+
+- Deck.gl — optional; only introduced if a large-scale geospatial layer later demonstrates a clear need beyond
+  what React Three Fiber/Three.js provides.
+- Rasterio — install when a simulation model actually needs raster I/O.
+- Playwright — e2e testing foundation, added when there's a UI flow worth testing end-to-end.
+
+**Known dependency compatibility constraints** (pin to these ranges until upstream catches up):
+
+- `@react-three/fiber@9.x` requires `react`/`react-dom` `>=19 <19.3` — pinned to `19.2.8`, not the newer `19.3.0`.
+- `typescript-eslint@8.70.0` requires `typescript <6.1.0` — pinned to `5.9.3`, not the newer `7.0.2` (TypeScript's
+  new Go-based compiler line), until typescript-eslint adds support.
+
+## 25. Database & Shared Contract Foundation
+
+What the database/contract foundation phase (2026-09-11) actually built and verified — see ADR-003 (§13),
+§14a (data storage split), and docs/development/database.md for full detail.
+
+**IMPLEMENTED** (working, verified end-to-end against a real PostgreSQL 18 + PostGIS 3.6 instance):
+
+| Piece | Verified |
+|---|---|
+| 10 SQLAlchemy 2.0 models (`backend/app/db/models/`) | `configure_mappers()` succeeds; all relationships load |
+| Alembic migration (`backend/alembic/versions/*_foundational_schema.py`) | `upgrade head` → `downgrade base` → `upgrade head` round-trip verified clean; `alembic check` reports no drift |
+| PostGIS | `CREATE EXTENSION postgis` succeeds; Point/LineString/Polygon geometry stored and queried (`ST_DWithin`, `ST_Distance`, `ST_AsText`) |
+| `GET /health/db` | FastAPI → SQLAlchemy → PostgreSQL round-trip returns `{"status":"ok","database":"reachable"}` |
+| `backend/app/db/seed.py` | seeds 3 scenarios (flood/tsunami/oil_spill) + versions + runs + 3 infrastructure assets (point/line/polygon) + risk assessments + a recommendation |
+| `backend/tests/db/*` (12 tests) + 2 `/health` tests | all pass against the real database |
+| `shared/contracts/*.schema.json` (13 JSON Schemas) | valid draft 2020-12 schemas |
+| `shared/schemas/python/contracts.py` (Pydantic v2) | imports and instantiates cleanly |
+| `shared/types/index.ts` | type-checks clean under `tsc --strict` |
+
+**CONFIGURED, NOT EXECUTED IN THIS ENVIRONMENT:**
+
+- `infrastructure/docker-compose.yml` — written and reviewed, but Docker itself was unavailable in the sandbox
+  this was built in (no `docker` binary). Verification instead used a local Homebrew PostgreSQL 18 + PostGIS
+  3.6 instance — same engine/extension, different launcher. Run `docker compose -f infrastructure/docker-compose.yml up -d` and confirm `alembic upgrade head && pytest` still pass before relying on it.
+
+**PLANNED / NOT IMPLEMENTED:**
+
+- No CRUD API endpoints beyond `/health/db` — only enough integration to prove FastAPI → SQLAlchemy → Postgres
+  works, per this phase's scope.
+- No automatic JSON Schema → Python/TypeScript code generation (see §22).
+- No simulation engine, AI agents, or RAG ingestion writing to these tables yet — they're the target, not the
+  content, of this phase.
+
+## 26. Scenario System
+
+The first end-to-end functional vertical slice — full detail in docs/development/scenarios.md.
+
+```
+React Scenario Builder (frontend/src/features/scenario-builder/)
+        ↓
+Scenario API (backend/app/api/routes/scenarios.py — thin, no business logic)
+        ↓
+ScenarioService (backend/app/services/scenario_service.py — domain logic)
+        ↓
+ScenarioRepository / SimulationRunRepository (backend/app/repositories/ — persistence only)
+        ↓
+PostgreSQL/PostGIS (Scenario, ScenarioVersion, SimulationRun)
+        ↓
+Future Simulation Engine (not implemented)
+```
+
+**The scenario system is architecturally independent of simulation physics.** `SimulationRun` records that a
+run was requested and against which configuration — it never computes anything. Creating one only writes
+`status = pending` metadata; the response explicitly says the simulation engine hasn't executed.
+
+**Layering rule enforced here** (and expected of future features): routes never contain business logic,
+services never build SQLAlchemy queries directly (that's the repository's job), and repositories never make
+domain decisions (e.g. "should this scenario be archived" is a service decision, not a repository one).
+
+**Schema change made this phase:** `ScenarioStatus.ACTIVE` → `ScenarioStatus.READY` (Prompt 6 specifies the
+scenario lifecycle as draft/ready/archived; Prompt 5's original naming was draft/active/archived). Migration
+`32b3edf8f402` renames the Postgres enum value in place (`ALTER TYPE ... RENAME VALUE`) — existing rows keep
+their data, only the label changes. Updated everywhere: `backend/app/db/models/enums.py`,
+`backend/app/db/seed.py`, and all three shared-contract mirrors (`shared/contracts/scenario.schema.json`,
+`shared/schemas/python/contracts.py`, `shared/types/index.ts`, `shared/constants/enums.json`).
+
+**New shared contract:** `SimulationRun` (JSON Schema + Python + TypeScript) — the first contract added since
+the Prompt 5 foundation, following the same pattern. API-only request/response envelopes
+(`ScenarioCreateRequest`, `ScenarioDetail`, `Page<T>`, etc.) stay backend-owned
+(`backend/app/schemas/scenario.py`) and are mirrored only in `shared/types/index.ts` for the frontend — adding
+a second Python definition of the same shape was avoided (§22).
+
+**Frontend cross-domain import:** `frontend/src/features/scenario-builder/` imports `shared/types/index.ts`
+directly via a `@shared/*` alias (`frontend/vite.config.ts` + `tsconfig.json`), with Vite's dev-server
+`fs.allow` extended to permit reading outside `frontend/`'s own root — the first time frontend code actually
+consumes `shared/` rather than just mirroring it by hand.
