@@ -27,6 +27,14 @@ vi.mock("../api/simulationApi", () => ({
   },
 }));
 
+vi.mock("../api/geospatialApi", () => ({
+  geospatialApi: {
+    getHazardFootprints: vi.fn().mockResolvedValue({ simulation_run_id: "", frame_count: 0, footprints: [] }),
+    getExposure: vi.fn().mockResolvedValue({ simulation_run_id: "", frame_index: null, data_quality: "unknown", exposure_results: [] }),
+    getImpact: vi.fn(),
+  },
+}));
+
 // The 3D viewport needs a real WebGL context this test environment can't
 // provide — isolate the data-flow behavior this test actually targets from
 // that rendering concern (see docs/development/command-center.md "Testing").

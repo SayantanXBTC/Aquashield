@@ -32,4 +32,7 @@ chromadb==1.5.9
 # --- testing ---
 pytest==9.1.1
 pytest-asyncio==1.4.0
+# httpx: also reused (not a new dependency) by
+# backend/app/services/geospatial/natural_earth_provider.py for the one
+# outbound fetch of a fixed, code-configured public dataset URL.
 httpx==0.28.1

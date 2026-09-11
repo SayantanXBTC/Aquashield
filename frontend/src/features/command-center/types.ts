@@ -4,6 +4,11 @@
 // same phase (Prompt 8) since this is their first frontend consumer.
 export type {
   DisasterType,
+  ExposureResult,
+  ExposureStatus,
+  GeospatialDataQuality,
+  HazardFootprint,
+  ImpactFrame,
   Page,
   Scenario,
   ScenarioDetail,

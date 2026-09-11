@@ -1,18 +1,33 @@
 import { createElement, Suspense } from "react";
 import { getDisasterVisualizer } from "@/three/disasters/registry";
+import { HazardFootprintLayer } from "@/three/geospatial/HazardFootprintLayer";
+import { InfrastructureMarkers } from "@/three/geospatial/InfrastructureMarkers";
 import { LocationMarker } from "@/three/markers/LocationMarker";
 import { Landmass } from "@/three/terrain/Landmass";
 import type { LatLon } from "@/three/utils/geoProjection";
 import { WaterSurface } from "@/three/water/WaterSurface";
 import type { SimulationVisualState } from "@/three/adapters/simulationVisualAdapter";
+import type { ExposureResult, HazardFootprint } from "@/features/command-center/types";
 import { CameraController } from "./CameraController";
 import { EnvironmentSystem } from "./EnvironmentSystem";
 import { LightingSystem } from "./LightingSystem";
+
+interface DataLayersProps {
+  hazardFootprint: HazardFootprint | null;
+  exposureResults: ExposureResult[];
+  showInfrastructure: boolean;
+  showExposure: boolean;
+}
 
 interface SceneRootProps {
   scenarioLocation: LatLon;
   scenarioName: string;
   visualState: SimulationVisualState | null;
+  /** Prompt 10's optional geospatial overlays (hazard footprint outline +
+   * infrastructure/exposure markers) — additive to the existing scene graph,
+   * never rendered when absent (undefined is the "Data Layers panel doesn't
+   * apply here yet" case, distinct from an empty/toggled-off layer). */
+  dataLayers?: DataLayersProps;
 }
 
 /**
@@ -22,7 +37,7 @@ interface SceneRootProps {
  * from the registry. Nothing else in the app constructs a `<Canvas>`
  * scene graph by hand; this is the one place that does.
  */
-export function SceneRoot({ scenarioLocation, scenarioName, visualState }: SceneRootProps) {
+export function SceneRoot({ scenarioLocation, scenarioName, visualState, dataLayers }: SceneRootProps) {
   const Visualizer = visualState ? getDisasterVisualizer(visualState.disasterType) : null;
 
   return (
@@ -43,6 +58,21 @@ export function SceneRoot({ scenarioLocation, scenarioName, visualState }: Scene
           ever returns one of five stable, module-level component
           references). */}
       {Visualizer && visualState ? createElement(Visualizer, { visualState, origin: scenarioLocation }) : null}
+
+      {/* Prompt 10 geospatial overlays — additive, conditional on data
+          actually being present (never rendered just because a toggle is
+          on with nothing to show). */}
+      {dataLayers?.hazardFootprint ? (
+        <HazardFootprintLayer origin={scenarioLocation} footprint={dataLayers.hazardFootprint} />
+      ) : null}
+      {dataLayers && (dataLayers.showInfrastructure || dataLayers.showExposure) ? (
+        <InfrastructureMarkers
+          origin={scenarioLocation}
+          assets={dataLayers.exposureResults}
+          showAll={dataLayers.showInfrastructure}
+          showExposureColor={dataLayers.showExposure}
+        />
+      ) : null}
     </Suspense>
   );
 }

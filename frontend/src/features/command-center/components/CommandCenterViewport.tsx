@@ -5,17 +5,25 @@ import { AquaCanvas } from "@/three/core/AquaCanvas";
 import { SceneRoot } from "@/three/core/SceneRoot";
 import { toVisualState } from "@/three/adapters/simulationVisualAdapter";
 import type { LatLon } from "@/three/utils/geoProjection";
-import type { ScenarioDetail, SimulationState, TimelineFrame } from "../types";
+import type { DataLayerKey } from "../hooks/useDataLayers";
+import type { ExposureResult, HazardFootprint, ScenarioDetail, SimulationState, TimelineFrame } from "../types";
 
 interface CommandCenterViewportProps {
   scenario: ScenarioDetail | null;
   currentFrame: TimelineFrame | null;
+  /** Prompt 10 geospatial overlays — optional, additive. Omitted entirely
+   * (not just empty) when the caller has no run to source them from. */
+  dataLayers?: {
+    enabled: Record<DataLayerKey, boolean>;
+    hazardFootprint: HazardFootprint | null;
+    exposureResults: ExposureResult[];
+  };
 }
 
 /** The dominant 3D viewport. Wrapped in its own error boundary so a WebGL
  * or scene-graph failure degrades to an actionable ErrorState instead of
  * taking down the whole command center. */
-export function CommandCenterViewport({ scenario, currentFrame }: CommandCenterViewportProps) {
+export function CommandCenterViewport({ scenario, currentFrame, dataLayers }: CommandCenterViewportProps) {
   const scenarioLocation: LatLon | null =
     scenario?.latitude != null && scenario?.longitude != null
       ? { latitude: scenario.latitude, longitude: scenario.longitude }
@@ -56,7 +64,21 @@ export function CommandCenterViewport({ scenario, currentFrame }: CommandCenterV
       )}
     >
       <AquaCanvas>
-        <SceneRoot scenarioLocation={scenarioLocation} scenarioName={scenario.name} visualState={visualState} />
+        <SceneRoot
+          scenarioLocation={scenarioLocation}
+          scenarioName={scenario.name}
+          visualState={visualState}
+          dataLayers={
+            dataLayers
+              ? {
+                  hazardFootprint: dataLayers.enabled.hazardFootprint ? dataLayers.hazardFootprint : null,
+                  exposureResults: dataLayers.exposureResults,
+                  showInfrastructure: dataLayers.enabled.infrastructure,
+                  showExposure: dataLayers.enabled.exposure,
+                }
+              : undefined
+          }
+        />
       </AquaCanvas>
     </ErrorBoundary>
   );
