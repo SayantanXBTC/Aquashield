@@ -618,3 +618,45 @@ execution stay separate endpoints, per Prompt 7 §26.
 frames (Prompt 8), WebSocket streaming of frames as they're produced (Prompt 9), a risk engine reading
 `SimulationState.hazard_state`/`environmental_state` (Prompt 10), AI agents/RAG interpreting this output
 (Prompts 11-12).
+
+## 28. AAA 3D Command Center & Landing
+
+The first visually complete AQUASHIELD experience — full detail in docs/development/command-center.md.
+
+```
+Landing ("/")  ->  Explore gateway ("/explore")  ->  Command Center ("/command-center", lazy-loaded)
+                                                            |
+                                                            v
+                                      Scenario -> SimulationRun -> Simulation API (Prompt 7)
+                                                            |
+                                                            v
+                                      TimelineFrame -> simulationVisualAdapter -> SceneRoot
+                                                            |
+                                                            v
+                                      disasters/registry.ts -> one visualizer per disaster family
+```
+
+`react-router-dom` was added here — the router ADR-001 (§13) deferred until routing was actually needed.
+`frontend/src/three/` is now a real scene graph (`AquaCanvas`/`SceneRoot`/`CameraController`/
+`LightingSystem`/`EnvironmentSystem`, a custom water shader, procedural terrain, instanced particles) built
+on the bootstrap-phase Three.js/R3F/Drei foundation (§24), and `frontend/src/animations/` is now a real
+Anime.js v4 utility layer (presets/transitions/scroll/stagger/cleanup) built on the bootstrap-phase
+integration proof.
+
+**The seam that matters:** `three/adapters/simulationVisualAdapter.ts` translates a real Prompt 7
+`SimulationState` into a `SimulationVisualState` — disaster visualizers never read `hazard_state` directly,
+and the mapping (e.g. `wave_height_m` → visual intensity) is documented as a rendering convenience, never
+an invented physical formula (CLAUDE.md §5/§27). `disasters/registry.ts` mirrors
+`simulation/core/registry.py`'s model registry pattern client-side, including the same disaster-type reuse
+decisions (`flash_flood`/`coastal_flood` → flood, `storm_surge` → cyclone, `chemical_pollution` → oil
+spill).
+
+**Shared contract addition:** `SimulationRunDetail`, `SimulationArtifactOut`, `TimelineResponse` were added
+to `shared/types/index.ts` (§22) — mirroring `backend/app/schemas/simulation.py` — since the command center
+is their first frontend consumer. Nothing existing was changed, only added to.
+
+**Explicitly not implemented in this phase** (see docs/development/command-center.md for the full
+IMPLEMENTED/VERIFIED/SIMPLIFIED/PLANNED/NOT IMPLEMENTED breakdown): timeline playback/scrubbing/WebSocket
+streaming (Prompt 9), risk/vulnerability analysis (Prompt 10), AI agents/RAG/response planning
+(Prompts 11-13), and — notably — automated WebGL scene-render testing and live browser visual verification,
+both blocked by environment limitations documented there rather than skipped silently.

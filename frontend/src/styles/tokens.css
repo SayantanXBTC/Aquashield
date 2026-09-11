@@ -1,0 +1,77 @@
+/**
+ * AQUASHIELD design tokens — the single source of truth for color, radius,
+ * shadow/glow, and motion timing. Tailwind v4 reads `@theme` and generates
+ * utilities from it (e.g. `--color-accent` -> `bg-accent`/`text-accent`/
+ * `border-accent`) — components should use those utilities or `var(--token)`
+ * rather than hardcoding a hex value or a duration. See
+ * docs/development/command-center.md "Design tokens" for the full rationale.
+ *
+ * Visual language: deep near-black blue, restrained cyan/aqua accent,
+ * glass surfaces, thin borders, controlled glow — scientific/cinematic, not
+ * neon cyberpunk. Every glow token below is intentionally low-alpha.
+ */
+
+@theme {
+  /* --- Surfaces (deep blacks / near-black blue) --- */
+  --color-void: #030608;
+  --color-abyss: #070c12;
+  --color-abyss-2: #0b131c;
+  --color-surface: #0e1720;
+  --color-surface-raised: #121d29;
+
+  /* --- Borders --- */
+  --color-hairline: #1b2733;
+  --color-hairline-strong: #2a3b4a;
+
+  /* --- Text (named "ink" so generated utilities stay clean: text-ink,
+     text-ink-soft, text-ink-faint — "text-text-primary" would be a mouthful) --- */
+  --color-ink: #e7edf3;
+  --color-ink-soft: #92a4b5;
+  --color-ink-faint: #56656f;
+
+  /* --- Accent (restrained cyan/aqua) --- */
+  --color-accent: #2bc8d4;
+  --color-accent-soft: #1a7d8a;
+  --color-accent-strong: #6be9f2;
+
+  /* --- Hazard / status (restrained, not neon) --- */
+  --color-status-ok: #3fbf8a;
+  --color-status-warning: #d99a3d;
+  --color-status-critical: #d9564d;
+  --color-status-offline: #4a5763;
+
+  /* --- Radii --- */
+  --radius-panel: 10px;
+  --radius-control: 6px;
+
+  /* --- Shadow / glow (kept subtle — not everything glows) --- */
+  --shadow-panel: 0 8px 32px -12px rgb(0 0 0 / 0.6);
+  --shadow-glow-accent: 0 0 24px -6px rgb(43 200 212 / 0.35);
+
+  /* --- Font --- */
+  --font-display:
+    -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-ui: -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+}
+
+:root {
+  color-scheme: dark;
+  /* Motion timing shared with frontend/src/animations/presets.ts — keep in
+     sync if either changes; these drive CSS transitions, presets.ts drives
+     Anime.js-authored motion. */
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 180ms;
+  --duration-base: 320ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto !important;
+  }
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-accent) 35%, transparent);
+  color: var(--color-ink);
+}

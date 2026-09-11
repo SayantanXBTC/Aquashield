@@ -171,6 +171,46 @@ export interface SimulationRunCreateRequest {
   timestep_config?: Record<string, unknown>;
 }
 
+// --- Simulation execution (Prompt 7: backend/app/schemas/simulation.py) ---
+//
+// API-local envelope shapes for /simulation-runs/* — not duplicated into
+// shared/schemas/python since backend/app/schemas/simulation.py is already
+// their Python source of truth (same convention as the Scenario API
+// envelopes above). Added here, mirrored from that file, because the
+// command-center feature (Prompt 8) is the first frontend consumer.
+
+export type ArtifactType = "netcdf" | "zarr" | "geotiff" | "json" | "other";
+
+export interface SimulationArtifactOut {
+  id: string;
+  artifact_type: ArtifactType;
+  format?: string | null;
+  timestep_start?: number | null;
+  timestep_end?: number | null;
+  extra_metadata: Record<string, unknown>;
+}
+
+export interface SimulationRunDetail {
+  id: string;
+  scenario_version_id: string;
+  status: SimulationStatus;
+  started_at?: string | null;
+  completed_at?: string | null;
+  duration_seconds?: number | null;
+  timestep_config: Record<string, unknown>;
+  model_identifier?: string | null;
+  error_message?: string | null;
+  created_at: string;
+  artifact?: SimulationArtifactOut | null;
+  frame_count?: number | null;
+}
+
+export interface TimelineResponse {
+  simulation_run_id: string;
+  frame_count: number;
+  frames: TimelineFrame[];
+}
+
 export interface Page<T> {
   items: T[];
   total: number;

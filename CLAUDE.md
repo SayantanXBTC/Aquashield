@@ -618,6 +618,7 @@ Full detail (verification results, pinned-version constraints): architecture.md 
 | Deck.gl | PLANNED / OPTIONAL |
 | Rasterio | PLANNED |
 | Simulation Engine — `simulation/core` + 5 demo disaster models + execution API | BOOTSTRAPPED (Prompt 7 — deterministic, synchronous, JSON artifact only; see docs/development/simulation.md) |
+| AAA 3D Command Center + cinematic landing | BOOTSTRAPPED (Prompt 8 — landing/explore/command-center routing, full Three.js scene graph, real Prompt 7 integration; see docs/development/command-center.md) |
 
 "Dependency foundation only" means the package is installed and import-verified, with no AQUASHIELD logic
 built on it — do not treat its presence in `node_modules`/the venv as a green light to start implementing the
@@ -690,3 +691,31 @@ Full detail: docs/development/simulation.md. Architecture: architecture.md §27.
 - Execution is currently synchronous (`POST /simulation-runs/{run_id}/execute` blocks until done) — a
   deliberate, documented prototype choice (Prompt 7 §26), not an oversight. Don't introduce Celery/Redis/a
   job queue without an explicit instruction to do so.
+
+## 27. AAA 3D Command Center & Landing Rules
+
+Full detail: docs/development/command-center.md. Architecture: architecture.md §28.
+
+- `three/adapters/simulationVisualAdapter.ts` is the only place a `SimulationState`/`hazard_state` is
+  interpreted for rendering. A disaster visualizer (`three/disasters/<type>/`) never reads backend field
+  names directly — it only ever receives a `SimulationVisualState`. A backend field rename should only
+  ever require editing the adapter, not every visualizer.
+- `SceneRoot` resolves each disaster's visualizer through `three/disasters/registry.ts`'s lookup only —
+  never an if/else chain, mirroring `simulation/core/registry.py`'s server-side pattern (including the
+  same disaster-type reuse decisions).
+- Every visual quantity that isn't a direct simulation field (e.g. a tsunami's visual impact radius) is a
+  documented, fixed rendering convenience — never an invented physical formula. Say so in a comment where
+  it's computed.
+- The world (water, terrain, hazard visualizers) is explicitly a VISUAL DEMONSTRATION, not scientific/GIS
+  data — every new terrain/water/visualizer file must carry that distinction in its own comment, not just
+  rely on this rule existing elsewhere.
+- One `<Canvas>` in the whole app (`three/core/AquaCanvas.tsx`). New 3D work extends `SceneRoot`'s
+  composition or adds a new disaster visualizer to the registry — it does not construct a second `<Canvas>`.
+- Every Anime.js handle (a `JSAnimation`, `Timeline`, or `ScrollObserver`) created in a component must be
+  reverted on unmount via `animations/cleanup.ts` — no exceptions, even for a "one-shot" animation.
+- No fabricated numbers anywhere in the UI: a missing/not-yet-loaded value renders `DataReadout`'s `—`
+  placeholder or an explicit `EmptyState`/`ErrorState`, never an invented statistic, percentage, or count
+  (this applies to loading-screen "progress" too — indeterminate only, unless a real measured value exists).
+- The command center and Three.js scene are lazy-loaded (`React.lazy`/`Suspense` in `App.tsx`) — don't
+  import `three`/`@react-three/*` or the command-center feature from a module that's part of the initial
+  bundle (the landing page). Verify with `npm run build`'s chunk output, not by assumption.
