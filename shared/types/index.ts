@@ -341,6 +341,26 @@ export interface IncidentActionPlan {
   created_at?: string;
 }
 
+// --- Disaster catalog (Prompt 9.1: backend/app/schemas/disaster_catalog.py) ---
+//
+// Discovery/documentation metadata for GET /disaster-types — additive, NOT
+// the Scenario Builder form's live data source (that stays
+// frontend/src/features/scenario-builder/disasterFieldSpecs.ts, mirrored by
+// hand from the same backend truth per CLAUDE.md §25 — see
+// docs/development/scenarios.md).
+
+export interface DisasterCatalogEntry {
+  disaster_type: DisasterType;
+  display_name: string;
+  short_description: string;
+  category: string;
+  /** The real resolved simulation model id (simulation/core/registry.py) —
+   * e.g. storm_surge reports "cyclone-demo-v1", never a fabricated
+   * per-type id. */
+  model_identifier: string;
+  parameter_keys: string[];
+}
+
 export interface WebSocketEvent {
   event_type: WebSocketEventType;
   timestamp: string;

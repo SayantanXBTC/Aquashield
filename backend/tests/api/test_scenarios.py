@@ -1,6 +1,25 @@
 import uuid
 
+import pytest
+
+from app.db.models.enums import DisasterType
 from tests.conftest import requires_postgres
+
+# Valid scenario_config per disaster type — mirrors
+# backend/tests/schemas/test_scenario_config.py's VALID_CONFIG_BY_TYPE
+# (kept separate: that file is a pure schema unit test, this exercises the
+# full HTTP create path across every type).
+VALID_CONFIG_BY_DISASTER_TYPE = {
+    "flood": {"rainfall_mm_24h": 150, "river_level_m": 5.0},
+    "flash_flood": {"rainfall_mm_24h": 220, "water_rise_rate_m_per_hr": 0.6},
+    "coastal_flood": {"river_level_m": 4.0, "drainage_capacity_pct": 25},
+    "storm_surge": {"central_pressure_hpa": 955, "wind_speed_kt": 85},
+    "cyclone": {"central_pressure_hpa": 930, "wind_speed_kt": 110, "radius_km": 150},
+    "tsunami": {"magnitude": 7.8, "initial_wave_height_m": 3.5},
+    "oil_spill": {"spill_volume_tonnes": 500, "oil_type": "crude"},
+    "chemical_pollution": {"spill_volume_tonnes": 300, "wind_speed_kt": 8},
+    "search_rescue": {"search_radius_km": 6, "vessel_type": "fishing_trawler"},
+}
 
 FLOOD_PAYLOAD = {
     "name": "Test Flood Scenario",
@@ -167,3 +186,70 @@ def test_get_scenario_not_found_returns_404(client) -> None:
 def test_create_simulation_run_for_missing_scenario_returns_404(client) -> None:
     response = client.post(f"/scenarios/{uuid.uuid4()}/runs")
     assert response.status_code == 404
+
+
+@requires_postgres
+@pytest.mark.parametrize("disaster_type", [dt.value for dt in DisasterType])
+def test_create_scenario_succeeds_for_every_disaster_type(client, disaster_type: str) -> None:
+    payload = {
+        "name": f"Test {disaster_type} scenario",
+        "disaster_type": disaster_type,
+        "location_name": "Test Location",
+        "latitude": 22.5,
+        "longitude": 88.3,
+        "scenario_config": VALID_CONFIG_BY_DISASTER_TYPE[disaster_type],
+    }
+    response = client.post("/scenarios", json=payload)
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["disaster_type"] == disaster_type
+    assert body["status"] == "ready"  # config was populated
+    assert body["current_version"]["version_number"] == 1
+
+
+@requires_postgres
+def test_create_scenario_with_empty_config_stays_draft_for_a_non_flood_type(client) -> None:
+    """Regression for a type other than flood/oil_spill — the draft/ready
+    transition isn't accidentally flood-specific."""
+    response = client.post(
+        "/scenarios",
+        json={
+            "name": "Test Draft Search & Rescue",
+            "disaster_type": "search_rescue",
+            "scenario_config": {},
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["status"] == "draft"
+
+
+@requires_postgres
+def test_update_scenario_config_creates_new_version_for_non_flood_non_oil_spill_type(client) -> None:
+    """Scenario versioning (config change -> new immutable ScenarioVersion,
+    CLAUDE.md §25) must keep working for every disaster type, not just the
+    two the earlier tests happened to cover."""
+    created = client.post(
+        "/scenarios",
+        json={
+            "name": "Test Search & Rescue Versioning",
+            "disaster_type": "search_rescue",
+            "scenario_config": {"search_radius_km": 5},
+        },
+    ).json()
+    scenario_id = created["id"]
+    assert created["current_version"]["version_number"] == 1
+
+    response = client.patch(
+        f"/scenarios/{scenario_id}", json={"scenario_config": {"search_radius_km": 12}}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["version_count"] == 2
+    assert body["current_version"]["version_number"] == 2
+    assert body["current_version"]["scenario_config"]["search_radius_km"] == 12.0
+
+    versions = client.get(f"/scenarios/{scenario_id}/versions").json()
+    assert len(versions) == 2
+    v1 = next(v for v in versions if v["version_number"] == 1)
+    # The original version is never mutated in place.
+    assert v1["scenario_config"]["search_radius_km"] == 5.0

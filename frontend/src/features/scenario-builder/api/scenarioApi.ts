@@ -1,4 +1,5 @@
 import type {
+  DisasterCatalogEntry,
   DisasterType,
   Page,
   ScenarioCreateRequest,
@@ -109,5 +110,12 @@ export const scenarioApi = {
 
   createRun(id: string, data: SimulationRunCreateRequest = {}): Promise<SimulationRun> {
     return request(`/scenarios/${id}/runs`, { method: "POST", body: JSON.stringify(data) });
+  },
+
+  /** GET /disaster-types — a discovery/documentation aid (Prompt 9.1 §F),
+   * not this form's live data source; DISASTER_FIELD_SPECS stays that (see
+   * disasterFieldSpecs.ts's comment and docs/development/scenarios.md). */
+  getDisasterTypes(): Promise<DisasterCatalogEntry[]> {
+    return request("/disaster-types");
   },
 };

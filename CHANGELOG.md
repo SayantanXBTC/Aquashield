@@ -1,5 +1,72 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-12 — Complete Disaster Catalog, Scenario Templates & Disaster-Specific Parameters (Prompt 9.1)
+
+**Added/Changed:**
+- Command Center discoverability: `ScenarioContextPanel.tsx` gets a "New scenario" link to `/scenarios`
+  (the existing Scenario Builder, which already supported all 9 disaster types end to end) — the Command
+  Center stays read/execute-focused rather than growing a second creation form.
+- `backend/app/db/seed.py` refactored to be idempotent per-scenario (`_ensure_scenario` looks each up by
+  name before inserting, safe to re-run against a partially-seeded DB) and backfills one `READY` demo
+  scenario for each of the 6 previously-unrepresented disaster types (flash_flood, coastal_flood,
+  storm_surge, cyclone, chemical_pollution, search_rescue) plus a second, `READY` tsunami scenario (the
+  original seeded tsunami scenario stays `DRAFT`, untouched) — all 9 types now have at least one `READY`
+  row visible in the Command Center's selector.
+- New read-only `GET /disaster-types` endpoint (`backend/app/core/disaster_catalog.py` →
+  `app/schemas/disaster_catalog.py` → `app/api/routes/disaster_types.py`) — additive discovery/documentation
+  metadata (display name, description, category, real resolved `model_identifier`, parameter keys) per
+  disaster type, introspecting the existing `DISASTER_CONFIG_SCHEMAS`/`MODEL_REGISTRY` rather than
+  duplicating them. Mirrored to the frontend as `DisasterCatalogEntry` in `shared/types/index.ts`.
+- Scenario templates: `DISASTER_TYPE_DEFAULTS` + a "Use demo template" button in `ScenarioForm.tsx` — a
+  frontend-only convenience labeled "Demo template values — not a real historical event," never persisted
+  as extra database rows.
+- Disaster-type selector now shows a one-line description per type (`DISASTER_TYPE_DESCRIPTIONS`), still a
+  compact native `<select>`, not a card grid.
+- `ScenarioForm.tsx`/`FormField.tsx`/`DisasterParameterFields.tsx` restyled onto the Prompt 8 design tokens
+  and `components/ui` primitives, replacing raw Tailwind slate/sky classes.
+- Bug fix: `ScenarioForm`'s `<form>` had no `noValidate`, so an out-of-range disaster-specific field (native
+  HTML `max`/`min`) silently blocked submission via the browser's own constraint-validation UI before the
+  app's styled `validateScenarioForm` error ever had a chance to run.
+- New parameter-consumption honesty matrix in docs/development/scenarios.md — a fact-checked table (read
+  directly from each `simulation/models/*/model.py`) of which exposed config fields are actually consumed
+  by the current demo models vs. accepted-but-metadata-only (e.g. cyclone's `central_pressure_hpa`,
+  tsunami's `magnitude` and `propagation_direction_deg`, oil_spill's `oil_type`, search_rescue's
+  `vessel_type`).
+- 26 new/changed frontend tests (`ScenarioForm.test.tsx`, `ScenarioContextPanel.test.tsx`, 1 new
+  `CommandCenterPage.test.tsx` case) — 98 total, all passing. Backend: 45 new/changed tests (disaster-types
+  endpoint, seed idempotency, parameterized disaster-type coverage) — 84 total, all passing.
+  `simulation/tests`: 57 passing, unchanged.
+
+**Why:**
+- A real run in the browser showed the Command Center's scenario selector limited to 2 seeded scenarios,
+  reading as if the platform only supported 2 disaster types — even though the backend/frontend already
+  supported all 9 since Prompt 6-8. The actual gap was discoverability (seed data + no path to creating a
+  new scenario from the Command Center) and polish (generic form styling, no honest accounting of which
+  parameters are decorative), not catalog completeness.
+
+**Files/Modules:**
+- `backend/app/db/seed.py`, `backend/app/core/disaster_catalog.py` (new),
+  `backend/app/schemas/disaster_catalog.py` (new), `backend/app/api/routes/disaster_types.py` (new),
+  `backend/app/main.py`.
+- `frontend/src/features/scenario-builder/{disasterFieldSpecs,api/scenarioApi}.ts`,
+  `frontend/src/features/scenario-builder/components/{ScenarioForm,FormField,ScenarioBuilderPage,
+  ScenarioDetailPage,disaster-fields/DisasterParameterFields}.tsx`,
+  `frontend/src/features/scenario-builder/hooks/useScenarioForm.ts`,
+  `frontend/src/features/scenario-builder/types.ts`.
+- `frontend/src/features/command-center/components/ScenarioContextPanel.tsx`.
+- `shared/types/index.ts`.
+- `docs/development/scenarios.md`, `docs/development/simulation.md`, `docs/development/command-center.md`,
+  `architecture.md` (§28c; also restored §28b, which had been accidentally deleted mid-edit).
+
+**Future Context:**
+- No browser automation was available in this environment — verified programmatically (tests/lint/build,
+  a real `psql` query confirming all 9 types are seeded `READY`, a `TestClient` smoke test of
+  `GET /disaster-types`). An actual browser walkthrough of all 9 disaster types (create → run → execute →
+  timeline → playback → visualizer) remains the right next check before demo use.
+- No real geography/DEM/OSM/buildings/roads/population/infrastructure, no AI/RAG, no impact analysis —
+  explicitly out of scope, deferred to Prompt 10+.
+- Branch: `feature/complete-disaster-catalog`, off `develop`.
+
 ### 2026-09-12 — Timeline Playback Engine (Prompt 9)
 
 **Added/Changed:**

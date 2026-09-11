@@ -691,3 +691,25 @@ system; the scene keeps reacting through the existing `toVisualState`/registry s
 Full detail, including the interval/auto-pause state machine and its test coverage
 (`useCommandCenterSession.test.ts` with Vitest fake timers), in docs/development/command-center.md's
 "Prompt 9 — Timeline Playback Engine" section.
+
+### 28c. Prompt 9.1 — Complete Disaster Catalog
+
+A completion pass, not new architecture: all 9 `DisasterType` values were already validated
+(`DISASTER_CONFIG_SCHEMAS`), already resolved to a real simulation model (`MODEL_REGISTRY`), already
+selectable end to end in the Scenario Builder (`disasterFieldSpecs.ts`/`ScenarioForm.tsx`), and already
+resolved to a visualizer (`three/disasters/registry.ts`) — Prompt 6/7/8's own parallel-registry pattern
+(CLAUDE.md §25) already covered the full catalog. What was actually missing was *discoverability* and
+*polish*: the Command Center's scenario selector only lists `status="ready"` scenarios, and the seed data
+had only 2-3 of the 9 types in that state — fixed with an idempotent `_ensure_scenario` helper in
+`backend/app/db/seed.py` (name-keyed lookup, safe to re-run, backfills exactly the missing types rather than
+a destructive full reseed) plus a "New scenario" link (`ScenarioContextPanel.tsx` → `/scenarios`) so users
+aren't limited to whatever happens to be seeded. A new read-only `GET /disaster-types` endpoint
+(`backend/app/core/disaster_catalog.py` → `app/schemas/disaster_catalog.py` → `shared/types/index.ts`'s
+`DisasterCatalogEntry`) is additive discovery/documentation metadata only — it introspects the *existing*
+`DISASTER_CONFIG_SCHEMAS`/`MODEL_REGISTRY` rather than becoming a second source of truth, and does not
+replace `disasterFieldSpecs.ts` as the Scenario Builder form's live data source (CLAUDE.md §25's
+hand-kept-in-sync parallel-registry decision stands). The Scenario Builder's form components
+(`ScenarioForm.tsx`, `FormField.tsx`, `DisasterParameterFields.tsx`) were restyled onto the Prompt 8 design
+tokens/`components/ui` primitives, replacing raw Tailwind slate/sky classes that predated that system. Full
+detail — including the fact-checked parameter-consumption honesty table (which exposed fields each of the 5
+underlying models actually reads vs. accepts-but-ignores) — in docs/development/scenarios.md.

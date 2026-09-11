@@ -11,7 +11,9 @@ interface DisasterParameterFieldsProps {
 
 /** Renders the field group for the selected disaster type — switching
  * disasterType swaps this component's fields entirely (§27); dropped fields'
- * values are discarded by the caller (see formState.resetConfigForDisasterType). */
+ * values are discarded by the caller (see formState.resetConfigForDisasterType).
+ * Styled with the AQUASHIELD design tokens (frontend/src/styles/tokens.css)
+ * to match the Command Center's visual language (Prompt 9.1 §C). */
 export function DisasterParameterFields({
   disasterType,
   values,
@@ -21,7 +23,7 @@ export function DisasterParameterFields({
   const fields = DISASTER_FIELD_SPECS[disasterType];
 
   if (fields.length === 0) {
-    return <p className="text-sm text-slate-500">No configurable parameters for this disaster type yet.</p>;
+    return <p className="text-ink-faint text-sm">No configurable parameters for this disaster type yet.</p>;
   }
 
   return (
@@ -31,8 +33,8 @@ export function DisasterParameterFields({
         const errorId = `${inputId}-error`;
         const error = errors[`config.${field.key}`];
         return (
-          <div key={field.key} className="flex flex-col gap-1">
-            <label htmlFor={inputId} className="text-sm text-slate-300">
+          <div key={field.key} className="flex flex-col gap-1.5">
+            <label htmlFor={inputId} className="text-ink-soft text-xs font-medium tracking-wide">
               {field.label}
             </label>
             <input
@@ -45,10 +47,10 @@ export function DisasterParameterFields({
               onChange={(e) => onChange(field.key, e.target.value)}
               aria-invalid={error ? true : undefined}
               aria-describedby={error ? errorId : undefined}
-              className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              className="bg-surface border-hairline-strong text-ink focus-visible:ring-accent-strong rounded-[var(--radius-control)] border px-3 py-2 text-sm transition-colors duration-[var(--duration-fast)] focus-visible:ring-2 focus-visible:outline-none"
             />
             {error && (
-              <p id={errorId} className="text-xs text-red-400">
+              <p id={errorId} className="text-status-critical text-xs">
                 {error}
               </p>
             )}
