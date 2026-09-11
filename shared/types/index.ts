@@ -453,6 +453,12 @@ export interface ExposureResult {
   criticality: string;
   status: ExposureStatus;
   distance_km?: number | null;
+  /** Representative marker position — the asset geometry's centroid (see
+   * backend/app/services/exposure_service.py's docstring on why this is a
+   * rendering convenience, not a "true location" claim for a line/polygon
+   * asset). */
+  latitude: number;
+  longitude: number;
 }
 
 /** AQUASHIELD's own UI severity band — not an official standard (see

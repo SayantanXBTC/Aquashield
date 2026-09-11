@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from geoalchemy2.shape import to_shape
 from sqlalchemy.orm import Session
 
 from app.db.geo import geojson_to_geometry
@@ -45,6 +46,14 @@ class ExposureResult:
     criticality: str
     status: ExposureStatus
     distance_km: float | None
+    # A representative (lat, lon) point for rendering a marker — the asset's
+    # own geometry centroid (accurate for a Point asset; for a LineString/
+    # Polygon asset this is the true geometric centroid, not necessarily a
+    # point that lies on the feature itself, e.g. a bent road's centroid can
+    # fall off the road). A rendering convenience, not a claim about the
+    # asset's "true" location for a non-point feature.
+    latitude: float
+    longitude: float
 
 
 class ExposureService:
@@ -75,6 +84,7 @@ class ExposureService:
                 criticality=asset.criticality.value,
                 status="within_hazard_footprint",
                 distance_km=0.0,
+                **_centroid_latlon(asset),
             )
             for asset in intersecting
         ]
@@ -90,7 +100,13 @@ class ExposureService:
                     criticality=asset.criticality.value,
                     status="potentially_exposed",
                     distance_km=round(distance_degrees * KM_PER_DEGREE, 3),
+                    **_centroid_latlon(asset),
                 )
             )
 
         return results
+
+
+def _centroid_latlon(asset: Any) -> dict[str, float]:
+    centroid = to_shape(asset.geometry).centroid
+    return {"latitude": centroid.y, "longitude": centroid.x}

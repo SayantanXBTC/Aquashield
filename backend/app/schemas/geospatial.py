@@ -59,6 +59,8 @@ class ExposureResultOut(BaseModel):
     criticality: str
     status: Literal["within_hazard_footprint", "potentially_exposed"]
     distance_km: float | None
+    latitude: float
+    longitude: float
 
 
 class ExposureResponse(BaseModel):
