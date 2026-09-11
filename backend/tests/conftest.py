@@ -1,4 +1,13 @@
 import os
+import sys
+from pathlib import Path
+
+# See app/main.py — same repo-root sys.path bootstrap, needed here too since
+# tests may import app.services.simulation_service (which imports
+# simulation.*) without importing app.main first.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 import pytest
 from sqlalchemy import create_engine, text

@@ -1,12 +1,31 @@
+import sys
+from pathlib import Path
+
+# `simulation/` is a sibling top-level domain (architecture.md §18/§21), not
+# a backend-owned package, and this monorepo deliberately has no per-domain
+# packaging step (architecture.md ADR-002) — so the repo root must be on
+# sys.path before `app.services.simulation_service` imports `simulation.*`.
+# See docs/development/simulation.md.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routes.health import router as health_router
 from app.api.routes.scenarios import router as scenarios_router
+from app.api.routes.simulation_runs import router as simulation_runs_router
 from app.api.websocket.connectivity import router as websocket_router
 from app.config.settings import settings
 from app.services.scenario_service import ScenarioNotFoundError, ScenarioValidationError
+from app.services.simulation_service import (
+    SimulationConfigurationError,
+    SimulationExecutionFailedError,
+    SimulationRunConflictError,
+    SimulationRunNotFoundError,
+)
 
 app = FastAPI(title=settings.app_name)
 
@@ -31,6 +50,27 @@ def handle_scenario_validation_error(request: Request, exc: ScenarioValidationEr
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
+@app.exception_handler(SimulationRunNotFoundError)
+def handle_simulation_run_not_found(request: Request, exc: SimulationRunNotFoundError) -> JSONResponse:
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+
+@app.exception_handler(SimulationRunConflictError)
+def handle_simulation_run_conflict(request: Request, exc: SimulationRunConflictError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(SimulationConfigurationError)
+def handle_simulation_configuration_error(request: Request, exc: SimulationConfigurationError) -> JSONResponse:
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+@app.exception_handler(SimulationExecutionFailedError)
+def handle_simulation_execution_failed(request: Request, exc: SimulationExecutionFailedError) -> JSONResponse:
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+
 app.include_router(health_router)
 app.include_router(websocket_router)
 app.include_router(scenarios_router)
+app.include_router(simulation_runs_router)
