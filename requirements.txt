@@ -1,0 +1,13 @@
+# AQUASHIELD — Python dependencies (backend + simulation + agents + rag)
+# One shared manifest across all Python domains — see architecture.md ADR-002.
+# No packages pinned yet; each is added with a documented reason when first used.
+
+# --- backend (FastAPI, WebSockets, Pydantic) ---
+
+# --- simulation (NumPy, SciPy, xarray, GeoPandas, Shapely, Rasterio) ---
+
+# --- agents (LangGraph) ---
+
+# --- rag (ChromaDB, embeddings) ---
+
+# --- testing (Python test runner) ---

@@ -1,0 +1,69 @@
+# AQUASHIELD
+
+AI-powered Water Disaster Intelligence, Simulation & Response Platform.
+
+## What it is
+
+AQUASHIELD lets a user create and configure a water-related disaster scenario, run it through a physics-based
+simulation, watch it evolve as a 3D animation over time, and receive an AI-generated, RAG-grounded response
+plan — then modify the scenario and re-run the loop.
+
+## Core capabilities
+
+- Disaster-agnostic scenario system: flood, flash flood, coastal flood, storm surge, cyclone, tsunami, oil
+  spill, marine/chemical pollution, maritime search & rescue, and future water-related hazards — all through
+  one common `Scenario` abstraction, not one disaster-specific app.
+- Deterministic simulation engine producing time-series state; the AI interprets that state, it never invents
+  physical outcomes.
+- GPU-efficient 3D visualization (React Three Fiber / Three.js) with full timeline playback (play, pause,
+  scrub, speed, compare).
+- Multi-agent AI (LangGraph) for vulnerability analysis, tactical response, and Incident Action Plan synthesis.
+- Disaster-aware RAG pipeline grounding recommendations in authoritative documents, scoped by disaster type,
+  location, and simulation state.
+
+## High-level architecture
+
+```
+Frontend → FastAPI → Scenario Manager → Simulation Engine → State Store → 3D Renderer
+                                              │
+                                              ▼
+                                     AI Orchestrator → Risk Analysis → RAG → Response Strategy
+                                              │
+                                              ▼
+                                          Frontend
+```
+
+See [architecture.md](architecture.md) for the full system design and [CLAUDE.md](CLAUDE.md) for development
+rules.
+
+## Technology stack
+
+- **Frontend:** React, TypeScript, Vite, React Three Fiber, Three.js, Tailwind CSS, Anime.js
+- **Backend:** Python, FastAPI, WebSockets, Pydantic
+- **Simulation:** NumPy, SciPy, xarray, GeoPandas, Shapely, Rasterio
+- **AI:** LangGraph (LLM provider to be decided)
+- **RAG:** ChromaDB
+- **Testing:** Playwright (e2e), domain-local unit/integration tests
+
+## Development status
+
+Architecture and repository structure established. No application features implemented yet.
+
+## Repository organization
+
+```
+frontend/        React/TS/3D client
+backend/         FastAPI service layer
+simulation/      Disaster-agnostic physics/simulation engine
+agents/          LangGraph multi-agent AI
+rag/             Disaster-aware retrieval-augmented generation
+data/            Environmental/geospatial data (bulk data gitignored)
+shared/          Cross-domain schemas, types, contracts, constants
+tests/           Cross-domain integration/e2e/contract tests
+docs/            Supporting documentation
+scripts/         Developer utility scripts
+infrastructure/  Deployment configuration (future)
+```
+
+Each top-level directory has its own `README.md`. Start there when working in a domain. See
+[docs/development/git-workflow.md](docs/development/git-workflow.md) for branch/ownership conventions.

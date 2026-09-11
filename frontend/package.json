@@ -1,0 +1,10 @@
+{
+  "name": "aquashield-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AQUASHIELD — Water Disaster Intelligence, Simulation & Response Platform (frontend client)",
+  "type": "module",
+  "scripts": {},
+  "dependencies": {},
+  "devDependencies": {}
+}
