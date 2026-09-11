@@ -108,6 +108,39 @@ class ArtifactType(str, enum.Enum):
     OTHER = "other"
 
 
+class GeographicDatasetType(str, enum.Enum):
+    """What kind of real-world geographic layer a GeographicDataset row holds.
+    Extend this, not an if/elif in the ingestion service, when a new provider
+    is added (mirrors simulation/core/registry.py's dispatch-by-string
+    pattern)."""
+
+    COASTLINE = "coastline"
+    LAND_POLYGON = "land_polygon"
+    ADMIN_BOUNDARY = "admin_boundary"
+    OTHER = "other"
+
+
+class GeospatialDataQuality(str, enum.Enum):
+    """Whether real geospatial data could actually be produced for a request —
+    used instead of silently returning an empty list or fabricating geometry
+    (CLAUDE.md: no fake geographic data presented as real)."""
+
+    AVAILABLE = "available"
+    PARTIAL = "partial"
+    UNAVAILABLE = "unavailable"
+    STALE = "stale"
+    UNKNOWN = "unknown"
+
+
+class GeospatialDataCoverage(str, enum.Enum):
+    """The geographic scope a dataset actually covers, so a caller can tell a
+    genuinely local dataset apart from a coarse global one."""
+
+    LOCAL = "local"
+    REGIONAL = "regional"
+    GLOBAL = "global"
+
+
 class EventType(str, enum.Enum):
     SCENARIO_CREATED = "scenario_created"
     SCENARIO_MODIFIED = "scenario_modified"
