@@ -384,3 +384,54 @@ contracts (schemas only, no business logic):
 These stay small and domain-neutral — they describe data shape, not behavior. A shared contract change is
 treated as a deliberate, documented, cross-domain integration change (see `docs/development/git-workflow.md`
 § Shared Contract Changes), never a silent side effect of one branch's feature work.
+
+## 23. Frontend Framework Decision
+
+**Decision:** React + Vite.
+
+**Reason:** AQUASHIELD is primarily an interactive client-side visualization and real-time simulation
+interface (3D/WebGL, WebSocket-driven). Vite gives a simpler development architecture for React/WebGL/WebSocket
+workloads without introducing unnecessary server-side framework complexity at this stage. Next.js is not used
+unless a future requirement (e.g. SSR/SEO for a separate public-facing page) makes it clearly necessary — see
+ADR-001 (§13) for the full comparison and consequences.
+
+## 24. Technology Bootstrap
+
+What the bootstrap phase actually installed and verified (2026-09-11), separated by status. Dependency
+manifests (`frontend/package.json`, root `requirements.txt`) are the source of truth for exact versions.
+
+**IMPLEMENTED** (working, verified end-to-end):
+
+| Piece | Verified |
+|---|---|
+| React + TypeScript + Vite app | builds, type-checks (`strict: true`), dev server serves |
+| Tailwind CSS v4 (`@tailwindcss/vite`) | styles render via `src/styles/index.css` |
+| ESLint (flat config) + Prettier | `npm run lint` passes clean |
+| Vitest + React Testing Library | smoke test passes (`src/app/App.test.tsx`) |
+| FastAPI backend, `GET /health` | returns `{"status":"ok","service":"aquashield-backend"}` |
+| WebSocket `/ws` | accepts connection, sends heartbeat, echoes messages |
+| CORS (dev-only origins) | verified frontend origin allowed via `Origin` header round-trip |
+| Frontend ↔ backend connectivity | frontend's health hook fetches the live backend `/health` |
+| pytest | backend health test passes |
+
+**INSTALLED / NOT IMPLEMENTED** (dependency verified importable, no AQUASHIELD logic built on it yet):
+
+- Three.js, React Three Fiber, @react-three/drei — a `BootstrapCanvas` renders one static mesh purely to prove
+  the React → R3F → Three.js pipeline works; it is not an AQUASHIELD scene.
+- Anime.js — one `useFadeIn` micro-interaction hook proves the import/integration works; no disaster animation.
+- NumPy, SciPy, xarray, Shapely, GeoPandas — import-verified in the venv; no simulation model uses them yet.
+- LangGraph, langchain-core — import-verified; no agent graph exists yet.
+- ChromaDB — import-verified; no ingestion/retrieval pipeline exists yet.
+
+**PLANNED** (not installed):
+
+- Deck.gl — optional; only introduced if a large-scale geospatial layer later demonstrates a clear need beyond
+  what React Three Fiber/Three.js provides.
+- Rasterio — install when a simulation model actually needs raster I/O.
+- Playwright — e2e testing foundation, added when there's a UI flow worth testing end-to-end.
+
+**Known dependency compatibility constraints** (pin to these ranges until upstream catches up):
+
+- `@react-three/fiber@9.x` requires `react`/`react-dom` `>=19 <19.3` — pinned to `19.2.8`, not the newer `19.3.0`.
+- `typescript-eslint@8.70.0` requires `typescript <6.1.0` — pinned to `5.9.3`, not the newer `7.0.2` (TypeScript's
+  new Go-based compiler line), until typescript-eslint adds support.

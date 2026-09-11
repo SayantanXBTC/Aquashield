@@ -595,3 +595,27 @@ in architecture.md §19–22.
 - Rewrite shared/pushed history without permission.
 - Commit secrets, `.env`, credentials, or huge datasets.
 - Make silent architectural changes (see §20).
+
+## 23. Bootstrap Status
+
+Full detail (verification results, pinned-version constraints): architecture.md §24 Technology Bootstrap.
+
+| Piece | Status |
+|---|---|
+| Frontend — React + TypeScript + Vite | BOOTSTRAPPED |
+| 3D — Three.js + React Three Fiber + Drei | dependency foundation only |
+| Animation — Anime.js | dependency foundation only |
+| Styling — Tailwind CSS | BOOTSTRAPPED |
+| Backend — FastAPI + Pydantic + Uvicorn + WebSockets | BOOTSTRAPPED |
+| Scientific — NumPy + SciPy + xarray | dependency foundation only |
+| Geospatial — Shapely + GeoPandas | dependency foundation only |
+| AI — LangGraph | dependency foundation only |
+| RAG — ChromaDB | dependency foundation only |
+| Testing — Vitest / pytest | BOOTSTRAPPED |
+| Testing — Playwright | PLANNED |
+| Deck.gl | PLANNED / OPTIONAL |
+| Rasterio | PLANNED |
+
+"Dependency foundation only" means the package is installed and import-verified, with no AQUASHIELD logic
+built on it — do not treat its presence in `node_modules`/the venv as a green light to start implementing the
+feature it will eventually power without an explicit instruction to do so.
