@@ -328,3 +328,59 @@ scoped to one domain (e.g. `feature/flood-model` → `simulation/models/flood/`)
 domain's files to land it. Cross-domain integration happens by consuming `shared/` contracts, not by editing
 another domain's internals. Full conflict-prevention rules and the branch-naming convention are documented in
 `docs/development/git-workflow.md`.
+
+## 19. Git Architecture
+
+```
+main        (stable, release/demo-ready)
+ ↓
+develop     (integration branch)
+ ↓
+feature/*   (one bounded unit of work, scoped to a domain)
+```
+
+Feature branches are named after the work they do, not the domain they live in (`feature/flood-simulation`,
+not `simulation`) — see `docs/development/git-workflow.md` for the full convention. Work lands on `develop`
+first; `main` only receives stable, integrated, tested state.
+
+## 20. Repository Ownership
+
+| Domain | Directory |
+|---|---|
+| Frontend | `frontend/` |
+| 3D visualization | `frontend/src/three/` |
+| Animation | `frontend/src/animations/` |
+| Backend | `backend/` |
+| Simulation | `simulation/` |
+| Agents | `agents/` |
+| RAG | `rag/` |
+| Data | `data/` |
+| Shared contracts | `shared/` |
+| Tests (cross-domain) | `tests/` |
+| Documentation | `docs/` |
+
+## 21. Integration Boundaries
+
+```
+Frontend ↔ Backend         REST + WebSocket contracts (shared/contracts, shared/types)
+Backend  ↔ Simulation      Backend services call simulation/core's DisasterScenario interface
+Simulation ↔ Agents        Agents read structured SimulationState — they never compute it
+Agents   ↔ RAG             Agents call rag/ only through agents/tools/retrieval/
+Backend  ↔ Frontend        WebSocket telemetry (simulation/agent state) + REST (scenario CRUD)
+```
+
+Every arrow above crosses a domain boundary through a `shared/` contract or a defined tool interface — never
+through one domain reaching into another's internal files.
+
+## 22. Shared Contract Strategy
+
+`shared/` exists so independent branches don't invent incompatible data shapes for the same concept — e.g. the
+frontend's idea of a "Scenario" must stay identical to the backend's and the agents'. Initial conceptual
+contracts (schemas only, no business logic):
+
+`Scenario`, `SimulationState`, `TimelineFrame`, `RiskAssessment`, `VulnerabilityResult`, `AgentRequest`,
+`AgentResponse`, `RAGQuery`, `RAGResult`, `ResponseRecommendation`, `IncidentActionPlan`, `WebSocketEvent`.
+
+These stay small and domain-neutral — they describe data shape, not behavior. A shared contract change is
+treated as a deliberate, documented, cross-domain integration change (see `docs/development/git-workflow.md`
+§ Shared Contract Changes), never a silent side effect of one branch's feature work.

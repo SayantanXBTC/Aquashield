@@ -1,5 +1,31 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-11 — GIT FOUNDATION
+
+**Added/Changed:**
+- Initialized Git repository.
+- Connected project to GitHub (`https://github.com/SayantanXBTC/Aquashield.git`).
+- Established `main` branch (root commit `c058d45`, pushed).
+- Established `develop` integration branch (pushed).
+- Established feature branch strategy and commit convention.
+- Extended `.gitignore` to exclude `.claude/` and `skills-lock.json` (Claude Code project config, not part of the application).
+- Documented Git architecture, repository ownership, integration boundaries, and shared contract strategy in architecture.md.
+- Documented Git rules in CLAUDE.md.
+- Expanded docs/development/git-workflow.md with commit convention, feature workflow, shared-contract-change process, and emergency rules.
+
+**Why:**
+- `.claude/` and `skills-lock.json` are local Claude Code tooling config, not application source — keeping them out of the repo avoids polluting the GitHub history with editor/agent tooling state.
+- A documented branch/commit strategy up front avoids ad hoc conventions once multiple contributors/branches are active.
+
+**Files/Modules:**
+- .gitignore, CLAUDE.md, architecture.md, docs/development/git-workflow.md, CHANGELOG.md.
+
+**Future Context:**
+- Feature work should branch from `develop`, never from `main` directly.
+- `develop` is the integration branch; `main` contains stable/release-ready code only.
+- Shared contracts (`shared/`) are the integration boundary between domains — see architecture.md §22.
+- No `feature/*` branches created yet — created only when the corresponding work starts.
+
 ### 2026-09-11 — REPOSITORY STRUCTURE ESTABLISHED
 
 **Added:**

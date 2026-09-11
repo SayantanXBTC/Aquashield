@@ -558,3 +558,40 @@ owns. When working in this repository, Claude must:
   single-domain change, don't make unrelated formatting edits alongside feature work.
 - Read CLAUDE.md, architecture.md, and the relevant domain's `README.md` before restructuring anything.
 - Update architecture.md and CHANGELOG.md when a structural decision changes (per §19).
+
+## 22. Git Rules
+
+Repository: `main` (stable/release-ready) → `develop` (integration) → `feature/*` (bounded, domain-scoped work).
+Full branch/commit conventions live in `docs/development/git-workflow.md`; architecture-level git structure is
+in architecture.md §19–22.
+
+**Before significant work:**
+
+- Check `git status` and the current branch.
+- Read recent commits (`git log --oneline -n 10`).
+- Read relevant architecture documentation for the domain being touched.
+- Determine the intended feature scope before editing.
+
+**During work:**
+
+- Modify only files relevant to the task's domain.
+- Avoid unrelated formatting or refactoring riding along with a feature change.
+- Avoid mass dependency upgrades.
+- Avoid moving files without an architectural reason, documented in architecture.md/CHANGELOG.md.
+
+**After work:**
+
+- Run relevant tests.
+- Check `git diff` before staging.
+- Update documentation and CHANGELOG.md.
+- Confirm no secrets, `.env`, or generated/bulk data are staged (`git status` after `git add`).
+- Commit only when the work is logically complete, using the conventional-commit format.
+
+**Never:**
+
+- Force push.
+- Reset or discard a user's or another contributor's work.
+- Delete branches without explicit permission.
+- Rewrite shared/pushed history without permission.
+- Commit secrets, `.env`, credentials, or huge datasets.
+- Make silent architectural changes (see §20).
