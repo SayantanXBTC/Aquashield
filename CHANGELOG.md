@@ -1,5 +1,46 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-11 — TECHNOLOGY BOOTSTRAP
+
+**Added/Changed:**
+- Bootstrapped React + TypeScript + Vite frontend (`frontend/`), strict TypeScript, Tailwind CSS v4.
+- Added Three.js / React Three Fiber / Drei foundation — a minimal `BootstrapCanvas` verifies the render
+  pipeline; not an AQUASHIELD scene.
+- Added Anime.js foundation — a minimal `useFadeIn` micro-interaction hook verifies the integration.
+- Added ESLint (flat config) + Prettier; `npm run lint` and `npm run build` pass clean.
+- Added Vitest + React Testing Library; one smoke test passes.
+- Bootstrapped FastAPI backend (`backend/`) with `GET /health` and a `/ws` connectivity-check WebSocket.
+- Configured dev-only CORS on the backend for the Vite dev origin.
+- Added Python scientific/geospatial dependencies (NumPy, SciPy, xarray, Shapely, GeoPandas) — import-verified.
+- Added LangGraph + langchain-core, ChromaDB — import-verified, not implemented.
+- Added pytest backend test for `/health`.
+- Added `frontend/.env.example` and `backend/.env.example`; documented env vars in docs/development/setup.md.
+- Added docs/development/setup.md; updated root README.md with a Development Setup section.
+- Updated architecture.md (§23 Frontend Framework Decision, §24 Technology Bootstrap) and CLAUDE.md (§23
+  Bootstrap Status).
+
+**Why:**
+- A runnable skeleton (frontend serving, backend serving, frontend reaching backend over REST and WebSocket)
+  is required before any real feature work can build on top of it.
+- `react`/`react-dom` pinned to `19.2.8` (not `19.3.0`) because `@react-three/fiber@9.x` requires `react <19.3`.
+- `typescript` pinned to `5.9.3` (not the new `7.0.2` Go-based compiler line) because `typescript-eslint@8.70.0`
+  requires `typescript <6.1.0`.
+
+**Files/Modules:**
+- frontend/ (package.json, vite.config.ts, tsconfig.json, index.html, eslint.config.js, .prettierrc.json,
+  src/main.tsx, src/app/App.tsx(+test), src/api/health.ts, src/hooks/useHealthCheck.ts,
+  src/three/core/BootstrapCanvas.tsx, src/animations/micro-interactions/useFadeIn.ts, src/styles/index.css,
+  src/test/setup.ts, src/vite-env.d.ts, .env.example)
+- backend/ (app/main.py, app/config/settings.py, app/api/routes/health.py,
+  app/api/websocket/connectivity.py, tests/test_health.py, .env.example)
+- requirements.txt (pinned), architecture.md, CLAUDE.md, README.md, docs/development/setup.md.
+
+**Future Context:**
+- No disaster simulation, AI agents, RAG pipeline, or production 3D environment implemented yet.
+- `.venv/` is a single shared Python environment for backend/simulation/agents/rag (ADR-002) — created at repo
+  root, not inside `backend/`.
+- Branch: `feature/project-bootstrap`, off `develop`.
+
 ### 2026-09-11 — GIT FOUNDATION
 
 **Added/Changed:**

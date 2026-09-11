@@ -47,7 +47,33 @@ rules.
 
 ## Development status
 
-Architecture and repository structure established. No application features implemented yet.
+Technology bootstrap complete: frontend and backend both run, talk to each other, and have working
+lint/type-check/test pipelines. No application features implemented yet — see architecture.md's Technology
+Bootstrap section for exactly what's installed vs. implemented vs. planned.
+
+## Development Setup
+
+**Frontend:**
+
+```
+cd frontend
+npm install
+npm run dev       # http://localhost:5173
+npm run build     # type-check + production build
+npm run test       # Vitest
+npm run lint       # ESLint
+```
+
+**Backend:**
+
+```
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cd backend && uvicorn app.main:app --reload   # http://127.0.0.1:8000
+pytest   # from repo root, with the venv active
+```
+
+Full setup, environment variables, and troubleshooting: [docs/development/setup.md](docs/development/setup.md).
 
 ## Repository organization
 
