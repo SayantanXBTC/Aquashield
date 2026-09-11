@@ -17,8 +17,20 @@ interface LandmassProps {
  * CLAUDE.md §16) shaped by a radial falloff so the edges submerge under
  * WaterSurface, reading as a coastline rather than a floating disc.
  * VISUAL DEMONSTRATION ONLY — see docs/development/command-center.md.
+ *
+ * Prompt 8.1 correction: the previous defaults (radius 70, peakHeight 9)
+ * produced a low, wide plateau that was mostly flat "sand" tone — from the
+ * command center's default camera distance it read as a pale grey polygon
+ * rather than terrain. Fixed by (a) a smaller footprint relative to the
+ * water plane and camera framing so it reads as a coastal accent, not the
+ * dominant object in frame, (b) a taller peak-to-radius ratio plus a
+ * higher-frequency noise octave for visible ridges instead of a smooth
+ * dome, and (c) a color ramp that spends most of its range in
+ * vegetation/rock tones with only a thin waterline sand fringe that blends
+ * toward the water's own shallow color, so the land/water seam reads as a
+ * coastline rather than a hard material cutoff.
  */
-export function Landmass({ radius = 70, segments = 96, peakHeight = 9 }: LandmassProps) {
+export function Landmass({ radius = 46, segments = 112, peakHeight = 16 }: LandmassProps) {
   const geometry = useMemo(() => {
     const size = radius * 2.4;
     const geo = new PlaneGeometry(size, size, segments, segments);
@@ -33,16 +45,17 @@ export function Landmass({ radius = 70, segments = 96, peakHeight = 9 }: Landmas
       const noise =
         Math.sin(x * 0.05) * Math.cos(y * 0.06) * 0.5 +
         Math.sin(x * 0.12 + y * 0.03) * 0.3 +
-        Math.cos(y * 0.09 - x * 0.02) * 0.2;
-      const height = (noise * 0.5 + 0.5) * peakHeight * falloff ** 1.6 - peakHeight * 0.18;
+        Math.cos(y * 0.09 - x * 0.02) * 0.2 +
+        Math.sin(x * 0.34 - y * 0.29) * 0.08;
+      const height = (noise * 0.5 + 0.5) * peakHeight * falloff ** 1.4 - peakHeight * 0.22;
       position.setZ(i, height);
 
       const t = Math.max(0, Math.min(1, height / peakHeight));
-      // sand (low) -> vegetation (mid) -> rock (high)
-      const sand: [number, number, number] = [0.63, 0.56, 0.42];
-      const veg: [number, number, number] = [0.16, 0.27, 0.2];
-      const rock: [number, number, number] = [0.32, 0.33, 0.34];
-      const mix = t < 0.4 ? lerpColor(sand, veg, t / 0.4) : lerpColor(veg, rock, (t - 0.4) / 0.6);
+      // waterline shelf (blends into water) -> vegetation -> weathered rock
+      const shelf: [number, number, number] = [0.16, 0.24, 0.26];
+      const veg: [number, number, number] = [0.13, 0.22, 0.16];
+      const rock: [number, number, number] = [0.29, 0.3, 0.31];
+      const mix = t < 0.12 ? lerpColor(shelf, veg, t / 0.12) : lerpColor(veg, rock, (t - 0.12) / 0.88);
       colors[i * 3] = mix[0];
       colors[i * 3 + 1] = mix[1];
       colors[i * 3 + 2] = mix[2];
@@ -54,8 +67,8 @@ export function Landmass({ radius = 70, segments = 96, peakHeight = 9 }: Landmas
   }, [radius, segments, peakHeight]);
 
   return (
-    <mesh geometry={geometry} rotation={[-Math.PI / 2, 0, 0]} receiveShadow castShadow>
-      <meshStandardMaterial vertexColors roughness={0.95} metalness={0} />
+    <mesh geometry={geometry} position={[38, -0.4, 22]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow castShadow>
+      <meshStandardMaterial vertexColors roughness={0.92} metalness={0.02} />
     </mesh>
   );
 }

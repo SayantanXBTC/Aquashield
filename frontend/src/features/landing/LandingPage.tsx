@@ -1,10 +1,10 @@
 import { Link } from "react-router-dom";
-import { ScrollSequence } from "./ScrollSequence";
+import { CinematicScroll } from "./CinematicScroll";
 import { LANDING_IMAGE_CREDIT } from "./landingAssets";
 
-/** The landing route ("/") — the six-beat scroll sequence, ending in a
- * link into the dedicated "/explore" gateway (its own route, not a modal,
- * per Prompt 8's routing architecture). */
+/** The landing route ("/") — the six-scene cinematic scroll stage
+ * (CinematicScroll), ending in a link into the dedicated "/explore" gateway
+ * (its own route, not a modal, per Prompt 8's routing architecture). */
 export function LandingPage() {
   return (
     <main className="bg-void relative">
@@ -12,7 +12,7 @@ export function LandingPage() {
         AQUASHIELD
       </div>
 
-      <ScrollSequence />
+      <CinematicScroll />
 
       <section className="flex h-[40vh] w-full flex-col items-center justify-center gap-4 text-center">
         <Link

@@ -1,4 +1,4 @@
-import { CommandButton, CommandPanel, DataReadout, EmptyState, ErrorState, StatusIndicator } from "@/components/ui";
+import { CommandButton, CommandPanel, DataReadout, EmptyState, ErrorState, SectionLabel, StatusIndicator } from "@/components/ui";
 import type { StatusTone } from "@/components/ui";
 import type { SimulationRunDetail, SimulationStatus, TimelineFrame } from "../types";
 
@@ -103,7 +103,13 @@ export function SimulationStatusPanel({
             {currentFrameLabel ? <p className="text-ink-soft font-mono text-xs">{currentFrameLabel}</p> : null}
           </div>
         ) : runDetail?.status === "completed" ? (
-          <EmptyState title="Timeline data unavailable" />
+          <div className="border-hairline flex flex-col gap-1 border-t pt-3">
+            <SectionLabel>Simulation timeline</SectionLabel>
+            <EmptyState
+              title="Awaiting playback data"
+              detail="This run completed without timeline frames. Timeline playback and scrubbing arrive in a future phase."
+            />
+          </div>
         ) : null}
       </div>
     </CommandPanel>
