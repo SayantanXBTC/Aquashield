@@ -1,1 +1,16 @@
 @import "tailwindcss";
+@import "./tokens.css";
+
+body {
+  background: var(--color-void);
+  color: var(--color-ink);
+  font-family: var(--font-ui);
+}
+
+/* Thin, dark scrollbar — matches the command-center visual language instead
+   of the OS default light scrollbar. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-hairline-strong) transparent;
+}
+

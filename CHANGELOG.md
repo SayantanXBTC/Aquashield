@@ -1,5 +1,76 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-12 — AAA 3D Command Center & Landing
+
+**Added/Changed:**
+- Routing (`react-router-dom@7.18.3`, first router in the project — ADR-001's deferred decision): `/`
+  (landing), `/explore` (gateway), `/command-center` (lazy-loaded), `/scenarios` (Prompt 6 builder,
+  preserved, also lazy-loaded).
+- Cinematic landing (`frontend/src/features/landing/`): a six-beat scroll sequence built from the six
+  provided assets (repo-root `assets/image1-6.png`, resized/re-encoded into
+  `frontend/src/assets/landing/*.jpg` — not replaced or substituted), explicit asset->beat mapping
+  (`landingAssets.ts`), Anime.js v4 scroll-scrubbed parallax + threshold text reveal, all reverted on
+  unmount. `ExploreGatewayPage` hosts a from-scratch `LiquidMetalButton` CTA (rotating conic-gradient
+  border) with a real page-transition into the command center.
+- Anime.js v4 utility layer (`frontend/src/animations/{presets,transitions,scroll,stagger,cleanup}.ts`) —
+  reusable primitives, promise-based whole-screen transitions, one cleanup path every animation goes
+  through.
+- Full Three.js/R3F/Drei scene graph (`frontend/src/three/`): `AquaCanvas`/`SceneRoot` (the one `<Canvas>`
+  in the app), `CameraController`/`LightingSystem`/`EnvironmentSystem`, a custom vertex/fragment water
+  shader, a procedurally displaced landmass, GPU-instanced particles, and a marker/label system.
+- `three/adapters/simulationVisualAdapter.ts` — the seam between Prompt 7's `SimulationState` and
+  rendering — plus `three/disasters/registry.ts` and five visualizers (flood, tsunami, cyclone, oil spill,
+  search & rescue; `chemical_pollution`/`flash_flood`/`coastal_flood`/`storm_surge` reuse the same pattern
+  `simulation/core/registry.py` established server-side).
+- Command center feature (`frontend/src/features/command-center/`): real integration with Prompt 7 —
+  scenario selection, run creation/execution (`POST /simulation-runs/{id}/execute`), timeline retrieval,
+  frame selection — with loading/error/empty states throughout, no fabricated data.
+- Reusable UI component library + design tokens (`frontend/src/components/ui/`,
+  `frontend/src/styles/tokens.css` — Tailwind v4 `@theme`).
+- Shared contract addition: `SimulationRunDetail`, `SimulationArtifactOut`, `TimelineResponse` in
+  `shared/types/index.ts`, mirroring `backend/app/schemas/simulation.py` (its first frontend consumer).
+- Lazy loading: `CommandCenterPage` and `ScenarioBuilderFeature` are both `React.lazy`/`Suspense`; verified
+  via `npm run build` chunk output (initial bundle ~97 KB gzip; the Three.js-heavy command center chunk,
+  ~255 KB gzip, loads only on `/command-center`).
+- 30 new frontend tests (registry, adapter, pipeline, landing assets, command center data flow with a
+  mocked API, app routing) — 37 total, all passing. `npm run lint`/`npm run build` clean.
+- Removed the now-superseded bootstrap-phase `three/core/BootstrapCanvas.tsx` (unreferenced once
+  `SceneRoot` existed).
+- `docs/development/command-center.md`; updates to architecture.md (§28), CLAUDE.md (§27).
+
+**Why:**
+- Establishes the first visually complete AQUASHIELD experience and the reusable 3D/animation/UI
+  architecture Prompts 9-14 build on, per this phase's explicit brief — a real seam
+  (`simulationVisualAdapter`) between Prompt 7's simulation contracts and the 3D scene, not a hardcoded
+  demo.
+- The six provided images, not placeholders, needed an explicit mapping/config (not scattered hardcoded
+  paths) so the disaster categories they represent stay traceable to their source files.
+- Routing was added now because this phase is the first time the app has more than one distinct,
+  URL-addressable screen — exactly the condition ADR-001 set for introducing one.
+
+**Files/Modules:**
+- `frontend/src/features/landing/**`, `frontend/src/features/command-center/**`,
+  `frontend/src/three/**`, `frontend/src/animations/{cleanup,presets,scroll,stagger,transitions}.ts`,
+  `frontend/src/components/ui/**`, `frontend/src/components/ErrorBoundary.tsx`,
+  `frontend/src/hooks/usePrefersReducedMotion.ts`, `frontend/src/styles/tokens.css`,
+  `frontend/src/app/App.tsx(+test)`, `frontend/package.json` (react-router-dom).
+- `frontend/src/assets/landing/*.jpg` (from repo-root `assets/*.png`, resized/re-encoded).
+- `shared/types/index.ts`.
+- `docs/development/command-center.md`, `architecture.md`, `CLAUDE.md`.
+
+**Future Context:**
+- No timeline playback/scrubbing, WebSocket streaming, risk engine, AI agents, RAG, or response planning —
+  exactly as scoped (Prompt 8's explicit hard stop). `useCommandCenterSession`'s single-frame selector is
+  the foundation Prompt 9 extends into full playback.
+- No automated WebGL scene-render test: `@react-three/test-renderer` was evaluated and dropped — its mock
+  GL context doesn't implement `texImage3D`, which `three@0.186.0`'s `WebGLRenderer` now requires
+  unconditionally. Scene-graph correctness is covered at the adapter/registry seam instead
+  (`three/pipeline.test.ts` and friends); see docs/development/command-center.md "Known limitation."
+- No browser automation was available in this environment — the production build, lint, and full test
+  suite are verified; actual rendered visual/interactive behavior (scroll feel, 3D rendering, click-through
+  flow) was not, and should be checked in a real browser before this is treated as demo-ready.
+- Branch: `feature/aaa-3d-command-center`, off `develop`. Not merged into `main` in this task.
+
 ### 2026-09-12 — Simulation Engine Foundation
 
 **Added/Changed:**
