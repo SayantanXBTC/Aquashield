@@ -20,7 +20,8 @@ export function ScenarioDetailPage({ scenarioId, onBack, onDuplicated }: Scenari
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const { form, errors, setField, setDisasterType, setConfigField, validate, reset } = useScenarioForm();
+  const { form, errors, setField, setDisasterType, setConfigField, applyDemoTemplate, validate, reset } =
+    useScenarioForm();
 
   function startEditing() {
     if (!scenario) return;
@@ -91,6 +92,7 @@ export function ScenarioDetailPage({ scenarioId, onBack, onDuplicated }: Scenari
           onFieldChange={setField}
           onDisasterTypeChange={setDisasterType}
           onConfigFieldChange={setConfigField}
+          onApplyDemoTemplate={applyDemoTemplate}
           onSubmit={handleSave}
           onCancel={() => setEditing(false)}
         />

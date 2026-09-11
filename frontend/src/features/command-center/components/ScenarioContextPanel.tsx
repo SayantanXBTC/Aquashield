@@ -1,5 +1,13 @@
+import { Link } from "react-router-dom";
 import { CommandPanel, DataReadout, EmptyState, ErrorState, SectionLabel } from "@/components/ui";
 import type { ScenarioDetail, ScenarioListItem } from "../types";
+
+// Matches CommandButton's default-tone classes exactly (frontend/src/
+// components/ui/CommandButton.tsx) so the link reads as the same control
+// family — CommandButton itself always renders a <button>, which can't
+// carry react-router-dom's client-side navigation the way <Link> does.
+const NEW_SCENARIO_LINK_CLASSNAME =
+  "rounded-[var(--radius-control)] border px-3 py-1.5 text-xs font-medium tracking-wide transition-colors duration-[var(--duration-fast)] focus-visible:ring-accent-strong focus-visible:ring-2 focus-visible:outline-none border-hairline-strong text-ink-soft hover:bg-surface-raised hover:text-ink";
 
 interface ScenarioContextPanelProps {
   scenarios: ScenarioListItem[];
@@ -23,7 +31,18 @@ export function ScenarioContextPanel({
   scenarioError,
 }: ScenarioContextPanelProps) {
   return (
-    <CommandPanel title="Scenario">
+    <CommandPanel
+      title="Scenario"
+      action={
+        // A door to the existing Scenario Builder's creation flow — the
+        // Command Center stays read/execute-focused and never grows a
+        // second scenario-creation form of its own (CLAUDE.md §21,
+        // docs/development/command-center.md "New scenario link").
+        <Link to="/scenarios" className={NEW_SCENARIO_LINK_CLASSNAME}>
+          New scenario
+        </Link>
+      }
+    >
       <div className="flex flex-col gap-4">
         {scenariosStatus === "error" ? (
           <ErrorState title="Scenarios unavailable" detail={scenariosError ?? undefined} />

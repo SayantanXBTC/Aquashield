@@ -113,6 +113,13 @@ validated; see each model's docstring/`assumptions` list for exactly what's simp
 matching `scenario_config.py`'s existing reuse of `OilSpillConfig` for the same disaster type. Add a
 dedicated pollution model there (and register it) only if it later needs genuinely different physics.
 
+This table's `model_identifier` column is exactly what `GET /disaster-types` reports per disaster type
+(`backend/app/core/disaster_catalog.py` resolves it live through `simulation.core.registry.get_model_class`,
+never a second hardcoded copy) — a `storm_surge` scenario's run honestly shows `model_identifier:
+"cyclone-demo-v1"`, never a fabricated per-type id. See docs/development/scenarios.md "Complete disaster
+catalog" for the discovery endpoint and the parameter-consumption honesty matrix (exactly which exposed
+config fields each model above actually reads vs. accepts-but-ignores).
+
 ## Simulation run lifecycle
 
 ```

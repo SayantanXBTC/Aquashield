@@ -1,6 +1,7 @@
 // Re-exported from the cross-domain shared contracts (architecture.md §22) —
 // this feature never redefines these shapes locally.
 export type {
+  DisasterCatalogEntry,
   DisasterType,
   Page,
   Scenario,

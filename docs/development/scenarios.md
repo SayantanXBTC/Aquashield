@@ -142,6 +142,111 @@ request validation (missing/invalid fields, bad enum values, out-of-range coordi
   `tsconfig.json`) resolving to `../shared` — Vite's dev server `fs.allow` is extended to permit reading
   outside `frontend/`'s own root for exactly this cross-domain import.
 
+## Complete disaster catalog (Prompt 9.1)
+
+**Disaster type vs. scenario instance** — kept deliberately distinct throughout this system:
+
+```
+DISASTER TYPE (one of 9, fixed)          SCENARIO INSTANCE (unbounded, user-created)
+  flood                          ─────►    "Demo Monsoon Flood — Ganges Delta"
+                                  ─────►    "River Flood — Rotterdam"
+  cyclone                        ─────►    "Cyclone Landfall — Bay of Bengal"
+```
+
+A disaster type is a fixed point in four parallel, hand-kept-in-sync registries (CLAUDE.md §25 already
+establishes and justifies this pattern — none of these are generated from one another):
+
+```
+DisasterType enum (backend/app/db/models/enums.py, shared/types)
+        │
+        ├─► DISASTER_CONFIG_SCHEMAS (backend/app/schemas/scenario_config.py)      — validates scenario_config
+        ├─► DISASTER_FIELD_SPECS / DISASTER_TYPE_DEFAULTS (frontend disasterFieldSpecs.ts) — renders the form
+        ├─► MODEL_REGISTRY (simulation/core/registry.py)                          — resolves a DisasterModel
+        └─► disasters/registry.ts (frontend three/disasters/)                     — resolves a visualizer
+```
+
+All 9 values (`flood`, `flash_flood`, `coastal_flood`, `storm_surge`, `cyclone`, `tsunami`, `oil_spill`,
+`chemical_pollution`, `search_rescue`) were already wired through all four registries as of Prompt 6-8 — a
+user could already create a scenario of any of the 9 types via the Scenario Builder (`/scenarios`) before
+this pass. What Prompt 9.1 actually fixed was **discoverability**, not catalog completeness:
+
+- The Command Center's scenario selector only lists `status="ready"` scenarios (`useCommandCenterSession`),
+  and the dev seed data only had 2-3 of the 9 types in that state — so the running app visibly looked like
+  it only supported 2 disaster types even though the backend/frontend already supported 9. Fixed by adding
+  one `READY` demo scenario per previously-unrepresented type to `backend/app/db/seed.py` (idempotent —
+  `_ensure_scenario` looks each up by name before inserting, safe to re-run) and adding a "New scenario" link
+  from the Command Center's scenario panel to `/scenarios`.
+- Scenario templates (§17 of the prompt): `DISASTER_TYPE_DEFAULTS` in `disasterFieldSpecs.ts` + a "Use demo
+  template" button in `ScenarioForm.tsx` — a frontend-only convenience that pre-fills the form, explicitly
+  labeled "Demo template values — not a real historical event." Not persisted as extra database rows.
+- `ScenarioForm.tsx`/`FormField.tsx`/`DisasterParameterFields.tsx` were restyled onto the Prompt 8 design
+  tokens (`bg-surface`/`text-ink`/`border-hairline`/etc.) and `components/ui` primitives (`CommandButton`,
+  `SectionLabel`), replacing raw Tailwind slate/sky classes that predated that system.
+- A real bug was found and fixed while wiring this up: `ScenarioForm`'s `<form>` had no `noValidate`, so a
+  disaster-specific field with an HTML `max`/`min` attribute (e.g. cyclone's `central_pressure_hpa`,
+  `max=1050`) triggered the *browser's* native constraint-validation UI and silently blocked submission
+  before React's own `validateScenarioForm` ever ran — the styled, accessible error message never had a
+  chance to appear. Fixed by adding `noValidate` to the form so the app's own validation is the only gate.
+
+### Discovery endpoint: `GET /disaster-types`
+
+Additive, read-only, **not** a replacement for the parallel-registry pattern above. It exists so a client
+(or a developer) can ask "what disaster types exist and what actually powers them" without reading four
+separate files:
+
+```
+GET /disaster-types
+        ↓
+app/api/routes/disaster_types.py (route — no logic)
+        ↓
+app/core/disaster_catalog.py — build_disaster_catalog()
+        ↓
+reads: DISASTER_CONFIG_SCHEMAS (for parameter_keys) + simulation.core.registry.get_model_class (for the
+       real model_identifier) — never a second hardcoded copy of either
+        ↓
+[{ disaster_type, display_name, short_description, category, model_identifier, parameter_keys }, ...]
+```
+
+`model_identifier` is resolved live through the simulation model registry, so a `storm_surge` entry honestly
+reports `"cyclone-demo-v1"` — never a fabricated `"storm-surge-demo-v1"` — matching exactly what a
+`storm_surge` `SimulationRun` actually records. The Scenario Builder's form does **not** currently consume
+this endpoint as its live data source — `disasterFieldSpecs.ts` stays that, by hand, for the same reason
+`DISASTER_CONFIG_SCHEMAS` isn't auto-derived into it (CLAUDE.md §25). Shared contract:
+`shared/types/index.ts`'s `DisasterCatalogEntry`, mirroring `backend/app/schemas/disaster_catalog.py`.
+
+### Parameter-consumption honesty matrix
+
+Every exposed form field, checked against what each disaster type's underlying `simulation/models/*/model.py`
+`initialize()`/`step()`/`get_state()` actually reads (not what `scenario_config.py` merely *validates* —
+validation and physical consumption are different questions). "Used by current model?" means the value
+measurably changes the model's computed output; "Metadata only" means it's read and/or echoed back in
+`environmental_state`/`hazard_state` for display, but does not affect any computed quantity.
+
+| Disaster type(s) | Parameter | Unit | Used by current model? | Notes |
+|---|---|---|---|---|
+| flood, flash_flood, coastal_flood | `rainfall_mm_24h` | mm/24h | ✅ Yes | Derives the rise rate when `water_rise_rate_m_per_hr` isn't set |
+| flood, flash_flood, coastal_flood | `river_level_m` | m | ✅ Yes | Initial water level |
+| flood, flash_flood, coastal_flood | `water_rise_rate_m_per_hr` | m/hr | ✅ Yes | Overrides the rainfall-derived rate when set |
+| flood, flash_flood, coastal_flood | `drainage_capacity_pct` | % | ✅ Yes | Reduces the rise rate |
+| storm_surge, cyclone | `wind_speed_kt` | kt | ✅ Yes | Initial wind speed (decays over the run) |
+| storm_surge, cyclone | `radius_km` | km | ✅ Yes | Initial hazard radius (grows over the run) |
+| storm_surge, cyclone | `central_pressure_hpa` | hPa | ○ Metadata only | Read and echoed in `environmental_state`; does not affect wind speed, track, or radius in the current demo model |
+| tsunami | `source_latitude` / `source_longitude` | ° | ✅ Yes | Wave origin; drives distance-to-coast and arrival time |
+| tsunami | `initial_wave_height_m` | m | ✅ Yes | Starting wave height (decays with arrival progress) |
+| tsunami | `magnitude` | — | ○ Metadata only | Read and echoed in `hazard_state`; does not affect wave height, speed, or arrival time in the current demo model |
+| tsunami | `propagation_direction_deg` | ° | ○ Not read at all | Accepted by `TsunamiConfig`/exposed in the form, but the current model never reads this key |
+| oil_spill, chemical_pollution | `spill_volume_tonnes` | tonnes | ✅ Yes | Drives slick area growth |
+| oil_spill, chemical_pollution | `wind_speed_kt` / `wind_direction_deg` | kt / ° | ✅ Yes | Windage component of drift (3% of wind speed) |
+| oil_spill, chemical_pollution | `current_speed_kt` / `current_direction_deg` | kt / ° | ✅ Yes | Dominant drift component when current exceeds windage |
+| oil_spill, chemical_pollution | `oil_type` | — | ○ Metadata only | Read and echoed in `environmental_state`; does not affect drift speed, area, or concentration decay |
+| search_rescue | `search_radius_km` | km | ✅ Yes | Initial search radius (grows with elapsed time) |
+| search_rescue | `vessel_type` | — | ○ Metadata only | Read and echoed in `environmental_state`; does not affect drift or search radius |
+
+None of the "metadata only"/"not read" rows are hidden from the user or silently dropped — they're accepted,
+stored, and (where echoed) visible in the run's `hazard_state`/`environmental_state`. This table exists so
+that fact is explicit rather than discovered by reading five model files, and so a future real model
+(Prompt 10+) has a documented list of which fields it would need to start actually consuming.
+
 ## Future simulation integration
 
 When the simulation engine (Prompt 7+) exists, it will consume a `SimulationRun` row + its

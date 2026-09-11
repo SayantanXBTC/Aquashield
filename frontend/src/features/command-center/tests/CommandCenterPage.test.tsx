@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 
 vi.mock("@/features/scenario-builder/api/scenarioApi", () => ({
   ApiError: class ApiError extends Error {
@@ -79,6 +80,13 @@ const PENDING_RUN = {
   created_at: "2026-01-01T00:00:00Z",
 };
 
+// ScenarioContextPanel renders a react-router `Link` ("New scenario" —
+// Prompt 9.1) so every render needs a Router ancestor, same as App.test.tsx
+// gets for free from <App>'s own <BrowserRouter>.
+function renderPage() {
+  return render(<CommandCenterPage />, { wrapper: MemoryRouter });
+}
+
 function mockScenariosResolved() {
   vi.mocked(scenarioApi.getScenarios).mockResolvedValue({
     items: [SCENARIO_LIST_ITEM],
@@ -108,7 +116,7 @@ describe("CommandCenterPage", () => {
 
   it("loads the scenario, its pending run, and renders the viewport", async () => {
     mockScenariosResolved();
-    render(<CommandCenterPage />);
+    renderPage();
 
     expect(await screen.findByText("Test Flood Scenario")).toBeInTheDocument();
     // Both the header and the Simulation panel show the run status —
@@ -119,7 +127,7 @@ describe("CommandCenterPage", () => {
 
   it("shows an actionable error state when scenarios fail to load", async () => {
     vi.mocked(scenarioApi.getScenarios).mockRejectedValue(new Error("network down"));
-    render(<CommandCenterPage />);
+    renderPage();
 
     expect(await screen.findByText(/scenarios unavailable/i)).toBeInTheDocument();
   });
@@ -134,7 +142,7 @@ describe("CommandCenterPage", () => {
     vi.mocked(scenarioApi.getScenario).mockResolvedValue(SCENARIO_DETAIL);
     vi.mocked(scenarioApi.getRuns).mockResolvedValue([]);
 
-    render(<CommandCenterPage />);
+    renderPage();
 
     expect(await screen.findByText(/no simulation run exists/i)).toBeInTheDocument();
   });
@@ -168,7 +176,7 @@ describe("CommandCenterPage", () => {
     });
 
     const user = userEvent.setup();
-    render(<CommandCenterPage />);
+    renderPage();
 
     const executeButton = await screen.findByRole("button", { name: /^execute$/i });
     await waitFor(() => expect(executeButton).toBeEnabled());
@@ -189,7 +197,7 @@ describe("CommandCenterPage", () => {
     });
 
     const user = userEvent.setup();
-    render(<CommandCenterPage />);
+    renderPage();
 
     const executeButton = await screen.findByRole("button", { name: /^execute$/i });
     await waitFor(() => expect(executeButton).toBeEnabled());
@@ -237,7 +245,7 @@ describe("CommandCenterPage", () => {
     // hook's startTransition-driven loading effects makes RTL's polling
     // helpers (findBy*/waitFor) hang.
     const user = userEvent.setup();
-    render(<CommandCenterPage />);
+    renderPage();
 
     const executeButton = await screen.findByRole("button", { name: /^execute$/i });
     await waitFor(() => expect(executeButton).toBeEnabled());
@@ -264,7 +272,7 @@ describe("CommandCenterPage", () => {
     mockMultiFrameTimeline();
 
     const user = userEvent.setup();
-    render(<CommandCenterPage />);
+    renderPage();
 
     const executeButton = await screen.findByRole("button", { name: /^execute$/i });
     await waitFor(() => expect(executeButton).toBeEnabled());

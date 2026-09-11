@@ -94,6 +94,36 @@ inside the existing panel is this phase's chosen scope, not a placeholder for so
 built: WebSocket/streaming playback, looping, scenario-comparison playback (side-by-side A/B, architecture.md
 §7/§11) — all out of scope per this phase's brief.
 
+## Prompt 9.1 — Complete Disaster Catalog (2026-09-12)
+
+Full detail (the disaster-type vs. scenario-instance distinction, the parallel-registry diagram, the
+`GET /disaster-types` discovery endpoint, and the fact-checked parameter-consumption honesty matrix) lives in
+docs/development/scenarios.md "Complete disaster catalog" — this section covers only what changed inside the
+Command Center itself.
+
+**"New scenario" link** — `ScenarioContextPanel.tsx`'s panel header now includes a `Link` to `/scenarios`
+(styled to match `CommandButton`'s default tone) alongside the existing scenario `<select>`. The Command
+Center stays read/execute-focused; it does not grow a second scenario-creation form of its own — this link
+is a door to the Scenario Builder's existing, already-complete-for-all-9-types creation flow.
+
+**Why only 2-3 types were visible before this pass** — not a catalog gap. `useCommandCenterSession`'s
+`loadScenarios()` has always filtered to `status="ready"` scenarios (this is correct, intentional behavior —
+a `draft` scenario shouldn't clutter a run-execution UI), and `backend/app/db/seed.py` originally only
+seeded 3 scenarios (flood/oil_spill `READY`, tsunami `DRAFT`). Fixed by backfilling one `READY` demo
+scenario per previously-unrepresented disaster type via an idempotent `_ensure_scenario` helper (looks each
+scenario up by name before inserting — safe to re-run against a partially-seeded database, never duplicates
+the pre-existing 3). All 9 types now have at least one `READY` scenario available in the Command Center's
+selector out of the box.
+
+**Scenario Builder visual language** — `ScenarioForm.tsx`/`FormField.tsx`/`DisasterParameterFields.tsx` (the
+`/scenarios` route's form) previously used raw Tailwind slate/sky classes predating the Prompt 8 design-token
+system; restyled onto `bg-surface`/`text-ink`/`border-hairline`/`components/ui`'s `CommandButton`/
+`SectionLabel` so `/scenarios` reads as the same product as the Command Center rather than a generic form.
+While fixing this, a real bug surfaced and was fixed: the form had no `noValidate`, so a disaster-specific
+field with an HTML `max`/`min` attribute (e.g. cyclone's central pressure) triggered the browser's native
+constraint-validation and silently blocked submission before the app's own styled `validateScenarioForm`
+error ever ran.
+
 ## Routing
 
 ```
@@ -400,11 +430,12 @@ Run for real, not assumed — `cd frontend && npm run test`:
 - **App/routing:** `app/App.test.tsx` — the landing route renders real beat content, and the "Continue"
   link navigates into the `/explore` gateway.
 
-**72 frontend tests, all passing** (Prompt 8/8.1's 55 + Prompt 9's 17 new:
-`useCommandCenterSession.test.ts` (9 cases) + `PlaybackControls.test.tsx` (6 cases) + 2 new
-`CommandCenterPage.test.tsx` cases). `npm run lint` and `npm run build` (`tsc --noEmit && vite build`) both
-clean. Backend: 39 tests passing (unchanged — this phase touched no backend code); `simulation/tests`: 57
-passing (also unchanged).
+**98 frontend tests, all passing** (Prompt 8/8.1/9's 72 + Prompt 9.1's 26 new: `ScenarioForm.test.tsx` (24
+cases covering all 9 disaster types' fields/descriptions/templates/validation) + `ScenarioContextPanel.test.tsx`
++ 1 new `CommandCenterPage.test.tsx` case). `npm run lint` and `npm run build` (`tsc --noEmit && vite build`)
+both clean. Backend: 84 tests passing (up from 39 — Prompt 9.1 added `GET /disaster-types` tests, seed
+idempotency tests, and parameterized disaster-type coverage; see docs/development/scenarios.md); `simulation/tests`:
+57 passing (unchanged).
 
 ### Known limitation: no automated WebGL render test
 
@@ -470,6 +501,21 @@ scrub interaction. The interval/auto-pause state machine itself is verified dete
 fake timers (`useCommandCenterSession.test.ts`) rather than by eye — that test suite is the actual
 correctness evidence for this phase; a real-browser pass is still the right next check before demo use.
 
+### Prompt 9.1 manual verification (2026-09-12)
+
+Same constraint again: **no browser automation tool was available in this environment for this pass
+either.** Verified programmatically: `npm run test` (98 passing, up from 72), `npm run lint` (clean),
+`npm run build` (clean, chunk layout unchanged), `pytest backend/tests` (84 passing, up from 39),
+`pytest simulation` (57 passing, unchanged). Also verified directly (not just via automated tests): the
+updated seed script was actually run against the local dev PostgreSQL/PostGIS instance
+(`python -m app.db.seed`), and a `psql` query confirmed all 9 disaster types now have at least one `READY`
+scenario row; `GET /disaster-types` was smoke-tested via `TestClient` and confirmed to return all 9 entries
+with correctly-resolved `model_identifier`s (including `storm_surge` → `cyclone-demo-v1`). **Not verified**:
+actually clicking the new "New scenario" link in a browser, visually confirming the restyled Scenario
+Builder form's appearance, or selecting each of the 9 types end-to-end by hand in the Command Center and
+watching the correct visualizer render. A real-browser pass covering all 9 disaster types end to end (create
+→ run → execute → timeline → playback → visualizer) remains the right next check before demo use.
+
 ## IMPLEMENTED / VERIFIED / SIMPLIFIED / PLANNED / NOT IMPLEMENTED
 
 **IMPLEMENTED & VERIFIED** (automated tests and/or build output confirm it works):
@@ -489,6 +535,10 @@ correctness evidence for this phase; a real-browser pass is still the right next
   playback" above.
 - Design token system, reusable UI component library.
 - Code splitting confirmed via build output; reduced-motion, focus-visible, and aria-live states in place.
+- Complete disaster catalog (Prompt 9.1): all 9 disaster types selectable/configurable in the Scenario
+  Builder, discoverable from the Command Center via a "New scenario" link, and backed by at least one
+  `READY` seeded demo scenario each — see docs/development/scenarios.md for the full catalog/honesty-matrix
+  detail.
 
 **SIMPLIFIED / DEMONSTRATION** (real, but not scientifically or visually final):
 - The water surface, terrain, and every disaster visualizer are stylized/illustrative, not GIS-backed —

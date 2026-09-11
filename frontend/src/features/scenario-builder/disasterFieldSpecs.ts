@@ -77,3 +77,79 @@ export const DISASTER_TYPE_LABELS: Record<DisasterType, string> = {
 };
 
 export const DISASTER_TYPES = Object.keys(DISASTER_TYPE_LABELS) as DisasterType[];
+
+/**
+ * A short, factual, non-scientific one-liner per disaster type — rendered as
+ * helper text under the disaster-type selector (§14: keep the selector a
+ * compact native `<select>`, not a card grid; the description is the only
+ * addition). Mirrors the backend's app/core/disaster_catalog.py descriptions
+ * by hand — same parallel-registry convention as DISASTER_FIELD_SPECS vs.
+ * DISASTER_CONFIG_SCHEMAS (CLAUDE.md §25).
+ */
+export const DISASTER_TYPE_DESCRIPTIONS: Record<DisasterType, string> = {
+  flood: "River / rainfall-driven inundation.",
+  flash_flood: "Rapid-onset flooding from intense, short-duration rainfall.",
+  coastal_flood: "Coastal inundation from tidal/surge-driven water rise.",
+  storm_surge: "Cyclone-driven abnormal coastal water rise.",
+  cyclone: "Rotating wind storm with a moving center and expanding wind field.",
+  tsunami: "Wave train propagating from an offshore source toward the coast.",
+  oil_spill: "Oil slick drift and weathering on open water.",
+  chemical_pollution: "Pollutant plume drift and dilution on open water.",
+  search_rescue: "Drifting person/vessel position and search-area growth.",
+};
+
+/**
+ * "Use demo template" values (§17) — a frontend-only convenience that
+ * pre-fills the same form a user would fill manually with one sensible demo
+ * value set per disaster type. Deliberately NOT real historical data (the UI
+ * must label it as a demo template, never imply otherwise) and deliberately
+ * NOT persisted as extra database rows — CLAUDE.md's guidance here is "user
+ * can create any supported type", not "the database happens to contain nine
+ * template rows". Keys match DISASTER_FIELD_SPECS for the same type exactly.
+ */
+export const DISASTER_TYPE_DEFAULTS: Record<DisasterType, Record<string, string>> = {
+  flood: {
+    rainfall_mm_24h: "180",
+    river_level_m: "6.2",
+    water_rise_rate_m_per_hr: "0.15",
+    drainage_capacity_pct: "40",
+  },
+  flash_flood: {
+    rainfall_mm_24h: "220",
+    river_level_m: "2.5",
+    water_rise_rate_m_per_hr: "0.6",
+    drainage_capacity_pct: "15",
+  },
+  coastal_flood: {
+    rainfall_mm_24h: "90",
+    river_level_m: "4.0",
+    water_rise_rate_m_per_hr: "0.2",
+    drainage_capacity_pct: "25",
+  },
+  storm_surge: { central_pressure_hpa: "955", wind_speed_kt: "85", radius_km: "120" },
+  cyclone: { central_pressure_hpa: "930", wind_speed_kt: "110", radius_km: "150" },
+  tsunami: {
+    source_latitude: "-0.5",
+    source_longitude: "119.0",
+    magnitude: "7.5",
+    initial_wave_height_m: "2.8",
+    propagation_direction_deg: "90",
+  },
+  oil_spill: {
+    spill_volume_tonnes: "500",
+    oil_type: "crude",
+    wind_speed_kt: "12",
+    wind_direction_deg: "200",
+    current_speed_kt: "1.5",
+    current_direction_deg: "210",
+  },
+  chemical_pollution: {
+    spill_volume_tonnes: "300",
+    oil_type: "industrial_effluent",
+    wind_speed_kt: "8",
+    wind_direction_deg: "140",
+    current_speed_kt: "1.0",
+    current_direction_deg: "160",
+  },
+  search_rescue: { vessel_type: "fishing_trawler", search_radius_km: "6" },
+};

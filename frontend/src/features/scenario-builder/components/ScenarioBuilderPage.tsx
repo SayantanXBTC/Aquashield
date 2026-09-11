@@ -10,7 +10,8 @@ interface ScenarioBuilderPageProps {
 }
 
 export function ScenarioBuilderPage({ onCreated, onCancel }: ScenarioBuilderPageProps) {
-  const { form, errors, setField, setDisasterType, setConfigField, validate } = useScenarioForm();
+  const { form, errors, setField, setDisasterType, setConfigField, applyDemoTemplate, validate } =
+    useScenarioForm();
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -40,6 +41,7 @@ export function ScenarioBuilderPage({ onCreated, onCancel }: ScenarioBuilderPage
         onFieldChange={setField}
         onDisasterTypeChange={setDisasterType}
         onConfigFieldChange={setConfigField}
+        onApplyDemoTemplate={applyDemoTemplate}
         onSubmit={handleSubmit}
         onCancel={onCancel}
       />

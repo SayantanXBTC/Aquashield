@@ -1,4 +1,5 @@
-import { DISASTER_TYPES, DISASTER_TYPE_LABELS } from "../disasterFieldSpecs";
+import { CommandButton, SectionLabel } from "@/components/ui";
+import { DISASTER_TYPES, DISASTER_TYPE_DESCRIPTIONS, DISASTER_TYPE_LABELS } from "../disasterFieldSpecs";
 import type { ScenarioFormState } from "../formState";
 import type { FormErrors } from "../validation";
 import type { DisasterType } from "../types";
@@ -13,10 +14,15 @@ interface ScenarioFormProps {
   onFieldChange: <K extends keyof ScenarioFormState>(key: K, value: ScenarioFormState[K]) => void;
   onDisasterTypeChange: (disasterType: DisasterType) => void;
   onConfigFieldChange: (key: string, value: string) => void;
+  onApplyDemoTemplate: () => void;
   onSubmit: () => void;
   onCancel?: () => void;
 }
 
+/** The Scenario Builder's create/edit form — restyled onto the AQUASHIELD
+ * design tokens and `components/ui` primitives (Prompt 9.1 §C) so it reads
+ * as part of the same command-center product rather than a generic SaaS
+ * form, while staying a full page (not a Command Center overlay panel). */
 export function ScenarioForm({
   form,
   errors,
@@ -25,20 +31,22 @@ export function ScenarioForm({
   onFieldChange,
   onDisasterTypeChange,
   onConfigFieldChange,
+  onApplyDemoTemplate,
   onSubmit,
   onCancel,
 }: ScenarioFormProps) {
   return (
     <form
       className="flex flex-col gap-8"
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
         onSubmit();
       }}
     >
       <section aria-labelledby="section-basic-info" className="flex flex-col gap-4">
-        <h3 id="section-basic-info" className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Basic Information
+        <h3 id="section-basic-info">
+          <SectionLabel>Basic Information</SectionLabel>
         </h3>
         <FormField
           id="scenario-name"
@@ -56,15 +64,15 @@ export function ScenarioForm({
           value={form.description}
           onChange={(v) => onFieldChange("description", v)}
         />
-        <div className="flex flex-col gap-1">
-          <label htmlFor="scenario-disaster-type" className="text-sm text-slate-300">
-            Disaster type <span aria-hidden="true">*</span>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="scenario-disaster-type" className="text-ink-soft text-xs font-medium tracking-wide">
+            Disaster type <span aria-hidden="true" className="text-accent-strong">*</span>
           </label>
           <select
             id="scenario-disaster-type"
             value={form.disasterType}
             onChange={(e) => onDisasterTypeChange(e.target.value as DisasterType)}
-            className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+            className="bg-surface border-hairline-strong text-ink focus-visible:ring-accent-strong rounded-[var(--radius-control)] border px-3 py-2 text-sm transition-colors duration-[var(--duration-fast)] focus-visible:ring-2 focus-visible:outline-none"
           >
             {DISASTER_TYPES.map((type) => (
               <option key={type} value={type}>
@@ -72,12 +80,15 @@ export function ScenarioForm({
               </option>
             ))}
           </select>
+          <p id="scenario-disaster-type-description" className="text-ink-faint text-xs">
+            {DISASTER_TYPE_DESCRIPTIONS[form.disasterType]}
+          </p>
         </div>
       </section>
 
       <section aria-labelledby="section-location" className="flex flex-col gap-4">
-        <h3 id="section-location" className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Location
+        <h3 id="section-location">
+          <SectionLabel>Location</SectionLabel>
         </h3>
         <FormField
           id="scenario-location-name"
@@ -113,8 +124,8 @@ export function ScenarioForm({
       </section>
 
       <section aria-labelledby="section-time" className="flex flex-col gap-4">
-        <h3 id="section-time" className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Time
+        <h3 id="section-time">
+          <SectionLabel>Time</SectionLabel>
         </h3>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <FormField
@@ -138,9 +149,19 @@ export function ScenarioForm({
       </section>
 
       <section aria-labelledby="section-parameters" className="flex flex-col gap-4">
-        <h3 id="section-parameters" className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Disaster Parameters — {DISASTER_TYPE_LABELS[form.disasterType]}
-        </h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 id="section-parameters">
+            <SectionLabel>{`Disaster Parameters — ${DISASTER_TYPE_LABELS[form.disasterType]}`}</SectionLabel>
+          </h3>
+          <div className="flex flex-col items-end gap-0.5">
+            <CommandButton type="button" onClick={onApplyDemoTemplate}>
+              Use demo template
+            </CommandButton>
+            <span className="text-ink-faint text-[10px] tracking-wide uppercase">
+              Demo template values — not a real historical event
+            </span>
+          </div>
+        </div>
         <DisasterParameterFields
           disasterType={form.disasterType}
           values={form.config}
@@ -150,21 +171,13 @@ export function ScenarioForm({
       </section>
 
       <div className="flex gap-3">
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
-        >
+        <CommandButton type="submit" tone="accent" disabled={saving} className="px-4 py-2 text-sm">
           {saving ? "Saving..." : submitLabel}
-        </button>
+        </CommandButton>
         {onCancel && (
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-400"
-          >
+          <CommandButton type="button" onClick={onCancel} className="px-4 py-2 text-sm">
             Cancel
-          </button>
+          </CommandButton>
         )}
       </div>
     </form>
