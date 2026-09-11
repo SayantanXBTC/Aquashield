@@ -16,14 +16,28 @@ function errorMessage(err: unknown, fallback: string): string {
 }
 
 /**
+ * Playback pacing, a UI convenience only — not a physical/simulated timing
+ * claim. `TimelineFrame` (shared/types/index.ts) carries no duration/fps
+ * field, so there is no "real" per-frame interval to derive playback speed
+ * from; 600ms at 1x is simply a comfortable default cadence for stepping
+ * through frames, divided by the speed multiplier (2x -> 300ms, 4x ->
+ * 150ms, 0.5x -> 1200ms). See docs/development/command-center.md "Timeline
+ * playback".
+ */
+const PLAYBACK_BASE_INTERVAL_MS = 600;
+
+/**
  * Orchestrates the real Prompt 7 data flow this feature exists to prove out:
  *
  *   Scenario -> SimulationRun -> Simulation API -> Timeline Frames -> frontend state
  *
  * Every value here comes from an actual backend response — nothing is
- * fabricated to make the UI look alive. Prompt 9 will extend this into full
- * playback/scrubbing; this hook is the foundation it builds on, not a
- * throwaway prototype.
+ * fabricated to make the UI look alive. Prompt 9 adds client-side playback
+ * on top of the already-fetched `frames`: `isPlaying`/`playbackSpeed` drive
+ * a `setInterval` that advances `frameIndex`, with no backend/WebSocket
+ * involvement at all — see `PLAYBACK_BASE_INTERVAL_MS` below for the
+ * pacing model and the auto-pause effects for how a stale interval is kept
+ * from ever advancing a frameIndex belonging to a different run's frames.
  */
 export function useCommandCenterSession() {
   const [scenarios, setScenarios] = useState<ScenarioListItem[]>([]);
@@ -46,7 +60,9 @@ export function useCommandCenterSession() {
   const [frames, setFrames] = useState<TimelineFrame[]>([]);
   const [timelineStatus, setTimelineStatus] = useState<AsyncStatus>("idle");
   const [timelineError, setTimelineError] = useState<string | null>(null);
-  const [frameIndex, setFrameIndex] = useState(0);
+  const [frameIndex, setFrameIndexState] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
 
   const loadScenarios = useCallback(async () => {
     // Marked non-urgent (startTransition) rather than a bare synchronous
@@ -84,7 +100,11 @@ export function useCommandCenterSession() {
       setScenarioError(null);
       setRunDetail(null);
       setFrames([]);
-      setFrameIndex(0);
+      setFrameIndexState(0);
+      // A scenario switch invalidates whatever run/frames playback was
+      // stepping through — never let a stale interval keep advancing a
+      // frameIndex that belongs to a different scenario's timeline.
+      setIsPlaying(false);
     });
 
     (async () => {
@@ -111,6 +131,10 @@ export function useCommandCenterSession() {
   }, [selectedScenarioId]);
 
   useEffect(() => {
+    // A different run means a different (or no) timeline — playback for the
+    // previous run's frames must not keep ticking against this one.
+    startTransition(() => setIsPlaying(false));
+
     if (!selectedRunId) {
       startTransition(() => setRunDetail(null));
       return;
@@ -140,6 +164,10 @@ export function useCommandCenterSession() {
   }, [selectedRunId]);
 
   useEffect(() => {
+    // Frames are about to be replaced (or cleared) — auto-pause first so no
+    // interval tick lands on the outgoing frame set.
+    startTransition(() => setIsPlaying(false));
+
     if (!runDetail || runDetail.status !== "completed") {
       startTransition(() => setFrames([]));
       return;
@@ -155,7 +183,7 @@ export function useCommandCenterSession() {
         const response = await simulationApi.getTimeline(runDetail.id);
         if (cancelled) return;
         setFrames(response.frames);
-        setFrameIndex(0);
+        setFrameIndexState(0);
         setTimelineStatus("idle");
       } catch (err) {
         if (cancelled) return;
@@ -201,6 +229,56 @@ export function useCommandCenterSession() {
     }
   }, [selectedScenarioId]);
 
+  // Manual scrub (dragging/clicking the timeline slider) is an explicit
+  // override of the current position — it must win over the interval, not
+  // fight it, so scrubbing always pauses playback first.
+  const setFrameIndex = useCallback((index: number) => {
+    setIsPlaying(false);
+    setFrameIndexState(index);
+  }, []);
+
+  const play = useCallback(() => {
+    // No-op if there's nothing to play, or already at the last frame —
+    // pressing Play at the end must not silently loop back to 0.
+    if (frames.length === 0 || frameIndex >= frames.length - 1) return;
+    setIsPlaying(true);
+  }, [frames.length, frameIndex]);
+
+  const pause = useCallback(() => setIsPlaying(false), []);
+
+  const togglePlay = useCallback(() => {
+    setIsPlaying((prev) => {
+      if (prev) return false;
+      if (frames.length === 0 || frameIndex >= frames.length - 1) return prev;
+      return true;
+    });
+  }, [frames.length, frameIndex]);
+
+  // The interval that actually advances frameIndex during playback. Torn
+  // down and rebuilt whenever isPlaying, playbackSpeed, or frames changes —
+  // and, critically, torn down on unmount — so no interval ever outlives
+  // the component or advances a frameIndex belonging to a stale frame set
+  // (CLAUDE.md §27's "every timer/animation handle must be cleaned up"
+  // discipline, applied to a plain setInterval rather than an Anime.js
+  // handle).
+  useEffect(() => {
+    if (!isPlaying || frames.length === 0) return;
+    const intervalMs = PLAYBACK_BASE_INTERVAL_MS / playbackSpeed;
+    const id = window.setInterval(() => {
+      setFrameIndexState((prev) => Math.min(prev + 1, frames.length - 1));
+    }, intervalMs);
+    return () => window.clearInterval(id);
+  }, [isPlaying, playbackSpeed, frames]);
+
+  // Stop cleanly at the last frame rather than looping. Also covers "frames
+  // became empty while playing" defensively, in case a future code path
+  // clears frames without going through one of the pause points above.
+  useEffect(() => {
+    if (isPlaying && (frames.length === 0 || frameIndex >= frames.length - 1)) {
+      startTransition(() => setIsPlaying(false));
+    }
+  }, [isPlaying, frameIndex, frames.length]);
+
   const currentFrame = frames[frameIndex] ?? null;
 
   return {
@@ -232,5 +310,12 @@ export function useCommandCenterSession() {
     frameIndex,
     setFrameIndex,
     currentFrame,
+
+    isPlaying,
+    play,
+    pause,
+    togglePlay,
+    playbackSpeed,
+    setPlaybackSpeed,
   };
 }

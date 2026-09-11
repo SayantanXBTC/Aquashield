@@ -1,5 +1,6 @@
 import { CommandButton, CommandPanel, DataReadout, EmptyState, ErrorState, SectionLabel, StatusIndicator } from "@/components/ui";
 import type { StatusTone } from "@/components/ui";
+import { PlaybackControls } from "./PlaybackControls";
 import type { SimulationRunDetail, SimulationStatus, TimelineFrame } from "../types";
 
 const RUN_STATUS_TONE: Record<SimulationStatus, StatusTone> = {
@@ -25,6 +26,10 @@ interface SimulationStatusPanelProps {
   frameIndex: number;
   onFrameIndexChange: (index: number) => void;
   currentFrameLabel: string | null;
+  isPlaying: boolean;
+  onTogglePlay: () => void;
+  playbackSpeed: number;
+  onPlaybackSpeedChange: (speed: number) => void;
 }
 
 export function SimulationStatusPanel({
@@ -42,6 +47,10 @@ export function SimulationStatusPanel({
   frameIndex,
   onFrameIndexChange,
   currentFrameLabel,
+  isPlaying,
+  onTogglePlay,
+  playbackSpeed,
+  onPlaybackSpeedChange,
 }: SimulationStatusPanelProps) {
   const frame = frames[frameIndex] ?? null;
 
@@ -91,14 +100,14 @@ export function SimulationStatusPanel({
               <DataReadout label="Frame" value={`${frameIndex + 1} / ${frames.length}`} />
               <DataReadout label="Timestep" value={frame.timestep} />
             </div>
-            <input
-              type="range"
-              min={0}
-              max={frames.length - 1}
-              value={frameIndex}
-              onChange={(event) => onFrameIndexChange(Number(event.target.value))}
-              aria-label="Timeline frame"
-              className="accent-accent w-full"
+            <PlaybackControls
+              isPlaying={isPlaying}
+              onTogglePlay={onTogglePlay}
+              playbackSpeed={playbackSpeed}
+              onSpeedChange={onPlaybackSpeedChange}
+              frameIndex={frameIndex}
+              frameCount={frames.length}
+              onScrub={onFrameIndexChange}
             />
             {currentFrameLabel ? <p className="text-ink-soft font-mono text-xs">{currentFrameLabel}</p> : null}
           </div>

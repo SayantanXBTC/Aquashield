@@ -1,5 +1,67 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-12 — Timeline Playback Engine (Prompt 9)
+
+**Added/Changed:**
+- `useCommandCenterSession.ts` extends its existing single-frame selector (`frames`/`frameIndex`/
+  `setFrameIndex`/`currentFrame` — unchanged in shape) with client-side playback: `isPlaying`,
+  `playbackSpeed`, `play()`, `pause()`, `togglePlay()`, `setPlaybackSpeed(speed)`. A `useEffect` owns a
+  single `setInterval` while `isPlaying && frames.length > 0`, advancing `frameIndex` at
+  `PLAYBACK_BASE_INTERVAL_MS (600ms) / playbackSpeed` — a documented UI pacing constant, not a physical or
+  simulated timing value (`TimelineFrame` has no duration/fps field). The interval is torn down and rebuilt
+  on every `isPlaying`/`playbackSpeed`/`frames` change and on unmount (no orphaned timer, verified with
+  Vitest fake timers). A second effect auto-pauses playback the instant `frameIndex` reaches the last frame
+  — it clamps there, it never loops back to `0`. Playback is also force-paused whenever the selected
+  scenario changes, the selected run changes, or the timeline reloads/empties, so a stale interval can never
+  advance a `frameIndex` belonging to a different run's frames. Manually scrubbing (`setFrameIndex`) now
+  pauses playback first, then jumps, so a user's explicit scrub always wins over the interval.
+- New `PlaybackControls.tsx` (`frontend/src/features/command-center/components/`): a Play/Pause
+  `CommandButton` (`aria-pressed` + accessible label, native Space/Enter keyboard support via the browser's
+  own `<button>` behavior), a 0.5x/1x/2x/4x speed selector (same `CommandButton` visual language, no new
+  button style), and the existing scrub slider — wired into `SimulationStatusPanel`'s existing frame area in
+  place of its old bare `<input type="range">`. Only renders when `frames.length > 0`; the "Awaiting
+  playback data" empty state (Prompt 8.1) for a completed-but-frameless run is untouched.
+- `CommandCenterViewport.tsx`'s `useMemo` keyed on `currentFrame` was confirmed (not changed) to already
+  recompute `visualState` correctly on every playback tick — no second 3D/animation system was introduced;
+  the scene keeps reacting through the existing `toVisualState`/registry seam one frame at a time.
+- 17 new frontend tests: `useCommandCenterSession.test.ts` (9 cases, Vitest fake timers — play advances on
+  the documented interval, pause stops it, speed changes the interval's timing, auto-stop at the last frame
+  without looping, auto-pause on run/scenario change, manual scrub pauses playback, interval cleanup on
+  unmount via `vi.getTimerCount()`), `PlaybackControls.test.tsx` (6 cases), and 2 new
+  `CommandCenterPage.test.tsx` cases (Play/Pause `aria-pressed` toggling end to end; dragging the scrub
+  slider while playing pauses it) — 72 total, all passing. `npm run lint`/`npm run build` clean.
+- `docs/development/command-center.md` (new "Prompt 9 — Timeline Playback Engine" section + "Timeline
+  playback" subsection + updated Testing/PLANNED/NOT IMPLEMENTED/manual-verification sections),
+  `architecture.md` §28b.
+
+**Why:**
+- The command center could execute a simulation run and inspect one timestep at a time via a plain slider,
+  but couldn't actually play a disaster's evolution over time — the core "SIMULATE → VISUALIZE" loop
+  (CLAUDE.md §2/§6) needs playback, not just a static per-frame picker, and `useCommandCenterSession.ts`'s
+  own top comment already flagged this as the next extension point.
+
+**Files/Modules:**
+- `frontend/src/features/command-center/hooks/useCommandCenterSession.ts`,
+  `frontend/src/features/command-center/components/{PlaybackControls.tsx (new),SimulationStatusPanel.tsx}`,
+  `frontend/src/features/command-center/CommandCenterPage.tsx`.
+- `frontend/src/features/command-center/tests/{useCommandCenterSession.test.ts (new),
+  PlaybackControls.test.tsx (new),CommandCenterPage.test.tsx}`.
+- `docs/development/command-center.md`, `architecture.md`.
+
+**Future Context:**
+- No backend, WebSocket, or shared-contract change at all — 100% client-side interval-driven playback over
+  already-fetched `TimelineFrame[]`, exactly as scoped.
+- No browser automation was available in this environment — verified programmatically only (`npm run
+  test`/`lint`/`build`, `pytest backend/tests`, `pytest simulation`); actually pressing Play in a real
+  browser and watching the 3D scene step through frames remains unverified and should be the first check
+  before treating this as demo-ready. The interval/auto-pause state machine's correctness is instead proven
+  deterministically via Vitest fake timers.
+- Not built: a dedicated full-width bottom timeline scrubber bar (playback lives in the existing compact
+  Simulation panel control instead — a deliberate scope choice, documented in
+  docs/development/command-center.md), looping playback, and scenario-comparison/A-B playback
+  (architecture.md §7/§11 — unrelated future scope).
+- Branch: `feature/timeline-playback`, off `develop`.
+
 ### 2026-09-12 — Visual Correction: Cinematic Landing Scroll & Command Center Refinement
 
 **Added/Changed:**

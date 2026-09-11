@@ -27,6 +27,73 @@ fixes:
 Nothing about the routing, the simulation adapter/registry, `useCommandCenterSession`'s data flow, or the
 backend changed. See the sections below for the corrected architecture in detail.
 
+## Prompt 9 — Timeline Playback Engine (2026-09-12)
+
+Extends `useCommandCenterSession`'s single-frame selector (`frames`/`frameIndex`/`setFrameIndex`/
+`currentFrame` — already real, already wired into `CommandCenterViewport`) into full client-side playback:
+play, pause, speed, and scrub, all driven off the `TimelineFrame[]` already fetched from Prompt 7's
+`GET /simulation-runs/{run_id}/timeline`. No backend or shared-contract change — this is 100%
+interval-driven playback over data that already exists on the client; there is no WebSocket streaming and
+no new API call.
+
+### Timeline playback
+
+`useCommandCenterSession.ts` adds `isPlaying`, `playbackSpeed`, `play()`, `pause()`, `togglePlay()`, and
+`setPlaybackSpeed(speed)` alongside the existing `frameIndex`/`setFrameIndex`/`currentFrame` — none of those
+three were renamed or restructured, only extended, so `CommandCenterPage.tsx`'s existing wiring didn't need
+to change shape.
+
+**Pacing model:** `TimelineFrame` (`shared/types/index.ts`) carries no duration/fps field — a `timestep`
+integer and an optional `simulation_time` string, nothing else — so there is no "real" per-frame duration to
+derive a playback rate from. `PLAYBACK_BASE_INTERVAL_MS = 600` is a plain UI pacing constant (600ms per
+frame at 1x, 300ms at 2x, 150ms at 4x, 1200ms at 0.5x — `PLAYBACK_BASE_INTERVAL_MS / playbackSpeed`),
+documented as such at its declaration. This is a deliberate simpler choice over pacing off
+`simulation_time` deltas (which Prompt 9's own brief allows either way): every demo model in `simulation/`
+(architecture.md §27) advances its clock in fixed steps, so real per-frame deltas would be uniform anyway
+and add complexity (parsing/diffing ISO timestamps) without changing the visible behavior.
+
+**Interval + cleanup:** one `useEffect` owns a single `window.setInterval` while `isPlaying && frames.length
+> 0`, advancing `frameIndex` by one tick each interval; the effect's cleanup (`clearInterval`) fires
+whenever `isPlaying`, `playbackSpeed`, or `frames` changes, and on unmount — the same "every timer/animation
+handle gets torn down, no exceptions" discipline `animations/cleanup.ts` establishes for Anime.js handles
+(CLAUDE.md §27), applied here to a plain interval instead. Verified directly with Vitest fake timers
+(`useCommandCenterSession.test.ts`): advancing timers past unmount fires nothing, and `vi.getTimerCount()`
+returns to `0` after unmount.
+
+**Auto-pause, never a silent loop:** a second effect watches `frameIndex`/`frames.length` and stops
+playback (`setIsPlaying(false)`) the instant `frameIndex` reaches the last frame — advancing further leaves
+it clamped there, it never wraps back to `0` (no looping toggle exists; that would be a separate, explicitly
+labeled feature, out of scope here). Playback is also force-paused whenever the selected scenario changes,
+the selected run changes, or the timeline reloads/empties — each of those code paths already resets
+`frames`/`frameIndex` and now also resets `isPlaying`, so a stale interval can never advance a `frameIndex`
+that belongs to a different run's frame set. Manually scrubbing (`setFrameIndex`, called from the slider)
+pauses playback first, then jumps — an explicit user override always wins over the interval rather than the
+two fighting each other.
+
+**UI:** `PlaybackControls.tsx` (new, `components/`) renders inside `SimulationStatusPanel`'s existing
+frame-slider area — it replaces the panel's old bare `<input type="range">` with one Play/Pause
+`CommandButton` (`aria-pressed` + an accessible `aria-label` that flips between "Play playback"/"Pause
+playback"), a small 0.5x/1x/2x/4x speed group (also `CommandButton`, matching the existing scientific-
+instrumentation look — no new button style introduced), and the same scrub slider as before, now wired to
+pause-then-scrub. `DataReadout`'s "Frame"/"Timestep" counters are unchanged and keep updating during
+playback since they read `frameIndex`/`frame` directly. Space toggles play/pause only when the Play/Pause
+button itself has focus — that's the browser's native `<button>` behavior, not a page-level keydown
+listener, so it never hijacks Space elsewhere on the page. The "Awaiting playback data" empty state (Prompt
+8.1) for a completed-but-frameless run is untouched: `PlaybackControls` only ever renders when
+`frames.length > 0`.
+
+**3D seam unchanged:** `CommandCenterViewport.tsx`'s `useMemo` keyed on `currentFrame` already recomputes
+`visualState` (via `toVisualState`) every time `frameIndex` advances, since `currentFrame = frames[frameIndex]`
+is a different array element each tick — playback needed no change here. No second simulation/animation
+system was added to the 3D layer; the scene keeps reacting through the existing adapter/registry seam one
+frame at a time, exactly as it does for manual scrubbing.
+
+**Explicitly not built:** a dedicated full-width bottom timeline scrubber bar (a separate, larger UI
+surface than the compact control living inside the Simulation panel) — the compact `PlaybackControls`
+inside the existing panel is this phase's chosen scope, not a placeholder for something bigger. Also not
+built: WebSocket/streaming playback, looping, scenario-comparison playback (side-by-side A/B, architecture.md
+§7/§11) — all out of scope per this phase's brief.
+
 ## Routing
 
 ```
@@ -219,8 +286,9 @@ docs/development/git-workflow.md "Shared Contract Changes"; nothing existing was
 `ready` scenarios, loads the selected scenario's detail + runs, loads the selected run's detail, and — only
 once a run is `completed` — fetches its timeline. `executeRun`/`createRun` call the real
 `POST /simulation-runs/{id}/execute` and `POST /scenarios/{id}/runs` endpoints; nothing is simulated in the
-frontend. A frame slider (not full playback — that is explicitly Prompt 9's job) lets the user pick a
-timestep, which flows through `toVisualState` into the 3D scene.
+frontend. Play/pause/speed/scrub playback (Prompt 9 — see "Timeline playback" above) steps through the
+fetched frames client-side; each step flows through the same `toVisualState` seam into the 3D scene as
+manual scrubbing always did.
 
 **Manually verified disaster types (real backend execution → real frame → real visual mapping):**
 flood and tsunami, per Prompt 8's explicit manual-verification requirement — see "Manual verification"
@@ -292,6 +360,9 @@ the other five are `fetchPriority="low"`/`lazy`. `decoding="async"` on all six.
 - `ErrorState`/`EmptyState`/`LoadingOverlay` use `role="alert"`/`role="status"` with `aria-live` where
   appropriate.
 - Focus rings (`focus-visible:ring-*`) on every interactive control, including `LiquidMetalButton`.
+- `PlaybackControls`' Play/Pause button responds to Space/Enter via the native `<button>` element's own
+  default behavior (Prompt 9) — no page-level keydown listener, so Space only toggles playback when that
+  specific button has focus.
 
 ## Testing
 
@@ -311,17 +382,29 @@ Run for real, not assumed — `cd frontend && npm run test`:
 - **Command center (data flow, mocked network):** `command-center/tests/CommandCenterPage.test.tsx` —
   loads a scenario + pending run, shows an error state when scenarios fail to load, shows an empty state
   with no runs, executes a run end to end (mocked `simulationApi`/`scenarioApi`) confirming a real frame's
-  `hazard_state` reaches the UI as the adapter's label text, and (Prompt 8.1) confirms a completed run with
+  `hazard_state` reaches the UI as the adapter's label text, (Prompt 8.1) confirms a completed run with
   zero timeline frames renders the "Awaiting playback data" state, not the old bare "Timeline data
-  unavailable" text. The 3D viewport itself is stubbed in this file specifically
-  (`vi.mock("../components/CommandCenterViewport", ...)`) — see "Known limitations."
+  unavailable" text, and (Prompt 9) confirms clicking Play/Pause flips the button's `aria-pressed` state end
+  to end and that dragging the scrub slider while playing pauses it. The 3D viewport itself is stubbed in
+  this file specifically (`vi.mock("../components/CommandCenterViewport", ...)`) — see "Known limitations."
+- **Timeline playback (Prompt 9):** `command-center/tests/useCommandCenterSession.test.ts` (new) — exercises
+  the interval state machine directly with Vitest fake timers: `play()` advances `frameIndex` on the
+  documented interval, `pause()` stops it, `setPlaybackSpeed` changes the interval's timing (2x halves it),
+  playback auto-stops at the last frame without looping, playback auto-pauses when the selected run or
+  scenario changes (and when frames reload), manual `setFrameIndex` (scrub) pauses playback, `play()` is a
+  no-op already at the last frame, and the interval is provably cleaned up on unmount
+  (`vi.getTimerCount()` returns to `0`). `command-center/tests/PlaybackControls.test.tsx` (new) —
+  Play/Pause `aria-pressed`/label text, toggling via `onTogglePlay` on click and on Space-while-focused,
+  the active speed button's `aria-pressed`, `onSpeedChange` firing with the right multiplier, and the
+  slider's `onScrub` firing with a numeric index.
 - **App/routing:** `app/App.test.tsx` — the landing route renders real beat content, and the "Continue"
   link navigates into the `/explore` gateway.
 
-**55 frontend tests, all passing** (Prompt 8's ~30 + Prompt 8.1's 4 new tests: `sceneProgress.test.ts` (14
-cases) and 2 `CinematicScroll.test.tsx` cases folded into that count, plus 1 new `CommandCenterPage` case).
-`npm run lint` and `npm run build` (`tsc --noEmit && vite build`) both clean. Backend: 39 tests passing
-(unchanged — this phase touched no backend code); `simulation/tests`: 57 passing (also unchanged).
+**72 frontend tests, all passing** (Prompt 8/8.1's 55 + Prompt 9's 17 new:
+`useCommandCenterSession.test.ts` (9 cases) + `PlaybackControls.test.tsx` (6 cases) + 2 new
+`CommandCenterPage.test.tsx` cases). `npm run lint` and `npm run build` (`tsc --noEmit && vite build`) both
+clean. Backend: 39 tests passing (unchanged — this phase touched no backend code); `simulation/tests`: 57
+passing (also unchanged).
 
 ### Known limitation: no automated WebGL render test
 
@@ -374,6 +457,19 @@ diagnosis behind each fix in the table above was made by reading the source (geo
 distance, color ramp bands, shader math) against the reported screenshot, not by re-observing the fix live
 — this should be the first thing checked in a real browser before treating this pass as complete.
 
+### Prompt 9 manual verification (2026-09-12)
+
+Same constraint again: **no browser automation tool was available in this environment for this pass
+either.** Verified programmatically: `npm run test` (72 passing, up from 55), `npm run lint` (clean),
+`npm run build` (clean, `tsc --noEmit` clean, `CommandCenterPage` chunk still separate from the initial
+bundle), `pytest backend/tests` (39 passing, unchanged), `pytest simulation` (57 passing, unchanged) — this
+phase touched no backend or simulation code. **Not verified**: actually pressing Play in a real browser and
+watching the 3D scene step through frames, the feel of the interval pacing at each speed, whether the
+Play/Pause button's focus ring and Space-key behavior feel right in practice, or any of it on a touch/mobile
+scrub interaction. The interval/auto-pause state machine itself is verified deterministically with Vitest
+fake timers (`useCommandCenterSession.test.ts`) rather than by eye — that test suite is the actual
+correctness evidence for this phase; a real-browser pass is still the right next check before demo use.
+
 ## IMPLEMENTED / VERIFIED / SIMPLIFIED / PLANNED / NOT IMPLEMENTED
 
 **IMPLEMENTED & VERIFIED** (automated tests and/or build output confirm it works):
@@ -388,6 +484,9 @@ distance, color ramp bands, shader math) against the reported screenshot, not by
   builds, and its data-driving logic (adapter + registry) is unit-tested.
 - Real integration with Prompt 7: scenario selection, run creation/execution, timeline retrieval, frame
   selection, all via real HTTP calls with real error/loading/empty states.
+- Timeline playback (Prompt 9): play/pause/speed(0.5x-4x)/scrub over the fetched `TimelineFrame[]`, with a
+  deterministic interval/auto-pause state machine verified under Vitest fake timers — see "Timeline
+  playback" above.
 - Design token system, reusable UI component library.
 - Code splitting confirmed via build output; reduced-motion, focus-visible, and aria-live states in place.
 
@@ -405,12 +504,18 @@ distance, color ramp bands, shader math) against the reported screenshot, not by
   visualizer directly — would be extracted if a second visualizer needed the same current/wave logic).
 - Postprocessing pipeline (bloom/vignette) — conditional per the prompt itself ("only if performance
   permits"); not evaluated in this environment given no browser to profile against.
-- A real bottom timeline zone (Prompt 9) — the Simulation panel's "Awaiting playback data" state
-  (Prompt 8.1) is the deliberate placeholder for it, not the real thing.
+- A dedicated full-width bottom timeline scrubber bar — Prompt 9 deliberately scoped playback to a compact
+  control inside the existing Simulation panel (`PlaybackControls`) rather than a separate, larger timeline
+  surface; that bigger surface is still not built, and would be a distinct future UI change, not a
+  correction of what shipped here.
+- Looping playback and scenario-comparison/A-B playback (architecture.md §7/§11) — playback stops at the
+  last frame by design (see "Timeline playback" above); side-by-side comparison is unrelated future scope.
 
 **NOT IMPLEMENTED** (out of scope for this phase, per its explicit hard stop):
-- Timeline playback/scrubbing/speed controls, WebSocket streaming (Prompt 9).
+- WebSocket/real-time streaming of simulation telemetry (still Prompt 9's non-goal, per its brief — this
+  phase's playback is 100% client-side over already-fetched frames).
 - Risk/vulnerability/geospatial analysis (Prompt 10).
 - AI agents, RAG, response planning, Incident Action Plan (Prompts 11-13).
 - Automated WebGL scene-render testing (see "Known limitation" above) and live browser visual
-  verification (see "Manual verification" above).
+  verification (see "Manual verification" above) — including Prompt 9's playback, per "Prompt 9 manual
+  verification" above.
