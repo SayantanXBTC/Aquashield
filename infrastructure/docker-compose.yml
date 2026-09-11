@@ -1,0 +1,23 @@
+name: aquashield
+
+services:
+  postgres:
+    image: postgis/postgis:17-3.4
+    container_name: aquashield-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aquashield}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aquashield}
+      POSTGRES_DB: ${POSTGRES_DB:-aquashield}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - aquashield_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aquashield} -d ${POSTGRES_DB:-aquashield}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  aquashield_postgres_data:

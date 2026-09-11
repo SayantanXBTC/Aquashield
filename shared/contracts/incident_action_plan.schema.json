@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquashield.dev/contracts/incident_action_plan.schema.json",
+  "title": "IncidentActionPlan",
+  "description": "A generated Incident Action Plan for a SimulationRun (architecture.md §18). Mirrors backend/app/db/models/incident_action_plan.py.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "simulation_run_id": { "type": "string", "format": "uuid" },
+    "incident_overview": { "type": ["string", "null"] },
+    "situation_summary": { "type": ["string", "null"] },
+    "objectives": { "type": "array", "items": { "type": "string" } },
+    "priority_actions": { "type": "array", "items": { "type": "object" } },
+    "operational_period": { "type": "object" },
+    "resources": { "type": "object" },
+    "evacuation_strategy": { "type": ["string", "null"] },
+    "safety_considerations": { "type": ["string", "null"] },
+    "communication_plan": { "type": ["string", "null"] },
+    "environmental_considerations": { "type": ["string", "null"] },
+    "monitoring_plan": { "type": ["string", "null"] },
+    "decision_triggers": { "type": "array", "items": { "type": "object" } },
+    "sources": {
+      "description": "RAGResult-shaped references this plan was grounded in.",
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "generation_metadata": { "type": "object" },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["id", "simulation_run_id"],
+  "additionalProperties": false
+}

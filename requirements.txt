@@ -8,6 +8,12 @@ uvicorn[standard]==0.52.4
 pydantic==2.13.5
 pydantic-settings==2.15.0
 
+# --- database (PostgreSQL/PostGIS via SQLAlchemy + Alembic) ---
+sqlalchemy==2.0.52
+alembic==1.19.2
+geoalchemy2==0.20.0
+psycopg[binary]==3.3.5
+
 # --- simulation (NumPy, SciPy, xarray, GeoPandas, Shapely) ---
 # Rasterio: PLANNED / INSTALL WHEN REQUIRED — not needed by the bootstrap.
 numpy==2.5.3

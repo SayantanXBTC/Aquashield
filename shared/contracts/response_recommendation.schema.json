@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquashield.dev/contracts/response_recommendation.schema.json",
+  "title": "ResponseRecommendation",
+  "description": "A recommended action for a SimulationRun. `source` records where it came from — not every recommendation is AI-generated (CLAUDE.md §5, architecture.md §17). Mirrors backend/app/db/models/response_recommendation.py.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "simulation_run_id": { "type": "string", "format": "uuid" },
+    "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3"] },
+    "action": { "type": "string", "minLength": 1 },
+    "rationale": { "type": ["string", "null"] },
+    "evidence_reference": { "type": ["string", "null"] },
+    "responsible_role": { "type": ["string", "null"] },
+    "deadline_timestep": { "type": ["integer", "null"] },
+    "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "source": {
+      "type": "string",
+      "enum": ["rule_based", "simulation_analysis", "ai_agent", "human_operator"]
+    },
+    "status": { "type": "string", "enum": ["proposed", "accepted", "rejected", "implemented"] },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["id", "simulation_run_id", "priority", "action", "source", "status"],
+  "additionalProperties": false
+}

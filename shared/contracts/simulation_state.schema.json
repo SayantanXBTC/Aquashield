@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquashield.dev/contracts/simulation_state.schema.json",
+  "title": "SimulationState",
+  "description": "The structured state a simulation engine produces at one point in time, and the only thing AI agents interpret — they never invent this state (CLAUDE.md §5). Not implemented by a simulation engine yet; this defines the shape it must produce.",
+  "type": "object",
+  "properties": {
+    "simulation_run_id": { "type": "string", "format": "uuid" },
+    "simulation_time": { "type": "string", "format": "date-time" },
+    "timestep": { "type": "integer", "minimum": 0 },
+    "disaster_type": {
+      "type": "string",
+      "enum": ["flood", "flash_flood", "coastal_flood", "storm_surge", "cyclone", "tsunami", "oil_spill", "chemical_pollution", "search_rescue"]
+    },
+    "environmental_state": {
+      "description": "Wind, current, water level, etc. at this timestep — disaster-specific shape.",
+      "type": "object"
+    },
+    "hazard_state": {
+      "description": "The disaster's own state — wave height, flood extent, wind field, slick position, etc.",
+      "type": "object"
+    },
+    "affected_area": {
+      "description": "GeoJSON geometry (typically Polygon/MultiPolygon) of the currently affected extent.",
+      "type": ["object", "null"]
+    },
+    "risk_state": { "type": "object" },
+    "infrastructure_impacts": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "metadata": { "type": "object" }
+  },
+  "required": ["simulation_run_id", "timestep", "disaster_type"],
+  "additionalProperties": false
+}

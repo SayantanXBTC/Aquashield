@@ -1,5 +1,54 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-11 — Database & Shared Contract Foundation
+
+**Added/Changed:**
+- PostgreSQL/PostGIS foundation (`infrastructure/docker-compose.yml`, `backend/app/db/`).
+- SQLAlchemy 2.0 models for all 10 core entities: Scenario, ScenarioVersion, SimulationRun, RiskAssessment,
+  VulnerabilityAssessment, ResponseRecommendation, IncidentActionPlan, InfrastructureAsset,
+  SimulationArtifact, AuditEvent.
+- Alembic wired to SQLAlchemy metadata (`backend/alembic/`), with GeoAlchemy2's `alembic_helpers` for correct
+  PostGIS type rendering. One migration (`foundational_schema`) creates the full schema.
+- `backend/app/db/seed.py` — synthetic dev/demo seed data (3 scenarios across flood/tsunami/oil_spill, versions,
+  runs, 3 infrastructure assets with Point/LineString/Polygon geometry, risk assessments, a recommendation).
+- `GET /health/db` — minimal FastAPI → SQLAlchemy → PostgreSQL connectivity check.
+- 13 shared contracts: canonical JSON Schema (`shared/contracts/*.schema.json`) + hand-maintained Pydantic v2
+  (`shared/schemas/python/contracts.py`) and TypeScript (`shared/types/index.ts`) mirrors, plus
+  `shared/constants/enums.json` as the canonical enum-value list.
+- `docs/development/database.md`; updates to README.md, CLAUDE.md, architecture.md (ADR-003, §14a, §25),
+  docs/development/setup.md.
+- 12 new backend tests (`backend/tests/db/`) covering config, connection, migrations, model CRUD/relationships,
+  PostGIS spatial storage/query, and seed data — all require a real PostgreSQL/PostGIS instance and skip
+  cleanly (not silently on SQLite) when one isn't reachable.
+
+**Why:**
+- Application state (scenarios, runs, risk/vulnerability results, recommendations, IAPs, infrastructure
+  assets) needs real transactions, foreign keys, and constraints — a relational database, not ad hoc JSON files.
+- PostGIS gives first-class geometry/geography types and GIST spatial indexing for infrastructure assets and
+  scenario locations in the same database, avoiding a second geospatial service.
+- Shared contracts prevent frontend, backend, and future agents/RAG code from independently inventing
+  incompatible shapes for the same concept (Scenario, SimulationState, etc.) — see architecture.md §22.
+
+**Files/Modules:**
+- `backend/app/db/` (base.py, session.py, init_db.py, models/, seed.py), `backend/alembic/`,
+  `backend/app/api/routes/health.py` (added `/health/db`), `backend/tests/db/`, `backend/tests/conftest.py`.
+- `infrastructure/docker-compose.yml`, root `requirements.txt` (sqlalchemy, alembic, geoalchemy2, psycopg).
+- `shared/contracts/*.schema.json`, `shared/schemas/python/contracts.py`, `shared/types/index.ts`,
+  `shared/constants/enums.json`.
+- `docs/development/database.md`, `docs/development/setup.md`, `README.md`, `CLAUDE.md`, `architecture.md`.
+
+**Future Context:**
+- Docker was unavailable in the environment this was built in; `infrastructure/docker-compose.yml` is written
+  and documented but was not itself run. All verification (migrations up/down/up, spatial queries, seed data,
+  `/health/db`, the full pytest suite) ran against a local Homebrew PostgreSQL 18 + PostGIS 3.6 instance
+  instead — same engine/extension. Confirm `docker compose -f infrastructure/docker-compose.yml up -d` works
+  in your environment before relying on it.
+- No CRUD API beyond `/health/db` — intentionally out of scope for this phase.
+- No simulation engine, AI agents, or RAG ingestion writes to these tables yet; they're the target of future
+  prompts, not this one.
+- Two documented GeoAlchemy2/Alembic gotchas future migrations must repeat correctly: duplicate spatial-index
+  creation, and Postgres ENUM types not being dropped by `drop_table` — see docs/development/database.md.
+
 ### 2026-09-11 — TECHNOLOGY BOOTSTRAP
 
 **Added/Changed:**

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquashield.dev/contracts/scenario.schema.json",
+  "title": "Scenario",
+  "description": "A user-created disaster scenario. Disaster-specific parameters live on ScenarioVersion.scenario_config, not here — see architecture.md §6.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "description": { "type": ["string", "null"] },
+    "disaster_type": {
+      "type": "string",
+      "enum": ["flood", "flash_flood", "coastal_flood", "storm_surge", "cyclone", "tsunami", "oil_spill", "chemical_pollution", "search_rescue"]
+    },
+    "location_name": { "type": ["string", "null"] },
+    "location": {
+      "description": "Representative point, GeoJSON Point geometry. Optional — areal scenarios describe their extent in scenario_config instead.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "Point" },
+            "coordinates": {
+              "type": "array",
+              "items": { "type": "number" },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": ["type", "coordinates"]
+        }
+      ]
+    },
+    "status": { "type": "string", "enum": ["draft", "active", "archived"] },
+    "created_by": { "type": ["string", "null"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["id", "name", "disaster_type", "status"],
+  "additionalProperties": false
+}

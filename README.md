@@ -40,6 +40,7 @@ rules.
 
 - **Frontend:** React, TypeScript, Vite, React Three Fiber, Three.js, Tailwind CSS, Anime.js
 - **Backend:** Python, FastAPI, WebSockets, Pydantic
+- **Database:** PostgreSQL, PostGIS, SQLAlchemy 2.0, Alembic, GeoAlchemy2
 - **Simulation:** NumPy, SciPy, xarray, GeoPandas, Shapely, Rasterio
 - **AI:** LangGraph (LLM provider to be decided)
 - **RAG:** ChromaDB
@@ -69,11 +70,15 @@ npm run lint       # ESLint
 ```
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cd backend && uvicorn app.main:app --reload   # http://127.0.0.1:8000
-pytest   # from repo root, with the venv active
+docker compose -f infrastructure/docker-compose.yml up -d   # PostgreSQL + PostGIS
+cd backend
+alembic upgrade head && python -m app.db.seed
+uvicorn app.main:app --reload   # http://127.0.0.1:8000
+pytest
 ```
 
 Full setup, environment variables, and troubleshooting: [docs/development/setup.md](docs/development/setup.md).
+Database schema, migrations, seed data: [docs/development/database.md](docs/development/database.md).
 
 ## Repository organization
 
