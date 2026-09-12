@@ -1,5 +1,174 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-12 — Structures layer, premium water/terrain pass, dropdown fix (Prompt 13)
+
+**Added/Changed:**
+- **Structures.** User-placed structures (`building`, `hospital`, `port`, `power_plant`, `lighthouse`,
+  `fuel_terminal`) live in `scenario_config.structures` (validated by `StructureConfig`, max 50) and are
+  saved with the test. Console: `StructuresPanel` (add by type, per-structure on/off switch, rename, remove,
+  layer eye toggle, live status), draggable on the terrain via the shared `useGroundDrag` hook (coastal types
+  snap to the shoreline, others clamp to land), procedural detailed models in `three/structures/models/`
+  (tower block with lit windows, hospital with cross + helipad, port with quay/pier/cranes/containers/ship,
+  power plant with cooling towers + stack, lighthouse, fuel tanks), status ring + label, damage tint and
+  cyclone shake driven by exposure.
+- **Exposure rules (mirrored).** `simulation/core/structures.py` assesses every enabled structure each frame
+  (tsunami run-up sector, cyclone wind field, oil at the coast, flood inundation stretch) and the four demo
+  models now fill `SimulationState.infrastructure_impacts`. `frontend/src/propagation/structures.ts` is the
+  line-for-line mirror; fixtures regenerated with structures; `mirror.test.ts` checks exposure/status per
+  frame. Recorded runs replay the backend's own impacts. Telemetry shows "Structures hit" / "Worst exposure".
+- **Visual pass.** Water: procedural detail normals, depth-based colour (turquoise shelf → navy), rolling
+  breaker sets + swash line at the beach, tsunami whitewater that turns into a breaking wall at the shore,
+  layered oil (black core, brown body, weathered mousse band, faint iridescent fringe; tendrils stretched
+  along the drift), murky silt-water flood sheet with debris streaks and a reach-line seam, storm-darkened
+  sea under a cyclone. Flood/run-up now limited laterally to the same coast stretch the exposure rules use
+  (`uHazardLateralKm`). Terrain: per-fragment procedural surface (`terrainMaterial.ts`: wet/dry sand,
+  fields, forest patches, soil, rock on slopes/ridge) via `onBeforeCompile`. Camera frames the landfall
+  zone tighter; cyclone spiral raised above terrain.
+- **Fix.** Profile dropdown rendered under the telemetry panel — the top bar's `backdrop-blur` made a
+  stacking context; the bar is now `relative z-30` above the panel columns.
+
+**Why:** Requested: structures that can be placed by drag, toggled, and affected by the active hazard, plus a
+more premium, realistic scene.
+
+**Files/Modules:** `simulation/core/structures.py`, `simulation/core/{model,engine}.py`, the four models,
+`backend/app/schemas/scenario_config.py`, `shared/types/index.ts`, `shared/fixtures/propagation_cases.json`,
+`frontend/src/propagation/structures.ts`, `frontend/src/three/structures/*`, `three/markers/useGroundDrag.ts`,
+`three/terrain/terrainMaterial.ts`, `three/shaders/water.ts`, `features/command-center/components/StructuresPanel.tsx`,
+`hooks/useScenarioSession.ts`, `simulation/tests/test_structures.py`.
+
+**Future Context:** exposure rules are illustrative bands, not a vulnerability model — say so wherever they
+surface. Changing a rule: edit both `structures.py` and `structures.ts`, regenerate fixtures.
+
+### 2026-09-12 — Firebase auth, one shoreline world, in-situ interactive console (Prompt 12)
+
+**Added/Changed:**
+- **Database wipe.** `scripts/wipe_scenario_data.py --yes` truncated every scenario/version/run/artifact/
+  assessment row and deleted `simulation/outputs/*.json`. Reference geodata and infrastructure assets kept.
+- **Auth (ADR-004).** Firebase Authentication on the frontend (`features/auth/`: Google popup, email/password
+  sign-in + sign-up, password reset, sign-out → landing). Backend verifies Firebase ID tokens with
+  `PyJWT[crypto]` against Google's certs (`app/core/auth.py`, `FIREBASE_PROJECT_ID` only), `GET /auth/me`.
+  New NOT NULL `scenarios.owner_uid` (migration `5b2f9c1d7e10`); every scenario/run route is owner-scoped —
+  another user's rows are 404. Env-gated local dev bypass (`AUTH_DEV_BYPASS_UID` / `VITE_AUTH_DEV_BYPASS=1`).
+  Tests: `tests/api/test_user_isolation.py`; conftest injects a verified test identity per client.
+- **Demo shoreline world (ADR-005).** `simulation/core/propagation.py` + `shared/constants/demo_world.json`
+  define one 300 km world with an analytic shoreline and common propagation params
+  (`origin_x_km/origin_y_km/heading_deg/speed_kmh/intensity/spread_radius_km/dispersion_rate`, validated by
+  `PropagationConfig`). Tsunami/cyclone/oil-spill/coastal-flood models rewritten on it (`*-demo-v2`),
+  `affected_area` is now `None` (no real geometry). Frontend mirror in `frontend/src/propagation/` verified by
+  `shared/fixtures/propagation_cases.json` (`scripts/generate_propagation_fixtures.py`).
+- **Console rebuilt.** Full-bleed 3D world with collapsible glass HUD overlays (`HudPanel`): My tests tray +
+  New test modal (name + generic presets: Demo Oil Spill / Tsunami / Cyclone / Coastal Flood), inline parameter
+  sliders (heading, speed, arrival-at-coast, intensity, spread, dispersion, duration) with autosave as new
+  scenario versions, draggable origin pin (`three/markers/OriginPin.tsx`), live telemetry (distance to
+  mainland, ETA, phase, headline metric), transport bar with a continuous sim clock
+  (`playback/playbackClock.ts`), recorded runs (record = create + execute; replay locks params), profile menu.
+  `?scenario=<id>` deep link. Standalone `/scenarios` builder route and feature deleted (`/scenarios` redirects).
+- **3D.** `three/world/demoWorld.ts` (km ↔ scene, GLSL twin of shoreline/terrain), `ShorelineTerrain`
+  (replaces `Landmass` + satellite basemap), water shader with watertight shoreline clip, damped swell at the
+  beach, tsunami crest ring, oil slick discolouration + iridescent rim, cyclone chop/foam spiral, flood
+  inundation lift; `hazardChannel` feeds uniforms at frame rate. Four visualizers rewritten; geospatial
+  layers, lat/lon projection, search-rescue visualizer removed. Camera looks from sea to shore, with a
+  post-login dolly-in entrance.
+- **Landing/gateway.** One-screen landing with a raw-WebGL2 fluid backdrop and four-word copy; `/explore` is
+  only the glassmorphic sign-in card (adapted `components/ui/sign-in-card.tsx`, framer-motion + lucide) over
+  the same backdrop; successful sign-in plays a canvas warp then the camera entrance. Cinematic scroll stage
+  and its image assets deleted.
+- **Dependencies.** frontend: `firebase`, `framer-motion`, `lucide-react`, `clsx`, `tailwind-merge`;
+  python: `PyJWT[crypto]`. Seed no longer creates scenarios (user-owned).
+
+**Why:**
+- Requested overhaul: private per-user tests, no real-world places/coordinates, real-time parameter tuning
+  and a draggable origin on one consistent shoreline scene, distinct visual physics per disaster, and a
+  decluttered HUD. See architecture.md ADR-004/ADR-005/§29.
+
+**Files/Modules:**
+- backend: `app/core/auth.py`, `app/api/routes/auth.py`, `app/schemas/auth.py`, `app/schemas/scenario_config.py`,
+  `app/services/{scenario,simulation,impact}_service.py`, `app/repositories/scenario_repository.py`,
+  `app/db/models/scenario.py`, `alembic/versions/5b2f9c1d7e10_*.py`, `app/db/seed.py`, `app/config/settings.py`.
+- simulation: `core/propagation.py`, `models/{tsunami,cyclone,oil_spill,flood}/model.py`, tests.
+- shared: `constants/demo_world.json`, `fixtures/propagation_cases.json`, `types/index.ts`.
+- frontend: `features/auth/*`, `features/landing/*`, `features/command-center/*`, `propagation/*`,
+  `three/{world,hazard,terrain,water,shaders,markers,disasters,core}/*`, `components/ui/sign-in-card.tsx`,
+  `api/client.ts`, `lib/utils.ts`, `app/App.tsx`.
+- scripts: `wipe_scenario_data.py`, `generate_propagation_fixtures.py`.
+
+**Future Context:**
+- Firebase project config must be supplied by the operator (`frontend/.env.local`, `backend/.env`) — see
+  docs/development/setup.md "Authentication". Without it the gateway shows an explicit configuration error.
+- Changing any formula in `simulation/core/propagation.py` or a demo model requires regenerating the fixtures
+  and updating `frontend/src/propagation/hazards.ts`; `mirror.test.ts` fails otherwise.
+- Verified: backend 132 API/schema/service tests + 17 db tests, 67 simulation tests, frontend 12 tests,
+  `tsc`/`eslint` clean, `npm run build` (three still only in the lazy chunk), headless-Chrome screenshots of
+  landing + all four hazards.
+
+### 2026-09-12 — Console redesign, real satellite basemap, water rewrite (Prompt 11)
+
+**Added/Changed:**
+- **Layout (structural).** `CommandCenterPage` replaced absolutely-positioned viewport overlays with an
+  explicit three-column grid (left rail / viewport / right rail). Each rail is an independently scrolling
+  `min-h-0` column, so a long panel scrolls inside its rail instead of overflowing into the viewport or the
+  other rail — the panel collision and the Data Layers buttons wrapping outside their card are both gone.
+  Collapses to one column below `xl`. New `flush` `CommandPanel` variant for rail-mounted panels.
+- **New panels/components.** `HazardMetricsPanel` (per-frame reported values, split out of
+  `SimulationStatusPanel`), `ViewportChrome` (colour keys, view extent, provenance — `pointer-events-none`
+  so it never blocks an orbit drag), `components/ui/icons.tsx` (one inline SVG set), `Toggle`
+  (`role="switch"`), `MetricTile`, `SeverityBadge`, `LegendBar`.
+- **Design tokens.** IBM Plex Sans/Mono with tabular numerics, flat console surfaces, 3-4px radii, hairline
+  rules, a 3-step neutral elevation scale. `--shadow-glow-accent` deleted — coloured border glow is now a
+  banned effect; `LiquidMetalButton` rebuilt as an unblurred machined rim.
+- **Scene scale.** `SCENE_UNITS_PER_KM` 0.12 → 1.1. The visible world was ~2,300 km across, so a 20 km
+  hazard projected to 2.4 units in a 280-unit terrain — the disaster rendered as a speck. The plate is now
+  320 units ≈ 291 km and that footprint projects to 22 units. `geoProjection.ts` also owns
+  `SCENE_TERRAIN_SIZE`/`SCENE_WORLD_SPAN_KM` so terrain and basemap can't disagree.
+- **Camera framing.** `CameraController` now slews its orbit target onto the hazard and pulls to a distance
+  that fits its radius; `SceneRoot` derives focus + radius (hazard centre, else scenario origin). Manual
+  orbit cancels the slew permanently; reduced motion applies it as a cut.
+- **Water rewritten.** Six Gerstner components with analytic normals, Schlick fresnel over a sky-gradient
+  reflection, wrap lighting, crest forward-scatter, specular + noise-broken glitter, steepness foam,
+  horizon fade. Plane 64 → 320 segments (Gerstner is per-vertex). ACES tone mapping enabled on the canvas.
+- **Real satellite basemap.** New `three/terrain/satelliteBasemap.ts` stitches Esri World Imagery XYZ tiles
+  (public, key-free, CORS-enabled) into one canvas covering exactly the plate's ground footprint at the
+  scenario's real coordinates, and drapes it on the terrain. A land/water mask derived from the imagery (a
+  documented colour heuristic) decides which vertices sit above sea level, so the animated water meets the
+  visible coastline. Falls back to the procedural vertex-colour terrain whenever imagery is unavailable;
+  real status and attribution are surfaced in Geographic Context and the viewport provenance line.
+- **Honesty fixes.** Removed fabricated telemetry that had appeared on `/explore` ("CHENNAI_SECTOR_01", a
+  hardcoded lat/lon, "60_FPS_ACTV", "3D SENSOR GRID READY", "hydrodynamic storm surge modeling"). Header
+  ANALYZE/RESPOND/REPORT modes render as explicitly unavailable rather than as dead tabs. `ImpactPanel`
+  reports the severity band once (header badge) instead of twice.
+- 130 frontend tests passing, `tsc --noEmit` clean, `eslint` clean (3 pre-existing fast-refresh warnings),
+  `npm run build` succeeds with three/`@react-three` still isolated in the lazy `CommandCenterPage` chunk.
+
+**Why:**
+- The panel overlap and the speck-sized disaster were the two defects that made the console unusable, and
+  both were structural (absolute overlays; a scene scale two orders of magnitude off) rather than cosmetic.
+- The water and terrain read as "a tinted plane with a green blob" because the geometry could not represent
+  a wave crest and the surface had no real reflection model. Satellite imagery gives the plate genuine
+  geographic identity without pretending to be elevation data.
+- Glow, a ubiquitous default typeface and ad-hoc glyphs are what made the UI read as generic; a flat
+  console language with one icon family and tabular numerics is what an EOC actually looks like.
+
+**Files/Modules:**
+- `frontend/index.html`, `frontend/src/styles/{tokens,index}.css`
+- `frontend/src/components/ui/*` (icons, Toggle, MetricTile, SeverityBadge, LegendBar + restyled primitives)
+- `frontend/src/features/command-center/*` (page grid, header, all panels, ViewportChrome, HazardMetricsPanel)
+- `frontend/src/features/landing/{LandingPage,ExploreTransition,NarrativeTypography,CinematicScroll}.tsx`
+- `frontend/src/three/{shaders/water.ts,water/*,terrain/*,core/*,markers,overlays,geospatial,disasters}`
+- `frontend/src/three/terrain/satelliteBasemap.ts` (new)
+- `architecture.md` §28e
+
+**Future Context:**
+- Esri World Imagery is used without an API key and must stay attributed wherever it renders. If it is ever
+  swapped for a keyed provider, the key belongs in environment configuration (CLAUDE.md §18/§24), and the
+  "unavailable" fallback path must be preserved — the app must never depend on imagery loading.
+- The imagery-derived land/water mask is a rendering heuristic. It must never be used for analysis, exposure
+  or any displayed measurement; PostGIS remains the source of truth (architecture.md §14a).
+- Terrain *shape* is still procedural and elevation is still reported as unavailable. A future DEM phase
+  should replace the height field in `Landmass.tsx` and update `GeographicContextPanel`'s Elevation row in
+  the same change.
+- `SCENE_UNITS_PER_KM` is now load-bearing for framing, hazard sizes and the basemap footprint. Changing it
+  means re-checking `CameraController`'s MIN/MAX distance and `SceneRoot`'s `MIN_FRAME_RADIUS`.
+
 ### 2026-09-12 — Connect and Visualize Geospatial Impact Data (Prompt 10.1)
 
 **Added/Changed:**

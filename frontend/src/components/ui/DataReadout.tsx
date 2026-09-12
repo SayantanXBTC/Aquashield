@@ -4,19 +4,22 @@ interface DataReadoutProps {
   label: string;
   value: string | number | null | undefined;
   unit?: string;
+  /** Right-align the value — used inside a two-column key/value row. */
+  align?: "left" | "right";
 }
 
 /** A single label/value technical readout. Never fabricates a value — a
  * missing value renders the explicit "—" placeholder, never a guessed
  * number (Prompt 8 "No fake data"). */
-export function DataReadout({ label, value, unit }: DataReadoutProps) {
-  const display = value === null || value === undefined || value === "" ? UNAVAILABLE : value;
+export function DataReadout({ label, value, unit, align = "left" }: DataReadoutProps) {
+  const missing = value === null || value === undefined || value === "";
+  const display = missing ? UNAVAILABLE : value;
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-ink-faint text-[10px] tracking-[0.12em] uppercase">{label}</span>
-      <span className="text-ink font-mono text-sm">
+    <div className={`flex min-w-0 flex-col gap-0.5 ${align === "right" ? "items-end" : ""}`}>
+      <span className="text-ink-faint truncate text-[10px] tracking-[0.12em] uppercase">{label}</span>
+      <span className={`truncate font-mono text-xs ${missing ? "text-ink-faint" : "text-ink"}`}>
         {display}
-        {display !== UNAVAILABLE && unit ? <span className="text-ink-faint ml-1 text-xs">{unit}</span> : null}
+        {!missing && unit ? <span className="text-ink-faint ml-1">{unit}</span> : null}
       </span>
     </div>
   );

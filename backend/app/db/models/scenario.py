@@ -42,6 +42,11 @@ class Scenario(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
     )
     created_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Firebase Authentication uid of the owner (the verified `sub` claim —
+    # app/core/auth.py). Every read/write is scoped to this value; a scenario
+    # is never visible to any other account. Indexed because every list query
+    # filters on it.
+    owner_uid: Mapped[str] = mapped_column(String(128), index=True)
 
     versions: Mapped[list["ScenarioVersion"]] = relationship(
         back_populates="scenario",

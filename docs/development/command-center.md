@@ -1,5 +1,70 @@
 # AAA 3D Command Center & Landing — AQUASHIELD
 
+## Prompt 12 — Authenticated interactive console (2026-09-12)
+
+> Sections below this one describe earlier prompts and are kept as history. Where they conflict with this
+> section (rails layout, satellite basemap, lat/lon projection, `simulationVisualAdapter`, the scenario
+> builder route, the cinematic scroll landing), this section is current. Architecture: architecture.md §29,
+> ADR-004, ADR-005.
+
+**Routes.** `/` one-screen landing (`FluidBackdrop` — raw WebGL2 domain-warped fbm, no three.js in the
+initial bundle), `/explore` the sign-in gateway (only the `SignInCard`), `/command-center` behind
+`RequireAuth`. `/scenarios` redirects to the console. A successful sign-in sets router state
+`{ entrance: "warp" }`: `WarpTransition` (canvas 2D streaks → flash) hands off to `CameraController`'s
+dolly-in, and the HUD fades in on `onEntranceComplete`.
+
+**Auth.** `features/auth/AuthProvider.tsx` owns the Firebase session (`onAuthStateChanged`), exposes
+Google/email sign-in, sign-up, reset, sign-out, and registers a token getter (`tokenProvider.ts`) that
+`api/client.ts` uses to attach `Authorization: Bearer <id token>` to every request. `ProfileMenu` (photo or
+initials, account details, Sign out → `/`). Firebase config is read from `VITE_FIREBASE_*`; when absent the
+card renders an explicit configuration error. Dev bypass: `VITE_AUTH_DEV_BYPASS=1` (dev builds only) +
+backend `AUTH_DEV_BYPASS_UID`.
+
+**Layout.** Full-bleed `AquaCanvas`; a `pointer-events-none` HUD layer with `pointer-events-auto` glass
+panels (`HudPanel`: collapsible, blur, hairline; collapsed state remembered per panel in localStorage).
+Left: `ScenarioTray` (my tests, New test, archive) + `ParameterPanel`. Right: `TelemetryPanel` (8 Hz poll of
+the snapshot) + `RunsPanel`. Bottom: `PlaybackBar`. Top: `TopBar`. A toggle hides the side columns.
+
+**State.** `useScenarioSession(clock)`: owner-scoped scenario list (`?scenario=<id>` deep link), selected
+scenario → `PropagationParams` (from `current_version.scenario_config` via `paramsFor`), `setParams` (live)
++ `commitParams` (debounced 700 ms autosave → `PATCH /scenarios/{id}` with a merged `scenario_config`, i.e.
+a new immutable version), `durationHours`, `recordRun` (create + execute), `replayRunId` (frames from
+`/timeline`, params locked), and `getSnapshot()` — the per-frame accessor the scene and telemetry share
+(memoised on params + clock minute). `playback/playbackClock.ts` is an external store: the scene reads
+`elapsedMinutes` at frame rate, the HUD subscribes at ≤10 Hz; 1x = 2 sim-minutes per real second (a UI
+convenience).
+
+**The mirror.** `src/propagation/{world,kinematics,hazards}.ts` port `simulation/core/propagation.py` and
+the four demo models; `mirror.test.ts` replays `shared/fixtures/propagation_cases.json`. `hazardKindFor`
+maps disaster types to the four visual kinds.
+
+**3D.** `three/world/demoWorld.ts` (km ↔ scene; `DEMO_WORLD_GLSL` twin of `shoreX`/`terrainHeightKm`),
+`terrain/ShorelineTerrain.tsx`, `water/WaterSurface.tsx` + `shaders/water.ts` (shoreline discard, beach
+damping, tsunami crest, oil discolouration, cyclone chop/spiral foam, flood/run-up inland lift),
+`hazard/hazardChannel.ts` (visualizer → uniforms, no React), `markers/OriginPin.tsx` (drag on the y=0
+plane, clamped to water, OrbitControls suspended while dragging), `markers/HeadingGuide.tsx` (dashed line to
+the model's landfall point), `disasters/{tsunami,cyclone,oil-spill,flood}` (write the channel + small overlay
+meshes + a throttled `SceneLabel`), `disasters/registry.ts` keyed by hazard kind. Camera looks from the sea
+toward the shore (azimuth 252°) and frames origin → landfall. Meshes extend 3x past the 300 km world so the
+horizon fade, not a plate edge, closes the view. `?debug=3d` shows the diagnostics panel; `?t=<minutes>`
+(dev builds) seeks the clock on load.
+
+**Structures (Prompt 13).** `StructuresPanel` (right column) adds/toggles/renames/removes structures;
+`three/structures/StructureLayer` renders enabled ones as procedural models on the terrain
+(`terrainHeightKm` puts them on the surface; coastal types are rotated along the shore tangent), draggable
+through `three/markers/useGroundDrag.ts`. Each model reads its own `impacts` entry from the snapshot every
+frame: palette tints toward damage (`support.ts applyDamage`), a cyclone shakes it, the ring/label colour
+follows `clear/at_risk/impacted/severe`. Labels show only for affected, hovered or selected structures.
+Models are authored at ~3 km footprints and drawn at 2x (`STRUCTURE_VISUAL_SCALE`) — a visual scale.
+
+**Verification (2026-09-12).** `tsc`, `eslint`, `vitest` (13 tests incl. the mirror + replay tests), `npm run
+build` (three only in the lazy chunk). Headless Chrome (SwiftShader) screenshots of the landing, tsunami at
+T+8/T+40 (front arc, landfall, run-up band), oil spill at T+5 h (slick + rim + particles), cyclone at T+3 h
+20 (spiral wind field), coastal flood at T+2 h 30 (inundation lift), and the HUD/telemetry. Not verified in
+this environment: a real Firebase sign-in (no project configured), the warp → entrance sequence end-to-end,
+and pointer drag of the origin pin (headless has no pointer) — the drag path is unit-simple (raycast → clamp
+→ `setParams`) and mirrors what sliders already exercise.
+
 The first visually complete AQUASHIELD experience: a cinematic landing sequence, a dedicated gateway
 screen, and a 3D-dominant command center wired to Prompt 7's real simulation execution API. Full detail
 below; see architecture.md §28 for the high-level summary and CLAUDE.md §27 for the rules this phase

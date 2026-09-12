@@ -24,8 +24,16 @@ class ScenarioRepository:
         self.session.flush()
         return scenario
 
-    def get(self, scenario_id: UUID) -> Scenario | None:
-        return self.session.get(Scenario, scenario_id)
+    def get(self, scenario_id: UUID, *, owner_uid: str | None = None) -> Scenario | None:
+        """`owner_uid` (when given) is applied as a filter, so a scenario
+        owned by someone else reads as "not found" — never as "forbidden",
+        which would leak that the id exists."""
+        scenario = self.session.get(Scenario, scenario_id)
+        if scenario is None:
+            return None
+        if owner_uid is not None and scenario.owner_uid != owner_uid:
+            return None
+        return scenario
 
     def get_with_versions(self, scenario_id: UUID) -> Scenario | None:
         stmt = (
@@ -38,6 +46,7 @@ class ScenarioRepository:
     def list(
         self,
         *,
+        owner_uid: str,
         disaster_type: DisasterType | None = None,
         status: ScenarioStatus | None = None,
         search: str | None = None,
@@ -51,8 +60,8 @@ class ScenarioRepository:
         if sort_dir not in {"asc", "desc"}:
             raise ValueError("sort_dir must be 'asc' or 'desc'")
 
-        stmt = select(Scenario)
-        count_stmt = select(func.count()).select_from(Scenario)
+        stmt = select(Scenario).where(Scenario.owner_uid == owner_uid)
+        count_stmt = select(func.count()).select_from(Scenario).where(Scenario.owner_uid == owner_uid)
 
         if disaster_type is not None:
             stmt = stmt.where(Scenario.disaster_type == disaster_type)

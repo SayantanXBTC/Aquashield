@@ -5,6 +5,16 @@ body {
   background: var(--color-void);
   color: var(--color-ink);
   font-family: var(--font-ui);
+  /* Console UI: no rubber-band scroll behind the fixed command shell. */
+  overscroll-behavior: none;
+}
+
+/* Every numeric readout is tabular so a changing value (frame counter,
+   water level, exposed-asset count) never shifts the row it sits in. */
+.font-mono,
+[class*="font-mono"] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
 /* Thin, dark scrollbar — matches the command-center visual language instead
@@ -14,3 +24,51 @@ body {
   scrollbar-color: var(--color-hairline-strong) transparent;
 }
 
+/* One focus treatment for the whole app: a crisp 2px accent ring with an
+   offset, never a removed outline and never a blurred glow. */
+:focus-visible {
+  outline: 2px solid var(--color-accent-strong);
+  outline-offset: 1px;
+}
+
+/* Range inputs are the timeline scrubber — the one control that needs a
+   custom track/thumb to read as an instrument rather than an OS slider. */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 20px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px;
+  background: var(--color-hairline-strong);
+  border-radius: 2px;
+}
+
+input[type="range"]::-moz-range-track {
+  height: 3px;
+  background: var(--color-hairline-strong);
+  border-radius: 2px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--color-accent-strong);
+  border: 2px solid var(--color-abyss);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-accent-strong);
+  border: 2px solid var(--color-abyss);
+}

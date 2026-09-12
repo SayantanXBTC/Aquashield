@@ -10,14 +10,18 @@ def _create_scenario(client, *, disaster_type="flood", scenario_config=None):
     payload = {
         "name": f"Test {disaster_type}",
         "disaster_type": disaster_type,
-        "location_name": "Test Location",
-        "latitude": 22.5,
-        "longitude": 88.3,
+        # Demo shoreline world propagation parameters (Prompt 12) — no
+        # real-world location. Fast enough to make landfall well inside the
+        # 3 h window so the water level actually changes.
         "scenario_config": scenario_config
         or {
             "duration_hours": 3,
-            "river_level_m": 1.0,
-            "water_rise_rate_m_per_hr": 0.5,
+            "origin_x_km": 150,
+            "origin_y_km": 150,
+            "heading_deg": 90,
+            "speed_kmh": 80,
+            "intensity": 0.6,
+            "spread_radius_km": 10,
         },
     }
     response = client.post("/scenarios", json=payload)
@@ -45,7 +49,7 @@ def test_execute_run_transitions_pending_to_completed(client):
     detail = response.json()
 
     assert detail["status"] == SimulationStatus.COMPLETED.value
-    assert detail["model_identifier"] == "flood-demo-v1"
+    assert detail["model_identifier"] == "coastal-flood-demo-v2"
     assert detail["started_at"] is not None
     assert detail["completed_at"] is not None
     assert detail["duration_seconds"] is not None
@@ -132,14 +136,8 @@ def test_rerun_same_scenario_version_is_deterministic(client):
 
 @requires_postgres
 def test_different_scenario_config_produces_different_output(client):
-    scenario_a = _create_scenario(
-        client,
-        scenario_config={"duration_hours": 3, "river_level_m": 1.0, "water_rise_rate_m_per_hr": 0.5},
-    )
-    scenario_b = _create_scenario(
-        client,
-        scenario_config={"duration_hours": 3, "river_level_m": 1.0, "water_rise_rate_m_per_hr": 2.0},
-    )
+    scenario_a = _create_scenario(client, scenario_config={"duration_hours": 3, "speed_kmh": 40, "intensity": 0.3})
+    scenario_b = _create_scenario(client, scenario_config={"duration_hours": 3, "speed_kmh": 80, "intensity": 0.9})
     run_a = _create_run(client, scenario_a["id"])
     run_b = _create_run(client, scenario_b["id"])
 

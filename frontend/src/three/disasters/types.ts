@@ -1,12 +1,12 @@
 import type { ComponentType } from "react";
-import type { SimulationVisualState } from "../adapters/simulationVisualAdapter";
-import type { LatLon } from "../utils/geoProjection";
+import type { HazardSnapshot } from "@/propagation/hazards";
 
 export interface DisasterVisualizerProps {
-  visualState: SimulationVisualState;
-  /** The scenario's own location — the origin every lat/lon is projected
-   * relative to (see three/utils/geoProjection.ts). */
-  origin: LatLon;
+  /** Per-frame accessor for the current hazard state (live preview or
+   * recorded replay — the visualizer can't tell and doesn't care). Called
+   * inside useFrame, never during render, so param edits and playback
+   * never re-render the scene graph. */
+  getSnapshot: () => HazardSnapshot | null;
 }
 
 export type DisasterVisualizerComponent = ComponentType<DisasterVisualizerProps>;

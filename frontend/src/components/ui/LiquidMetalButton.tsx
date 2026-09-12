@@ -5,36 +5,42 @@ interface LiquidMetalButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>
 }
 
 /**
- * The primary cinematic CTA — a slow-rotating conic-gradient "liquid metal"
- * border around a glass center, in AQUASHIELD's own restrained cyan/aqua
- * palette (not a literal port of any third-party component's code —
- * see docs/development/command-center.md "Landing" for the interaction
- * this was built from: a metallic glowing border with a fluid hover state).
- * The rotation respects `prefers-reduced-motion` via Tailwind's
- * `motion-safe:`/`motion-reduce:` variants.
+ * The primary cinematic CTA.
+ *
+ * Prompt 11 revision: the previous version was a blurred, saturated conic
+ * gradient plus two colored `box-shadow` halos — the exact "glowing border"
+ * effect this design language now bans. What replaced it is a *machined*
+ * treatment: a 1px metallic rim (an unblurred conic gradient masked to the
+ * border via `padding-box`/`border-box` layering), a flat dark face, and a
+ * single static sheen line. The rim rotates slowly on hover only, and the
+ * whole animation is gated behind `motion-safe:`.
  */
 export function LiquidMetalButton({ label, className = "", ...rest }: LiquidMetalButtonProps) {
   return (
     <button
-      className={`group focus-visible:ring-accent-strong relative isolate inline-flex h-14 items-center justify-center rounded-full px-10 transition-transform duration-300 hover:scale-[1.03] focus-visible:ring-2 focus-visible:outline-none ${className}`}
+      className={`group relative isolate inline-flex h-12 cursor-pointer items-center justify-center overflow-hidden rounded-[var(--radius-control)] px-10 ${className}`}
       {...rest}
     >
+      {/* The rim. No blur, no colored shadow — a hairline of brushed metal. */}
       <span
         aria-hidden="true"
-        className="motion-safe:animate-[spin_5s_linear_infinite] group-hover:motion-safe:animate-[spin_2.2s_linear_infinite] absolute inset-0 rounded-full opacity-90 transition-opacity duration-300 group-hover:opacity-100"
+        className="absolute inset-0 rounded-[var(--radius-control)] opacity-80 transition-opacity duration-300 group-hover:opacity-100 motion-safe:group-hover:animate-[spin_6s_linear_infinite]"
         style={{
           background:
-            "conic-gradient(from 0deg, var(--color-accent-soft), var(--color-accent-strong), var(--color-ink), var(--color-accent), var(--color-accent-soft))",
-          filter: "blur(6px) saturate(140%)",
+            "conic-gradient(from 140deg, #2b3a45, var(--color-accent-soft), #8aa2b0, var(--color-accent), #2b3a45)",
         }}
       />
+      {/* The face, inset by 1px so only the rim shows through. */}
       <span
         aria-hidden="true"
-        className="bg-abyss-2 absolute inset-[2px] rounded-full shadow-[0_0_30px_-8px_var(--color-accent)] transition-shadow duration-300 group-hover:shadow-[0_0_44px_-6px_var(--color-accent-strong)]"
+        className="bg-abyss group-hover:bg-abyss-2 absolute inset-[1px] rounded-[calc(var(--radius-control)-1px)] transition-colors duration-300"
       />
-      <span className="text-ink relative z-10 text-sm font-semibold tracking-[0.08em] uppercase">
-        {label}
-      </span>
+      {/* A single static specular line across the upper third. */}
+      <span
+        aria-hidden="true"
+        className="absolute inset-x-[1px] top-[1px] h-[45%] rounded-t-[calc(var(--radius-control)-1px)] bg-gradient-to-b from-white/8 to-transparent"
+      />
+      <span className="text-ink relative z-10 text-xs font-semibold tracking-[0.22em] uppercase">{label}</span>
     </button>
   );
 }

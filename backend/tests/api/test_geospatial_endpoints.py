@@ -1,6 +1,12 @@
 """Integration tests for the hazard-footprint/exposure/impact endpoints
 (Prompt 10) — requires real PostgreSQL/PostGIS, exercises the actual
-simulation engine + PostGIS spatial queries end to end (not mocked)."""
+simulation engine + PostGIS spatial queries end to end (not mocked).
+
+Prompt 12: the demo models now run in the synthetic shoreline world and
+emit no real-world geometry (`affected_area` is None), so exposure/impact
+against real PostGIS assets honestly report "partial" / zero exposure
+rather than a fabricated intersection. The endpoints stay; the tests below
+assert that honest degradation."""
 
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
@@ -20,12 +26,7 @@ def _create_scenario(client, *, disaster_type="flood", scenario_config=None):
         "latitude": LOCATION["latitude"],
         "longitude": LOCATION["longitude"],
         "scenario_config": scenario_config
-        or {
-            "duration_hours": 6,
-            "river_level_m": 1.0,
-            "water_rise_rate_m_per_hr": 0.5,
-            "drainage_capacity_pct": 0,
-        },
+        or {"duration_hours": 6, "origin_x_km": 150, "origin_y_km": 150, "heading_deg": 90, "speed_kmh": 80},
     }
     response = client.post("/scenarios", json=payload)
     assert response.status_code == 201, response.text
@@ -53,9 +54,11 @@ def test_hazard_footprints_endpoint_returns_one_per_frame(client):
     last = body["footprints"][-1]
     assert last["disaster_type"] == "flood"
     assert last["intensity_units"] == "m"
-    assert last["model_id"] == "flood-demo-v1"
+    assert last["model_id"] == "coastal-flood-demo-v2"
     assert last["is_demo_model"] is True
-    assert last["geometry"]["type"] == "Polygon"
+    # Demo-world models carry no real-world geometry.
+    assert last["geometry"] is None
+    assert last["intensity"] > 0
 
 
 @requires_postgres
@@ -75,10 +78,10 @@ def test_hazard_footprints_empty_before_execution(client):
 
 
 @requires_postgres
-def test_exposure_endpoint_finds_intersecting_asset(client, db_session):
-    # A hospital directly at the scenario's location — a flood's affected
-    # radius grows from the scenario location, so once the run completes
-    # this asset intersects the last frame's hazard footprint.
+def test_exposure_endpoint_reports_partial_without_real_geometry(client, db_session):
+    # Even with a hospital at the scenario's nominal location, a demo-world
+    # run has no geographic footprint to intersect it with — the endpoint
+    # must say "partial", never invent an exposure.
     asset = InfrastructureAsset(
         name="Exposure Test Hospital",
         asset_type=AssetType.HOSPITAL,
@@ -94,12 +97,8 @@ def test_exposure_endpoint_finds_intersecting_asset(client, db_session):
     response = client.get(f"/simulation-runs/{run['id']}/exposure")
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["data_quality"] == "available"
-    names = {r["asset_name"] for r in body["exposure_results"]}
-    assert "Exposure Test Hospital" in names
-    hit = next(r for r in body["exposure_results"] if r["asset_name"] == "Exposure Test Hospital")
-    assert hit["status"] == "within_hazard_footprint"
-    assert hit["distance_km"] == 0.0
+    assert body["data_quality"] == "partial"
+    assert body["exposure_results"] == []
 
 
 @requires_postgres
@@ -139,10 +138,8 @@ def test_impact_endpoint_happy_path_caches_on_second_call(client, db_session):
     first = client.get(f"/simulation-runs/{run['id']}/impact")
     assert first.status_code == 200, first.text
     first_body = first.json()
-    assert first_body["data_quality"] == "available"
     assert first_body["cached"] is False
-    assert first_body["exposed_asset_count"] >= 1
-    assert first_body["risk_assessment_id"] is not None
+    assert first_body["exposed_asset_count"] == 0
     assert first_body["is_demo_model"] is True
 
     second = client.get(f"/simulation-runs/{run['id']}/impact")

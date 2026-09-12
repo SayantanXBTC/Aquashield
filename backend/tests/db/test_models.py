@@ -19,7 +19,7 @@ from tests.conftest import requires_postgres
 @requires_postgres
 def test_create_scenario(db_session) -> None:
     scenario = Scenario(
-        name="Test Flood Scenario",
+owner_uid="test-user", name="Test Flood Scenario",
         disaster_type=DisasterType.FLOOD,
         status=ScenarioStatus.DRAFT,
     )
@@ -35,7 +35,7 @@ def test_create_scenario(db_session) -> None:
 
 @requires_postgres
 def test_create_scenario_version(db_session) -> None:
-    scenario = Scenario(name="Test Cyclone", disaster_type=DisasterType.CYCLONE, status=ScenarioStatus.DRAFT)
+    scenario = Scenario(owner_uid="test-user", name="Test Cyclone", disaster_type=DisasterType.CYCLONE, status=ScenarioStatus.DRAFT)
     db_session.add(scenario)
     db_session.flush()
 
@@ -54,7 +54,7 @@ def test_create_scenario_version(db_session) -> None:
 
 @requires_postgres
 def test_create_simulation_run(db_session) -> None:
-    scenario = Scenario(name="Test Tsunami", disaster_type=DisasterType.TSUNAMI, status=ScenarioStatus.DRAFT)
+    scenario = Scenario(owner_uid="test-user", name="Test Tsunami", disaster_type=DisasterType.TSUNAMI, status=ScenarioStatus.DRAFT)
     db_session.add(scenario)
     db_session.flush()
     version = ScenarioVersion(scenario_id=scenario.id, version_number=1, scenario_config={})
@@ -72,7 +72,7 @@ def test_create_simulation_run(db_session) -> None:
 
 @requires_postgres
 def test_risk_assessment_relationship(db_session) -> None:
-    scenario = Scenario(name="Test Flood 2", disaster_type=DisasterType.FLOOD, status=ScenarioStatus.DRAFT)
+    scenario = Scenario(owner_uid="test-user", name="Test Flood 2", disaster_type=DisasterType.FLOOD, status=ScenarioStatus.DRAFT)
     db_session.add(scenario)
     db_session.flush()
     version = ScenarioVersion(scenario_id=scenario.id, version_number=1, scenario_config={})
@@ -97,7 +97,7 @@ def test_risk_assessment_relationship(db_session) -> None:
 
 @requires_postgres
 def test_response_recommendation_relationship(db_session) -> None:
-    scenario = Scenario(name="Test Oil Spill", disaster_type=DisasterType.OIL_SPILL, status=ScenarioStatus.DRAFT)
+    scenario = Scenario(owner_uid="test-user", name="Test Oil Spill", disaster_type=DisasterType.OIL_SPILL, status=ScenarioStatus.DRAFT)
     db_session.add(scenario)
     db_session.flush()
     version = ScenarioVersion(scenario_id=scenario.id, version_number=1, scenario_config={})

@@ -1,76 +1,89 @@
 """SIMPLIFIED DEMONSTRATION MODEL — see DisasterModel.describe() /
-docs/development/simulation.md. Not a tsunami-forecasting model."""
+docs/development/simulation.md. Not a tsunami-forecasting model.
+
+Runs in the demo shoreline world (simulation/core/propagation.py): a wave
+front expands from the user-placed origin along the configured heading at
+`speed_kmh`, reaches the coast, then floods inland up to
+`spread_radius_km * intensity`."""
 
 from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from simulation.core.geo import circle_polygon, haversine_km
 from simulation.core.model import DisasterModel
+from simulation.core.propagation import PropagationParams, front_state
+from simulation.core.structures import HazardGeometry, assess_structures
 
 
 class TsunamiModel(DisasterModel):
-    model_identifier: ClassVar[str] = "tsunami-demo-v1"
+    model_identifier: ClassVar[str] = "tsunami-demo-v2"
     disaster_type: ClassVar[str] = "tsunami"
     assumptions: ClassVar[list[str]] = [
-        "The wave travels from the source at a constant illustrative open-ocean speed (700 km/h).",
-        "Wave height decays linearly with distance traveled relative to distance-to-coast.",
-        "Coastal impact intensity is wave height scaled by arrival progress — not a real inundation model.",
+        "The wave front travels at a constant, user-set speed (default 500 km/h) along one heading in a synthetic shoreline world.",
+        "Initial wave height is 0.5 m + 9.5 m x intensity; height decays linearly by 35% over the approach — not a shoaling model.",
+        "After landfall, inundation grows to spread_radius_km x intensity over 30 minutes, then holds — not an inundation model.",
     ]
-    DEMO_WAVE_SPEED_KMH: ClassVar[float] = 700.0
+    DEFAULT_SPEED_KMH: ClassVar[float] = 500.0
+    DEFAULT_SPREAD_KM: ClassVar[float] = 12.0
+    INUNDATION_RAMP_MIN: ClassVar[float] = 30.0
 
     def initialize(self) -> None:
-        default_lat = self.location["latitude"] if self.location else 0.0
-        default_lon = self.location["longitude"] if self.location else 0.0
-        source_lat = self.config.get("source_latitude")
-        source_lon = self.config.get("source_longitude")
-        self.source_lat = float(source_lat) if source_lat is not None else default_lat
-        self.source_lon = float(source_lon) if source_lon is not None else default_lon
-        self.initial_wave_height_m = float(self.config.get("initial_wave_height_m") or 1.0)
-        self.magnitude = self.config.get("magnitude")
-        self.coast = self.location or {"latitude": self.source_lat, "longitude": self.source_lon}
-        self.distance_to_coast_km = max(
-            haversine_km(self.source_lat, self.source_lon, self.coast["latitude"], self.coast["longitude"]),
-            1.0,
+        self.params = PropagationParams.from_config(
+            self.config,
+            default_speed_kmh=self.DEFAULT_SPEED_KMH,
+            default_spread_radius_km=self.DEFAULT_SPREAD_KM,
         )
+        self.initial_wave_height_m = 0.5 + 9.5 * self.params.intensity
+        self.magnitude = self.config.get("magnitude")
 
     def step(self, timestep: int) -> None:
-        # Stateless: every quantity is derived directly from elapsed time in
-        # get_state(), so there is nothing to mutate incrementally here.
+        # Stateless — every quantity derives from elapsed time in get_state().
         pass
 
-    def _arrival_progress(self, timestep: int) -> float:
-        elapsed_hours = self.clock.elapsed_hours_at(timestep)
-        distance_traveled_km = self.DEMO_WAVE_SPEED_KMH * elapsed_hours
-        return min(1.0, distance_traveled_km / self.distance_to_coast_km)
+    def _front(self, timestep: int):
+        return front_state(self.params, self.clock.elapsed_hours_at(timestep) * 60.0, stop_at_coast=True)
 
     def get_state(self, timestep: int) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]:
-        elapsed_hours = self.clock.elapsed_hours_at(timestep)
-        distance_traveled_km = min(self.DEMO_WAVE_SPEED_KMH * elapsed_hours, self.distance_to_coast_km)
-        arrival_progress = self._arrival_progress(timestep)
-        wave_height_m = max(0.05, self.initial_wave_height_m * (1 - 0.5 * arrival_progress))
-        coastal_impact_m = round(wave_height_m * arrival_progress, 3)
+        front = self._front(timestep)
+        wave_height_m = max(0.05, self.initial_wave_height_m * (1.0 - 0.35 * front.arrival_progress))
+        ramp = min(1.0, front.minutes_since_arrival / self.INUNDATION_RAMP_MIN) if front.arrived else 0.0
+        inundation_km = self.params.spread_radius_km * self.params.intensity * ramp
+        coastal_impact_m = round(wave_height_m * front.arrival_progress, 3)
 
-        environmental_state: dict[str, Any] = {}
         hazard_state = {
+            **front.to_hazard_state(self.params),
             "magnitude": self.magnitude,
-            "source": {"latitude": self.source_lat, "longitude": self.source_lon},
-            "distance_traveled_km": round(distance_traveled_km, 2),
-            "distance_to_coast_km": round(self.distance_to_coast_km, 2),
             "wave_height_m": round(wave_height_m, 3),
-            "arrival_progress": round(arrival_progress, 4),
+            "front_radius_km": round(front.traveled_km, 3),
             "coastal_impact_m": coastal_impact_m,
+            "inundation_km": round(inundation_km, 3),
+            "radius_km": round(max(inundation_km, 0.0), 3),
         }
-        impact_radius_km = 10.0 + coastal_impact_m * 20.0
-        affected_area = (
-            circle_polygon(self.coast["latitude"], self.coast["longitude"], impact_radius_km)
-            if arrival_progress > 0
-            else None
+        return {}, hazard_state, None
+
+    def get_infrastructure_impacts(self, timestep: int) -> list[dict[str, Any]]:
+        front = self._front(timestep)
+        ramp = min(1.0, front.minutes_since_arrival / self.INUNDATION_RAMP_MIN) if front.arrived else 0.0
+        inundation_km = self.params.spread_radius_km * self.params.intensity * ramp
+        wave_height_m = max(0.05, self.initial_wave_height_m * (1.0 - 0.35 * front.arrival_progress))
+        geometry = HazardGeometry(
+            kind="tsunami",
+            origin_x_km=self.params.origin_x_km,
+            origin_y_km=self.params.origin_y_km,
+            position_x_km=front.position_x_km,
+            position_y_km=front.position_y_km,
+            heading_deg=self.params.heading_deg,
+            arrived=front.arrived,
+            coast_distance_total_km=front.coast_distance_total_km,
+            traveled_km=front.traveled_km,
+            spread_radius_km=self.params.spread_radius_km,
+            inundation_km=inundation_km,
+            scale=(wave_height_m * front.arrival_progress) / self.initial_wave_height_m,
         )
-        return environmental_state, hazard_state, affected_area
+        return [i.to_dict() for i in assess_structures(self.config.get("structures"), geometry)]
 
     def is_key_event(self, timestep: int) -> bool:
         """The frame where the wave first reaches the coast."""
         if timestep == 0:
             return False
-        return self._arrival_progress(timestep - 1) < 1.0 <= self._arrival_progress(timestep)
+        return (not self._front(timestep - 1).arrived) and self._front(timestep).arrived

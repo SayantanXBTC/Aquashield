@@ -54,9 +54,9 @@ class ImpactFrameNotFoundError(ImpactServiceError):
 
 
 class ImpactService:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, owner_uid: str | None = None) -> None:
         self.session = session
-        self.simulation_service = SimulationService(session)
+        self.simulation_service = SimulationService(session, owner_uid=owner_uid)
         self.hazard_footprints = HazardFootprintService(self.simulation_service)
         self.exposure = ExposureService(session)
         self.repo = ImpactRepository(session)

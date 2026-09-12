@@ -93,6 +93,7 @@ class SimulationEngine:
 
     def _capture_frame(self, timestep: int) -> TimelineFrame:
         environmental_state, hazard_state, affected_area = self.model.get_state(timestep)
+        infrastructure_impacts = self.model.get_infrastructure_impacts(timestep)
         simulation_time = self.clock.timestamp_at(timestep)
         state = SimulationState(
             simulation_run_id=self.simulation_run_id,
@@ -102,6 +103,7 @@ class SimulationEngine:
             environmental_state=environmental_state,
             hazard_state=hazard_state,
             affected_area=affected_area,
+            infrastructure_impacts=infrastructure_impacts,
             metadata={
                 "model_identifier": self.model.model_identifier,
                 "progress": self.clock.progress_at(timestep),

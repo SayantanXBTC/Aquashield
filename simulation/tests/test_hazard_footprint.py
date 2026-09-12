@@ -13,12 +13,7 @@ def _run_flood():
     engine = SimulationEngine(
         simulation_run_id="00000000-0000-0000-0000-0000000000f1",
         disaster_type="flood",
-        scenario_config={
-            "duration_hours": 4,
-            "river_level_m": 1.0,
-            "water_rise_rate_m_per_hr": 0.5,
-            "drainage_capacity_pct": 0,
-        },
+        scenario_config={"duration_hours": 4, "origin_x_km": 150, "origin_y_km": 150, "heading_deg": 90, "speed_kmh": 80},
         timestep_config={"timestep_minutes": 60},
         location=LOCATION,
         seed=1,
@@ -30,7 +25,7 @@ def _run_cyclone():
     engine = SimulationEngine(
         simulation_run_id="00000000-0000-0000-0000-0000000000f2",
         disaster_type="cyclone",
-        scenario_config={"duration_hours": 6, "wind_speed_kt": 90, "radius_km": 40},
+        scenario_config={"duration_hours": 6, "intensity": 0.5, "spread_radius_km": 40},
         timestep_config={"timestep_minutes": 60},
         location=LOCATION,
         seed=1,
@@ -42,12 +37,7 @@ def _run_tsunami():
     engine = SimulationEngine(
         simulation_run_id="00000000-0000-0000-0000-0000000000f3",
         disaster_type="tsunami",
-        scenario_config={
-            "duration_hours": 3,
-            "source_latitude": 20.0,
-            "source_longitude": 88.0,
-            "initial_wave_height_m": 5.0,
-        },
+        scenario_config={"duration_hours": 3, "origin_x_km": 45, "origin_y_km": 140, "speed_kmh": 500},
         timestep_config={"timestep_minutes": 30},
         location=LOCATION,
         seed=1,
@@ -61,9 +51,10 @@ def test_flood_hazard_footprint_repackages_hazard_state():
     assert footprint.disaster_type == "flood"
     assert footprint.intensity == frames[-1].state.hazard_state["water_level_m"]
     assert footprint.intensity_units == "m"
-    assert footprint.geometry == frames[-1].state.affected_area
-    assert footprint.geometry["type"] == "Polygon"
-    assert footprint.model_id == "flood-demo-v1"
+    # Demo-world models emit no real-world geometry (Prompt 12).
+    assert frames[-1].state.affected_area is None
+    assert footprint.geometry is None
+    assert footprint.model_id == "coastal-flood-demo-v2"
     assert footprint.is_demo_model is True
 
 
@@ -80,8 +71,8 @@ def test_cyclone_hazard_footprint_uses_wind_speed_as_intensity():
     assert footprint.disaster_type == "cyclone"
     assert footprint.intensity == frames[-1].state.hazard_state["wind_speed_kt"]
     assert footprint.intensity_units == "kt"
-    assert footprint.geometry["type"] == "Polygon"
-    assert footprint.model_id == "cyclone-demo-v1"
+    assert footprint.geometry is None
+    assert footprint.model_id == "cyclone-demo-v2"
 
 
 def test_storm_surge_reuses_cyclone_extractor():
@@ -92,15 +83,14 @@ def test_storm_surge_reuses_cyclone_extractor():
     assert HAZARD_FOOTPRINT_EXTRACTORS["storm_surge"] is HAZARD_FOOTPRINT_EXTRACTORS["cyclone"]
 
 
-def test_tsunami_hazard_footprint_falls_back_to_source_point_before_affected_area():
+def test_tsunami_hazard_footprint_has_no_real_world_geometry():
     engine, frames = _run_tsunami()
-    footprint = build_hazard_footprint(frames[0], model_identifier=engine.model.model_identifier)
-    # t0: arrival_progress is 0 so affected_area is None, but the source
-    # point is always known -> fallback Point geometry.
-    assert frames[0].state.affected_area is None
-    assert footprint.geometry is not None
-    assert footprint.geometry["type"] == "Point"
-    assert footprint.geometry["coordinates"] == [88.0, 20.0]
+    footprint = build_hazard_footprint(frames[-1], model_identifier=engine.model.model_identifier)
+    # The demo-world source is in km, not lat/lon — no fallback Point is
+    # fabricated from it.
+    assert frames[-1].state.affected_area is None
+    assert footprint.geometry is None
+    assert footprint.intensity == frames[-1].state.hazard_state["coastal_impact_m"]
 
 
 def test_unregistered_disaster_type_raises_not_silently_empty():
@@ -127,4 +117,4 @@ def test_to_dict_round_trips_expected_keys():
         "model_version",
         "is_demo_model",
     }
-    assert payload["geometry_type"] == "Polygon"
+    assert payload["geometry_type"] is None

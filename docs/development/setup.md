@@ -47,6 +47,23 @@ Root `.env.example` documents the full set of categories the platform will event
 external data providers) — most are not consumed by any code yet. Never commit `.env`, `.env.local`, or
 `backend/.env`.
 
+## 6b. Authentication (Firebase)
+
+1. Create a Firebase project; add a **Web app**; copy its SDK config.
+2. Authentication → Sign-in method: enable **Google** and **Email/Password**; add `localhost` to Authorized
+   domains.
+3. `frontend/.env.local`: `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`,
+   `VITE_FIREBASE_APP_ID` (see `frontend/.env.example`).
+4. `backend/.env`: `FIREBASE_PROJECT_ID=<same project id>`. No service account is needed — tokens are
+   verified against Google's public certs (`backend/app/core/auth.py`).
+5. Sanity check after signing in: `GET /auth/me` with the bearer token returns your uid.
+
+Local development without a Firebase project: set `AUTH_DEV_BYPASS_UID=dev-operator` in `backend/.env` and
+`VITE_AUTH_DEV_BYPASS=1` in `frontend/.env.local`. Both are ignored in production builds / must never be set
+in a deployed environment.
+
+Wiping scenario data: `.venv/bin/python scripts/wipe_scenario_data.py --yes` (dry run without `--yes`).
+
 ## 6a. Database Setup
 
 ```

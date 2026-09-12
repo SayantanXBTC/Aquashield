@@ -1,72 +1,91 @@
 """SIMPLIFIED DEMONSTRATION MODEL — see DisasterModel.describe() /
-docs/development/simulation.md. Not a pollutant-dispersion model."""
+docs/development/simulation.md. Not a pollutant-dispersion model.
+
+Runs in the demo shoreline world (simulation/core/propagation.py): the slick
+centre drifts from the user-placed origin along the configured heading at
+`speed_kmh` (a slow surface drift), beaches when it reaches the coast, and
+spreads/thins at a rate set by `dispersion_rate`."""
 
 from __future__ import annotations
 
 import math
 from typing import Any, ClassVar
 
-from simulation.core.geo import circle_polygon, move_point
 from simulation.core.model import DisasterModel
-
-
-def _extract_latlon(point: dict[str, float] | None, fallback_lat: float, fallback_lon: float) -> tuple[float, float]:
-    if not point:
-        return fallback_lat, fallback_lon
-    lat = point.get("latitude", point.get("lat"))
-    lon = point.get("longitude", point.get("lon"))
-    return (float(lat) if lat is not None else fallback_lat, float(lon) if lon is not None else fallback_lon)
+from simulation.core.propagation import PropagationParams, front_state
+from simulation.core.structures import HazardGeometry, assess_structures
 
 
 class OilSpillModel(DisasterModel):
-    model_identifier: ClassVar[str] = "oil-spill-demo-v1"
+    model_identifier: ClassVar[str] = "oil-spill-demo-v2"
     disaster_type: ClassVar[str] = "oil_spill"
     assumptions: ClassVar[list[str]] = [
-        "Drift velocity = surface current + 3% of wind speed (a commonly cited simplified windage factor) — not a hydrodynamic transport model.",
-        "Slick area grows with elapsed time and spill volume; concentration decays exponentially (illustrative weathering) — not a real evaporation/emulsification model.",
+        "The slick centre drifts at a constant, user-set speed (default 3 km/h) along one heading and stops at the shoreline — not a hydrodynamic transport model.",
+        "Slick radius grows toward spread_radius_km as 1 - exp(-(0.4 + 1.6 x dispersion_rate) x hours) — an illustrative spreading curve.",
+        "Concentration index decays as exp(-0.35 x dispersion_rate x hours) — not an evaporation/emulsification model.",
     ]
-    WINDAGE_FACTOR: ClassVar[float] = 0.03
-    KT_TO_KMH: ClassVar[float] = 1.852
+    DEFAULT_SPEED_KMH: ClassVar[float] = 3.0
+    DEFAULT_SPREAD_KM: ClassVar[float] = 18.0
 
     def initialize(self) -> None:
-        default_lat = self.location["latitude"] if self.location else 0.0
-        default_lon = self.location["longitude"] if self.location else 0.0
-        self.start_lat, self.start_lon = _extract_latlon(
-            self.config.get("spill_location"), default_lat, default_lon
+        self.params = PropagationParams.from_config(
+            self.config,
+            default_speed_kmh=self.DEFAULT_SPEED_KMH,
+            default_spread_radius_km=self.DEFAULT_SPREAD_KM,
         )
-        self.volume_tonnes = float(self.config.get("spill_volume_tonnes") or 10.0)
+        self.volume_tonnes = self.config.get("spill_volume_tonnes")
         self.oil_type = self.config.get("oil_type")
-        self.wind_speed_kt = float(self.config.get("wind_speed_kt") or 0.0)
-        self.wind_dir = float(self.config.get("wind_direction_deg") or 0.0)
-        self.current_speed_kt = float(self.config.get("current_speed_kt") or 0.0)
-        self.current_dir = float(self.config.get("current_direction_deg") or 0.0)
-        self.lat, self.lon = self.start_lat, self.start_lon
 
     def step(self, timestep: int) -> None:
-        elapsed_hours = self.clock.elapsed_hours_at(timestep)
-        windage_kt = self.wind_speed_kt * self.WINDAGE_FACTOR
-        drift_speed_kmh = (self.current_speed_kt + windage_kt) * self.KT_TO_KMH
-        bearing = self.current_dir if self.current_speed_kt >= windage_kt else self.wind_dir
-        distance_km = drift_speed_kmh * elapsed_hours
-        self.lat, self.lon = move_point(self.start_lat, self.start_lon, bearing, distance_km)
+        pass
 
     def get_state(self, timestep: int) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]:
-        elapsed_hours = self.clock.elapsed_hours_at(timestep)
-        area_km2 = min(200.0, 0.5 * (self.volume_tonnes**0.5) * (1 + elapsed_hours))
-        radius_km = math.sqrt(area_km2 / math.pi)
-        concentration_index = math.exp(-0.15 * elapsed_hours)
+        hours = self.clock.elapsed_hours_at(timestep)
+        front = front_state(self.params, hours * 60.0, stop_at_coast=True)
+        growth = 1.0 - math.exp(-(0.4 + 1.6 * self.params.dispersion_rate) * hours)
+        radius_km = 0.3 + self.params.spread_radius_km * growth
+        concentration_index = math.exp(-0.35 * self.params.dispersion_rate * hours) * (0.35 + 0.65 * self.params.intensity)
+        area_km2 = math.pi * radius_km * radius_km
 
-        environmental_state = {
-            "wind_speed_kt": self.wind_speed_kt,
-            "wind_direction_deg": self.wind_dir,
-            "current_speed_kt": self.current_speed_kt,
-            "current_direction_deg": self.current_dir,
-        }
         hazard_state = {
-            "center": {"latitude": round(self.lat, 5), "longitude": round(self.lon, 5)},
+            **front.to_hazard_state(self.params),
+            "center": {"x": round(front.position_x_km, 3), "y": round(front.position_y_km, 3)},
+            "slick_radius_km": round(radius_km, 3),
             "slick_area_km2": round(area_km2, 3),
             "concentration_index": round(concentration_index, 4),
             "oil_type": self.oil_type,
+            "spill_volume_tonnes": self.volume_tonnes,
+            "beached": front.arrived,
+            "radius_km": round(radius_km, 3),
         }
-        affected_area = circle_polygon(self.lat, self.lon, radius_km)
-        return environmental_state, hazard_state, affected_area
+        return {}, hazard_state, None
+
+    def get_infrastructure_impacts(self, timestep: int) -> list[dict[str, Any]]:
+        hours = self.clock.elapsed_hours_at(timestep)
+        front = front_state(self.params, hours * 60.0, stop_at_coast=True)
+        growth = 1.0 - math.exp(-(0.4 + 1.6 * self.params.dispersion_rate) * hours)
+        radius_km = 0.3 + self.params.spread_radius_km * growth
+        concentration = math.exp(-0.35 * self.params.dispersion_rate * hours) * (0.35 + 0.65 * self.params.intensity)
+        geometry = HazardGeometry(
+            kind="oil_spill",
+            origin_x_km=self.params.origin_x_km,
+            origin_y_km=self.params.origin_y_km,
+            position_x_km=front.position_x_km,
+            position_y_km=front.position_y_km,
+            heading_deg=self.params.heading_deg,
+            arrived=front.arrived,
+            coast_distance_total_km=front.coast_distance_total_km,
+            traveled_km=front.traveled_km,
+            spread_radius_km=self.params.spread_radius_km,
+            radius_km=radius_km,
+            scale=concentration,
+        )
+        return [i.to_dict() for i in assess_structures(self.config.get("structures"), geometry)]
+
+    def is_key_event(self, timestep: int) -> bool:
+        """The frame where the slick first beaches."""
+        if timestep == 0:
+            return False
+        prev = front_state(self.params, self.clock.elapsed_hours_at(timestep - 1) * 60.0, stop_at_coast=True)
+        cur = front_state(self.params, self.clock.elapsed_hours_at(timestep) * 60.0, stop_at_coast=True)
+        return (not prev.arrived) and cur.arrived

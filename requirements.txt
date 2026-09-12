@@ -36,3 +36,9 @@ pytest-asyncio==1.4.0
 # backend/app/services/geospatial/natural_earth_provider.py for the one
 # outbound fetch of a fixed, code-configured public dataset URL.
 httpx==0.28.1
+
+# --- auth (Firebase ID-token verification, backend/app/core/auth.py) ---
+# PyJWT + cryptography verify RS256 Firebase ID tokens against Google's
+# published x509 certs. Chosen over firebase-admin: no service-account file
+# needed, no google-cloud transitive tree — see architecture.md ADR-007.
+PyJWT[crypto]==2.10.1

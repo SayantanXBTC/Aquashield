@@ -1,49 +1,56 @@
-from simulation.core.engine import SimulationEngine
+"""Cyclone demo model (demo shoreline world — Prompt 12)."""
 
-LOCATION = {"latitude": 15.0, "longitude": 90.0}
+from simulation.core.engine import SimulationEngine
 
 
 def _run(**config_overrides):
-    config = {"duration_hours": 6, "wind_speed_kt": 120, "radius_km": 60, **config_overrides}
+    config = {
+        "duration_hours": 8,
+        "origin_x_km": 80,
+        "origin_y_km": 120,
+        "heading_deg": 70,
+        "speed_kmh": 30,
+        "intensity": 0.8,
+        "spread_radius_km": 70,
+        "dispersion_rate": 0.5,
+        **config_overrides,
+    }
     engine = SimulationEngine(
         simulation_run_id="00000000-0000-0000-0000-000000000012",
         disaster_type="cyclone",
         scenario_config=config,
         timestep_config={"timestep_minutes": 30},
-        location=LOCATION,
+        location=None,
         seed=1,
     )
     return engine.run()
 
 
-def test_center_position_changes_over_time_without_track():
+def test_center_moves_along_heading_and_continues_inland():
     frames = _run()
-    first_center = frames[0].state.hazard_state["center"]
-    last_center = frames[-1].state.hazard_state["center"]
-    assert first_center != last_center
+    first = frames[0].state.hazard_state["center"]
+    last = frames[-1].state.hazard_state["center"]
+    assert last["x"] > first["x"] and last["y"] > first["y"]  # heading 70°: east-north-east
+    assert frames[-1].state.hazard_state["arrived"] is True
+    traveled = frames[-1].state.hazard_state["traveled_km"]
+    total = frames[-1].state.hazard_state["coast_distance_total_km"]
+    assert traveled > total  # kept moving past the coast
 
 
-def test_hazard_radius_grows_over_time():
-    frames = _run()
-    radii = [f.state.hazard_state["hazard_radius_km"] for f in frames]
-    assert radii == sorted(radii)
-    assert radii[-1] > radii[0]
-
-
-def test_wind_speed_decays_over_time():
+def test_wind_holds_offshore_and_decays_inland():
     frames = _run()
     winds = [f.state.hazard_state["wind_speed_kt"] for f in frames]
-    assert winds[0] > winds[-1]
+    offshore = [w for w, f in zip(winds, frames) if not f.state.hazard_state["arrived"]]
+    assert len(set(offshore)) == 1  # constant until landfall
+    assert winds[-1] < winds[0]
 
 
-def test_explicit_track_is_followed():
-    track = [
-        {"latitude": 10.0, "longitude": 85.0},
-        {"latitude": 12.0, "longitude": 87.0},
-        {"latitude": 14.0, "longitude": 89.0},
-    ]
-    frames = _run(track=track)
-    first_center = frames[0].state.hazard_state["center"]
-    last_center = frames[-1].state.hazard_state["center"]
-    assert first_center["latitude"] == 10.0
-    assert last_center["latitude"] == 14.0
+def test_wind_field_radius_is_the_configured_spread():
+    frames = _run(spread_radius_km=55)
+    assert all(f.state.hazard_state["hazard_radius_km"] == 55.0 for f in frames)
+
+
+def test_intensity_sets_peak_wind():
+    weak = _run(intensity=0.1)
+    strong = _run(intensity=1.0)
+    assert strong[0].state.hazard_state["wind_speed_kt"] > weak[0].state.hazard_state["wind_speed_kt"]

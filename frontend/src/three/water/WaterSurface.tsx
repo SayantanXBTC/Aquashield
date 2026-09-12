@@ -1,32 +1,72 @@
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import type { Mesh, ShaderMaterial } from "three";
+import type { ShaderMaterial } from "three";
 import "./waterMaterial";
+import { useDiagnostics } from "../diagnostics/diagnosticStore";
+import { hazardChannel } from "../hazard/hazardChannel";
+import { SCENE_MESH_SIZE } from "../world/demoWorld";
 
 interface WaterSurfaceProps {
-  size?: number;
+  /** Visual swell scale — a RENDERING choice, never a reported sea state. */
+  amplitude?: number;
 }
 
-/** The AQUASHIELD ocean base every scene sits on — a shader-displaced plane,
- * not a static flat color (Prompt 8: avoid "a blue plane with some cubes on
- * it"). Geometry stays coarse (64 segments) since the displacement is
- * subtle and the surface is viewed from a distance — no benefit to a denser
- * mesh here. */
-export function WaterSurface({ size = 400 }: WaterSurfaceProps) {
-  const materialRef = useRef<ShaderMaterial>(null);
-  const meshRef = useRef<Mesh>(null);
+type WaterUniforms = ShaderMaterial & {
+  uTime: number;
+  uHazardKind: number;
+  uHazardOrigin: { set: (x: number, y: number) => void };
+  uHazardPos: { set: (x: number, y: number) => void };
+  uHazardRadius: number;
+  uHazardFront: number;
+  uHazardIntensity: number;
+  uHazardHeading: number;
+  uInundationKm: number;
+  uWaterLevelM: number;
+  uWaveHeight: number;
+  uHazardLateralKm: number;
+};
+
+/**
+ * VISUAL DEMONSTRATION — the ocean every scene sits on. Not bathymetry, not
+ * a sea-state product; see three/shaders/water.ts.
+ *
+ * The plane covers three times the demo world (900 units, fading into the
+ * horizon) — the fragment shader discards it wherever the terrain surface
+ * is above the water, so a single plane and a single terrain mesh produce a
+ * watertight shoreline without any geometry cutting. 480 segments so
+ * Gerstner crests and the tsunami front resolve at the camera distances
+ * CameraController allows.
+ */
+export function WaterSurface({ amplitude = 0.6 }: WaterSurfaceProps) {
+  const materialRef = useRef<WaterUniforms>(null);
+  const { enabled } = useDiagnostics();
 
   useFrame((_, delta) => {
-    const material = materialRef.current;
-    if (!material) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shaderMaterial uniforms are untyped
-    (material as any).uTime += delta;
+    const m = materialRef.current;
+    if (!m) return;
+    m.uTime += delta;
+    const h = hazardChannel;
+    m.uHazardKind = h.kind;
+    m.uHazardOrigin.set(h.originX, h.originZ);
+    m.uHazardPos.set(h.posX, h.posZ);
+    m.uHazardRadius = h.radius;
+    m.uHazardFront = h.front;
+    m.uHazardIntensity = h.intensity;
+    m.uHazardHeading = h.headingRad;
+    m.uInundationKm = h.inundationKm;
+    m.uWaterLevelM = h.waterLevelM;
+    m.uWaveHeight = h.waveHeight;
+    m.uHazardLateralKm = h.lateralKm;
   });
 
   return (
-    <mesh ref={meshRef} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-      <planeGeometry args={[size, size, 64, 64]} />
-      <waterMaterial ref={materialRef} attach="material" />
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.12, 0]} receiveShadow>
+      <planeGeometry args={[SCENE_MESH_SIZE, SCENE_MESH_SIZE, 480, 480]} />
+      {enabled ? (
+        <meshBasicMaterial color="#0284c7" />
+      ) : (
+        <waterMaterial ref={materialRef} attach="material" uAmplitude={amplitude} transparent depthWrite />
+      )}
     </mesh>
   );
 }
