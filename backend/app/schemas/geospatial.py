@@ -57,10 +57,40 @@ class ExposureResultOut(BaseModel):
     asset_name: str
     asset_type: str
     criticality: str
-    status: Literal["within_hazard_footprint", "potentially_exposed"]
+    status: Literal["within_hazard_footprint", "potentially_exposed", "no_active_hazard"]
     distance_km: float | None
     latitude: float
     longitude: float
+
+
+class GeographicFeatureOut(BaseModel):
+    id: UUID
+    feature_type: str
+    geometry: dict[str, Any] | None
+    properties: dict[str, Any]
+    dataset_name: str
+    source_provider: str
+    license: str
+
+
+class NearbyFeaturesResponse(BaseModel):
+    """GET /geographic-features/nearby — real, previously-ingested features
+    (e.g. Natural Earth coastline) near a point. An empty `features` list
+    with data_quality "unavailable" means nothing has been ingested near
+    that location — never a fabricated feature."""
+
+    data_quality: Literal["available", "unavailable"]
+    radius_km: float
+    features: list[GeographicFeatureOut]
+
+
+class InfrastructureAssetListResponse(BaseModel):
+    """GET /infrastructure-assets — always available, independent of any
+    simulation run: every known InfrastructureAsset with status
+    "no_active_hazard" (see app/services/infrastructure_service.py)."""
+
+    data_quality: Literal["available", "unavailable"]
+    assets: list[ExposureResultOut]
 
 
 class ExposureResponse(BaseModel):

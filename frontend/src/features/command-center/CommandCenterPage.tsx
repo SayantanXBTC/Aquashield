@@ -24,10 +24,20 @@ export function CommandCenterPage() {
   }, [session.currentFrame]);
 
   const runCompleted = session.runDetail?.status === "completed";
+  const scenarioLatitude = session.scenarioDetail?.latitude ?? null;
+  const scenarioLongitude = session.scenarioDetail?.longitude ?? null;
+  // Stable object identity across renders (keyed on the primitive values, not
+  // scenarioDetail itself) so useDataLayers's coastline-fetch effect can
+  // safely depend on the object without an eslint-disable or a re-fetch loop.
+  const scenarioLocation = useMemo(
+    () => (scenarioLatitude != null && scenarioLongitude != null ? { latitude: scenarioLatitude, longitude: scenarioLongitude } : null),
+    [scenarioLatitude, scenarioLongitude],
+  );
   const dataLayers = useDataLayers({
     runId: session.runDetail?.id ?? null,
     runCompleted,
     frameIndex: session.frameIndex,
+    scenarioLocation,
   });
 
   return (
@@ -43,6 +53,7 @@ export function CommandCenterPage() {
               enabled: dataLayers.enabled,
               hazardFootprint: dataLayers.hazardFootprint,
               exposureResults: dataLayers.exposureResults,
+              coastlineFeatures: dataLayers.coastlineFeatures,
             }}
           />
         </div>
@@ -64,6 +75,8 @@ export function CommandCenterPage() {
               onToggle={dataLayers.toggleLayer}
               hazardFootprint={dataLayers.hazardFootprint}
               exposureResults={dataLayers.exposureResults}
+              infrastructureCount={dataLayers.infrastructureCount}
+              coastlineFeatureCount={dataLayers.coastlineFeatures.length}
               dataQuality={dataLayers.dataQuality}
               hasRun={runCompleted}
             />

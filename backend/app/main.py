@@ -15,7 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routes.disaster_types import router as disaster_types_router
+from app.api.routes.geographic_features import router as geographic_features_router
 from app.api.routes.health import router as health_router
+from app.api.routes.infrastructure_assets import router as infrastructure_assets_router
 from app.api.routes.scenarios import router as scenarios_router
 from app.api.routes.simulation_runs import router as simulation_runs_router
 from app.api.websocket.connectivity import router as websocket_router
@@ -76,3 +78,5 @@ app.include_router(websocket_router)
 app.include_router(scenarios_router)
 app.include_router(simulation_runs_router)
 app.include_router(disaster_types_router)
+app.include_router(infrastructure_assets_router)
+app.include_router(geographic_features_router)

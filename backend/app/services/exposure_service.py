@@ -16,13 +16,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from geoalchemy2.shape import to_shape
 from sqlalchemy.orm import Session
 
-from app.db.geo import geojson_to_geometry
+from app.db.geo import geojson_to_geometry, geometry_centroid_latlon
 from app.repositories.infrastructure_asset_repository import InfrastructureAssetRepository
 
-ExposureStatus = Literal["within_hazard_footprint", "potentially_exposed"]
+# "no_active_hazard" is used by app/services/infrastructure_service.py for
+# the always-available asset listing (no run/hazard footprint involved yet)
+# — kept in the same union as the two hazard-derived statuses so
+# ExposureResult/ExposureResultOut/InfrastructureMarkers don't need a second,
+# parallel status type.
+ExposureStatus = Literal["within_hazard_footprint", "potentially_exposed", "no_active_hazard"]
 
 # Demo-scale default buffer for "potentially exposed" (nearby but not
 # intersecting) — an arbitrary, documented prototype constant, not derived
@@ -84,7 +88,7 @@ class ExposureService:
                 criticality=asset.criticality.value,
                 status="within_hazard_footprint",
                 distance_km=0.0,
-                **_centroid_latlon(asset),
+                **geometry_centroid_latlon(asset.geometry),
             )
             for asset in intersecting
         ]
@@ -100,13 +104,8 @@ class ExposureService:
                     criticality=asset.criticality.value,
                     status="potentially_exposed",
                     distance_km=round(distance_degrees * KM_PER_DEGREE, 3),
-                    **_centroid_latlon(asset),
+                    **geometry_centroid_latlon(asset.geometry),
                 )
             )
 
         return results
-
-
-def _centroid_latlon(asset: Any) -> dict[str, float]:
-    centroid = to_shape(asset.geometry).centroid
-    return {"latitude": centroid.y, "longitude": centroid.x}

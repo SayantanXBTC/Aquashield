@@ -1,5 +1,6 @@
 import { createElement, Suspense } from "react";
 import { getDisasterVisualizer } from "@/three/disasters/registry";
+import { CoastlineLayer } from "@/three/geospatial/CoastlineLayer";
 import { HazardFootprintLayer } from "@/three/geospatial/HazardFootprintLayer";
 import { InfrastructureMarkers } from "@/three/geospatial/InfrastructureMarkers";
 import { LocationMarker } from "@/three/markers/LocationMarker";
@@ -7,7 +8,7 @@ import { Landmass } from "@/three/terrain/Landmass";
 import type { LatLon } from "@/three/utils/geoProjection";
 import { WaterSurface } from "@/three/water/WaterSurface";
 import type { SimulationVisualState } from "@/three/adapters/simulationVisualAdapter";
-import type { ExposureResult, HazardFootprint } from "@/features/command-center/types";
+import type { ExposureResult, GeographicFeature, HazardFootprint } from "@/features/command-center/types";
 import { CameraController } from "./CameraController";
 import { EnvironmentSystem } from "./EnvironmentSystem";
 import { LightingSystem } from "./LightingSystem";
@@ -17,6 +18,9 @@ interface DataLayersProps {
   exposureResults: ExposureResult[];
   showInfrastructure: boolean;
   showExposure: boolean;
+  /** Real, previously-ingested geographic features (e.g. Natural Earth
+   * coastline) near the scenario — see three/geospatial/CoastlineLayer.tsx. */
+  coastlineFeatures: GeographicFeature[];
 }
 
 interface SceneRootProps {
@@ -72,6 +76,9 @@ export function SceneRoot({ scenarioLocation, scenarioName, visualState, dataLay
           showAll={dataLayers.showInfrastructure}
           showExposureColor={dataLayers.showExposure}
         />
+      ) : null}
+      {dataLayers?.coastlineFeatures.length ? (
+        <CoastlineLayer origin={scenarioLocation} features={dataLayers.coastlineFeatures} />
       ) : null}
     </Suspense>
   );

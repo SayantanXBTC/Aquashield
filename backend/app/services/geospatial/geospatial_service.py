@@ -11,7 +11,7 @@ from geoalchemy2.shape import from_shape
 from shapely.geometry import box
 from sqlalchemy.orm import Session
 
-from app.db.geo import geojson_to_geometry
+from app.db.geo import geojson_to_geometry, latlon_to_point
 from app.db.models.enums import GeographicDatasetType, GeospatialDataQuality
 from app.db.models.geographic_dataset import GeographicDataset
 from app.db.models.geographic_feature import GeographicFeature
@@ -99,6 +99,18 @@ class GeospatialService:
         if not candidates:
             return None
         return max(candidates, key=lambda d: d.created_at)
+
+    def find_nearby_features(
+        self, latitude: float, longitude: float, radius_km: float
+    ) -> list[tuple[GeographicFeature, Any]]:
+        """Real, previously-ingested GeographicFeature rows (e.g. Natural
+        Earth coastline) within `radius_km` of a point, each paired with its
+        geometry already clipped to that radius (see
+        GeographicFeatureRepository.find_within_distance_clipped — a raw
+        feature can span an entire continent). Returns an empty list, never a
+        fabricated feature, when nothing has been ingested near that point."""
+        point = latlon_to_point(latitude, longitude)
+        return self.features.find_within_distance_clipped(point, radius_km)
 
 
 def _iter_coords(geometry: dict[str, Any]):

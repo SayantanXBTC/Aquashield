@@ -1,5 +1,5 @@
 import { ApiError } from "@/features/scenario-builder/api/scenarioApi";
-import type { ExposureResult, GeospatialDataQuality, HazardFootprint, ImpactFrame } from "../types";
+import type { ExposureResult, GeographicFeature, GeospatialDataQuality, HazardFootprint, ImpactFrame } from "../types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
 
@@ -34,6 +34,17 @@ interface ExposureResponse {
   exposure_results: ExposureResult[];
 }
 
+interface InfrastructureAssetListResponse {
+  data_quality: "available" | "unavailable";
+  assets: ExposureResult[];
+}
+
+interface NearbyFeaturesResponse {
+  data_quality: "available" | "unavailable";
+  radius_km: number;
+  features: GeographicFeature[];
+}
+
 /** Client for Prompt 10's hazard-footprint/exposure/impact endpoints — the
  * command center's "Data Layers" panel and its 3D geospatial overlays are
  * the only consumers. Reuses ApiError from the scenario-builder feature's
@@ -46,6 +57,23 @@ export const geospatialApi = {
   getExposure(runId: string, frameIndex?: number): Promise<ExposureResponse> {
     const query = frameIndex != null ? `?frame_index=${frameIndex}` : "";
     return request(`/simulation-runs/${runId}/exposure${query}`);
+  },
+
+  /** Always available — independent of any scenario/run. The Command
+   * Center's "Infrastructure" layer uses this so real assets are visible
+   * before a simulation has ever been executed; exposure status against a
+   * specific hazard footprint comes from `getExposure` instead. */
+  getInfrastructureAssets(): Promise<InfrastructureAssetListResponse> {
+    return request(`/infrastructure-assets`);
+  },
+
+  /** Always available — independent of any scenario/run. Real, previously-
+   * ingested geographic features (e.g. Natural Earth coastline) near a
+   * point, already clipped server-side to `radiusKm`. */
+  getNearbyFeatures(latitude: number, longitude: number, radiusKm = 300): Promise<NearbyFeaturesResponse> {
+    return request(
+      `/geographic-features/nearby?latitude=${latitude}&longitude=${longitude}&radius_km=${radiusKm}`,
+    );
   },
 
   getImpact(runId: string, frameIndex?: number): Promise<ImpactFrame> {

@@ -46,3 +46,14 @@ def geometry_to_geojson(geometry: WKBElement | None) -> dict[str, Any] | None:
     if geometry is None:
         return None
     return mapping(to_shape(geometry))
+
+
+def geometry_centroid_latlon(geometry: WKBElement) -> dict[str, float]:
+    """A representative (latitude, longitude) for any geometry type — exact
+    for a Point, the true geometric centroid for a LineString/Polygon (which
+    may not lie on the feature itself, e.g. a bent road). A rendering
+    convenience, not a claim about the asset's "true" location. Shared by
+    app/services/exposure_service.py and app/services/infrastructure_service.py
+    so both report a marker position the same way."""
+    centroid = to_shape(geometry).centroid
+    return {"latitude": centroid.y, "longitude": centroid.x}

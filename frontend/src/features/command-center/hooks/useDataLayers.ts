@@ -1,8 +1,9 @@
 import { startTransition, useCallback, useEffect, useState } from "react";
+import type { LatLon } from "@/three/utils/geoProjection";
 import { geospatialApi } from "../api/geospatialApi";
-import type { ExposureResult, GeospatialDataQuality, HazardFootprint } from "../types";
+import type { ExposureResult, GeographicFeature, GeospatialDataQuality, HazardFootprint } from "../types";
 
-export type DataLayerKey = "hazardFootprint" | "infrastructure" | "exposure";
+export type DataLayerKey = "hazardFootprint" | "infrastructure" | "exposure" | "coastline";
 
 type AsyncStatus = "idle" | "loading" | "error";
 
@@ -16,6 +17,10 @@ interface UseDataLayersArgs {
    * gate useCommandCenterSession applies before loading frames. */
   runCompleted: boolean;
   frameIndex: number;
+  /** The scenario's real-world location — anchors the (always-available,
+   * run-independent) coastline lookup. Omitted/null before a scenario is
+   * selected (the coastline layer simply has nothing to fetch yet). */
+  scenarioLocation?: LatLon | null;
 }
 
 /**
@@ -25,20 +30,83 @@ interface UseDataLayersArgs {
  * never affects core playback. Real backend data only: no toggle here ever
  * fabricates a geometry or asset.
  */
-export function useDataLayers({ runId, runCompleted, frameIndex }: UseDataLayersArgs) {
+export function useDataLayers({
+  runId,
+  runCompleted,
+  frameIndex,
+  scenarioLocation = null,
+}: UseDataLayersArgs) {
   const [enabled, setEnabled] = useState<Record<DataLayerKey, boolean>>({
     hazardFootprint: true,
     infrastructure: true,
     exposure: true,
+    coastline: true,
   });
 
   const [footprints, setFootprints] = useState<HazardFootprint[]>([]);
   const [exposureResults, setExposureResults] = useState<ExposureResult[]>([]);
+  const [infrastructureAssets, setInfrastructureAssets] = useState<ExposureResult[]>([]);
+  const [coastlineFeatures, setCoastlineFeatures] = useState<GeographicFeature[]>([]);
   const [dataQuality, setDataQuality] = useState<GeospatialDataQuality>("unknown");
   const [status, setStatus] = useState<AsyncStatus>("idle");
   const [error, setError] = useState<string | null>(null);
 
   const anyLayerEnabled = enabled.hazardFootprint || enabled.infrastructure || enabled.exposure;
+
+  // Always available — independent of any run. Fetched once whenever the
+  // Infrastructure layer is on, regardless of whether a simulation has been
+  // executed, so real assets are visible from the moment a scenario is
+  // selected (see GET /infrastructure-assets).
+  useEffect(() => {
+    if (!enabled.infrastructure) {
+      startTransition(() => setInfrastructureAssets([]));
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await geospatialApi.getInfrastructureAssets();
+        if (cancelled) return;
+        setInfrastructureAssets(response.assets);
+      } catch (err) {
+        if (cancelled) return;
+        setError(errorMessage(err, "Failed to load infrastructure assets"));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled.infrastructure]);
+
+  // Always available — independent of any run. Real Natural Earth coastline
+  // (or other ingested) features near the scenario's own location, already
+  // clipped server-side to a bounded radius (see
+  // GET /geographic-features/nearby) — the only layer in this panel backed
+  // by genuinely real, externally-sourced geographic data rather than
+  // synthetic demo assets.
+  useEffect(() => {
+    if (!enabled.coastline || !scenarioLocation) {
+      startTransition(() => setCoastlineFeatures([]));
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await geospatialApi.getNearbyFeatures(
+          scenarioLocation.latitude,
+          scenarioLocation.longitude,
+        );
+        if (cancelled) return;
+        setCoastlineFeatures(response.features);
+      } catch (err) {
+        if (cancelled) return;
+        setError(errorMessage(err, "Failed to load nearby geographic features"));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled.coastline, scenarioLocation]);
 
   // One fetch per run — every frame's footprint is already in this list.
   useEffect(() => {
@@ -104,11 +172,20 @@ export function useDataLayers({ runId, runCompleted, frameIndex }: UseDataLayers
       (footprints.find((f) => f.frame_index === frameIndex) ?? footprints.at(-1))) ||
     null;
 
+  // Once a run/frame has real exposure evaluation, that's strictly more
+  // informative (it carries within/potentially_exposed status) — fall back
+  // to the always-available baseline listing only when there's no run-scoped
+  // data yet, so markers show up immediately for a scenario that hasn't been
+  // executed, and switch to exposure-colored markers the moment a run has.
+  const displayedAssets = exposureResults.length > 0 ? exposureResults : infrastructureAssets;
+
   return {
     enabled,
     toggleLayer,
     hazardFootprint: currentFootprint,
-    exposureResults: enabled.infrastructure || enabled.exposure ? exposureResults : [],
+    exposureResults: enabled.infrastructure || enabled.exposure ? displayedAssets : [],
+    infrastructureCount: infrastructureAssets.length,
+    coastlineFeatures: enabled.coastline ? coastlineFeatures : [],
     dataQuality,
     status,
     error,

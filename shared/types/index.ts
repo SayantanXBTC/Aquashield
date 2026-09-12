@@ -416,12 +416,20 @@ export interface GeographicDataset {
   provenance: Record<string, unknown>;
 }
 
+/** Mirrors backend/app/schemas/geospatial.py's `GeographicFeatureOut` — the
+ * shape returned by GET /geographic-features/nearby. `geometry` is already
+ * clipped server-side to the query radius (a raw feature can span an entire
+ * continent — see GeographicFeatureRepository.find_within_distance_clipped),
+ * so this is real, provenance-tracked geometry ready to render, not a raw
+ * dataset row. */
 export interface GeographicFeature {
   id: string;
-  dataset_id: string;
   feature_type: string;
-  geometry: GeoJSONGeometry;
+  geometry: GeoJSONGeometry | null;
   properties: Record<string, unknown>;
+  dataset_name: string;
+  source_provider: string;
+  license: string;
 }
 
 /** Repackages one TimelineFrame's hazard_state/affected_area into a common
@@ -443,8 +451,11 @@ export interface HazardFootprint {
 
 /** "within_hazard_footprint" (geometry intersects) or "potentially_exposed"
  * (within a buffer distance but not intersecting) — never "damaged" /
- * "destroyed" / "will be affected" (CLAUDE.md wording rule). */
-export type ExposureStatus = "within_hazard_footprint" | "potentially_exposed";
+ * "destroyed" / "will be affected" (CLAUDE.md wording rule).
+ * "no_active_hazard" is the always-available listing from
+ * GET /infrastructure-assets — an asset that exists but hasn't been
+ * evaluated against any hazard footprint yet (no run selected/executed). */
+export type ExposureStatus = "within_hazard_footprint" | "potentially_exposed" | "no_active_hazard";
 
 export interface ExposureResult {
   asset_id: string;

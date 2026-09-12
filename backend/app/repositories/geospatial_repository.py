@@ -1,6 +1,8 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from geoalchemy2 import Geometry
+from geoalchemy2.types import Geography, WKBElement
+from sqlalchemy import cast, func, select
 from sqlalchemy.orm import Session
 
 from app.db.models.geographic_dataset import GeographicDataset
@@ -51,3 +53,32 @@ class GeographicFeatureRepository:
 
     def count_for_dataset(self, dataset_id: UUID) -> int:
         return len(self.list_for_dataset(dataset_id))
+
+    def find_within_distance_clipped(
+        self, point: WKBElement, distance_km: float
+    ) -> list[tuple[GeographicFeature, WKBElement]]:
+        """Features within `distance_km` of `point`, using a geography cast
+        (unlike infrastructure_asset_repository's planar-degree ST_DWithin,
+        which is fine at that module's ~10km prototype scale) — a coastline
+        search radius is typically hundreds of km, where the degree/km ratio
+        varies enough with latitude that a geography cast is worth the extra
+        accuracy.
+
+        A raw Natural Earth coastline feature can be a single LineString
+        spanning an entire continent (hundreds of vertices, thousands of km)
+        — returning it whole would ship irrelevant geometry and place most of
+        it far outside any local 3D view. Each result is paired with its
+        geometry already clipped (`ST_Intersection`) to a buffer polygon
+        around `point`, so only the locally-relevant segment is returned."""
+        distance_m = distance_km * 1000
+        buffer_geography = func.ST_Buffer(cast(point, Geography), distance_m)
+        buffer_geometry = cast(buffer_geography, Geometry(srid=4326))
+        clipped = func.ST_Intersection(GeographicFeature.geometry, buffer_geometry).label("clipped_geometry")
+        stmt = select(GeographicFeature, clipped).where(
+            func.ST_DWithin(
+                cast(GeographicFeature.geometry, Geography),
+                cast(point, Geography),
+                distance_m,
+            )
+        )
+        return [(feature, clipped_geom) for feature, clipped_geom in self.session.execute(stmt).all()]

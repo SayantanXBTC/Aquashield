@@ -6,7 +6,14 @@ import { SceneRoot } from "@/three/core/SceneRoot";
 import { toVisualState } from "@/three/adapters/simulationVisualAdapter";
 import type { LatLon } from "@/three/utils/geoProjection";
 import type { DataLayerKey } from "../hooks/useDataLayers";
-import type { ExposureResult, HazardFootprint, ScenarioDetail, SimulationState, TimelineFrame } from "../types";
+import type {
+  ExposureResult,
+  GeographicFeature,
+  HazardFootprint,
+  ScenarioDetail,
+  SimulationState,
+  TimelineFrame,
+} from "../types";
 
 interface CommandCenterViewportProps {
   scenario: ScenarioDetail | null;
@@ -17,6 +24,7 @@ interface CommandCenterViewportProps {
     enabled: Record<DataLayerKey, boolean>;
     hazardFootprint: HazardFootprint | null;
     exposureResults: ExposureResult[];
+    coastlineFeatures: GeographicFeature[];
   };
 }
 
@@ -75,6 +83,7 @@ export function CommandCenterViewport({ scenario, currentFrame, dataLayers }: Co
                   exposureResults: dataLayers.exposureResults,
                   showInfrastructure: dataLayers.enabled.infrastructure,
                   showExposure: dataLayers.enabled.exposure,
+                  coastlineFeatures: dataLayers.enabled.coastline ? dataLayers.coastlineFeatures : [],
                 }
               : undefined
           }

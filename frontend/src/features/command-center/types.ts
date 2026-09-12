@@ -6,6 +6,7 @@ export type {
   DisasterType,
   ExposureResult,
   ExposureStatus,
+  GeographicFeature,
   GeospatialDataQuality,
   HazardFootprint,
   ImpactFrame,
