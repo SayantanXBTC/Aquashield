@@ -46,7 +46,26 @@ def ingested_fixtures(db_session, tmp_path):
     reset_retriever_cache()
 
 
-def test_health_reports_not_configured_by_default(client):
+@pytest.fixture()
+def not_configured():
+    """Pins settings to the `RAG_PROVIDER=none` posture for the duration of
+    the test, regardless of what a developer's local backend/.env has set
+    for their own running server — the "not configured" behaviour is a
+    property of the code's default, not of whoever's machine runs the
+    suite (mirrors `ingested_fixtures` save/restore above)."""
+
+    from app.config.settings import settings
+    from app.services.rag_retrieval_service import reset_retriever_cache
+
+    original_provider = settings.rag_provider
+    settings.rag_provider = "none"
+    reset_retriever_cache()
+    yield
+    settings.rag_provider = original_provider
+    reset_retriever_cache()
+
+
+def test_health_reports_not_configured_by_default(client, not_configured):
     response = client.get("/rag/health")
     assert response.status_code == 200
     body = response.json()
@@ -63,7 +82,7 @@ def test_unknown_source_is_404(client):
     assert client.get("/rag/sources/does-not-exist").status_code == 404
 
 
-def test_retrieve_without_configuration_returns_unavailable(client):
+def test_retrieve_without_configuration_returns_unavailable(client, not_configured):
     response = client.post("/rag/retrieve", json={"role": "hazard", "disaster_type": "tsunami", "hazard_summary": "wave approaching"})
     assert response.status_code == 200
     body = response.json()

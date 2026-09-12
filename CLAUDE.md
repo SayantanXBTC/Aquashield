@@ -612,7 +612,7 @@ Full detail (verification results, pinned-version constraints): architecture.md 
 | Scientific — NumPy + SciPy + xarray | dependency foundation only |
 | Geospatial — Shapely + GeoPandas | dependency foundation only |
 | AI — LangGraph | dependency foundation only |
-| RAG — ChromaDB + hybrid retrieval pipeline (`rag/`) | BOOTSTRAPPED (Prompt 16 — 10-node analysis graph incl. `evidence_retrieval`, role-scoped citations, local deterministic embeddings by default, `RAG_PROVIDER=none` in production until real sources are ingested; see docs/rag/pipeline.md) |
+| RAG — ChromaDB + hybrid retrieval pipeline (`rag/`) | BOOTSTRAPPED, live in local dev (Prompt 16 — 10-node analysis graph incl. `evidence_retrieval`, role-scoped citations, local deterministic embeddings by default; 5 real TIER_1 sources ingested — tsunami/flood/cyclone/oil-spill/general — `RAG_PROVIDER=chroma` set in local `backend/.env`; code default stays `none` for a fresh install until an operator ingests sources for their own environment; see docs/rag/pipeline.md) |
 | Testing — Vitest / pytest | BOOTSTRAPPED |
 | Testing — Playwright | PLANNED |
 | Deck.gl | PLANNED / OPTIONAL |

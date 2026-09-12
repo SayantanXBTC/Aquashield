@@ -188,6 +188,7 @@ export function CommandCenterPage() {
               onRecord={() => void session.recordRun()}
               onReplay={session.setReplayRunId}
               onExitReplay={session.exitReplay}
+              lastRecordedRun={session.lastRecordedRun}
             />
             <IntelligencePanel
               brief={ai.brief}

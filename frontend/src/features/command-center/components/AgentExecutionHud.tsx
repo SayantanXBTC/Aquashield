@@ -17,11 +17,23 @@ interface AgentExecutionHudProps {
 
 const DOT: Record<AIAgentExecutionStatus, string> = {
   PENDING: "bg-white/25",
-  RUNNING: "bg-accent-strong animate-pulse",
+  RUNNING: "bg-accent-strong",
   COMPLETED: "bg-status-ok",
   FAILED: "bg-status-critical",
   UNAVAILABLE: "bg-severity-moderate",
   SKIPPED: "bg-white/15",
+};
+
+// RUNNING gets its own loud pill instead of the flat mono label every other
+// status shares — a working agent must be unmissable at a glance, not read
+// the same size as an idle one.
+const STATUS_CHIP: Record<AIAgentExecutionStatus, string> = {
+  PENDING: "text-ink-faint font-mono text-[9px] tracking-[0.08em] uppercase",
+  RUNNING: "text-accent-strong bg-accent/15 border border-accent-soft rounded-[4px] px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-[0.08em] uppercase motion-safe:animate-pulse",
+  COMPLETED: "text-ink-faint font-mono text-[9px] tracking-[0.08em] uppercase",
+  FAILED: "text-status-critical font-mono text-[9px] font-bold tracking-[0.08em] uppercase",
+  UNAVAILABLE: "text-severity-moderate font-mono text-[9px] tracking-[0.08em] uppercase",
+  SKIPPED: "text-ink-faint font-mono text-[9px] tracking-[0.08em] uppercase",
 };
 
 const STATUS_LABEL: Record<AgentExecutionHudProps["status"], string> = {
@@ -89,16 +101,33 @@ export function AgentExecutionHud({ agents, status, trigger, frameIndex, error, 
               <span className="h-px flex-1 bg-white/[0.06]" aria-hidden />
             </div>
             <ul className={cn("flex flex-col gap-1", stage.parallel && "border-l border-white/[0.08] pl-2")}>
-              {stage.runs.map((agent) => (
-                <li key={agent.agent} className="flex items-center gap-2" title={agent.summary ?? undefined}>
-                  <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", DOT[agent.status])} aria-hidden />
-                  <span className="text-ink-soft min-w-0 flex-1 truncate text-[11px]">{agent.label}</span>
-                  <span className="text-ink-faint shrink-0 font-mono text-[9px] tracking-[0.08em] uppercase">{agent.status}</span>
-                  <span className="text-ink-faint w-12 shrink-0 text-right font-mono text-[9px]">
-                    {agent.duration_ms > 0 ? `${agent.duration_ms.toFixed(0)} ms` : "—"}
-                  </span>
-                </li>
-              ))}
+              {stage.runs.map((agent) => {
+                const running = agent.status === "RUNNING";
+                return (
+                  <li
+                    key={agent.agent}
+                    className={cn(
+                      "flex items-center gap-2 rounded-[4px] px-1 py-0.5 transition-colors",
+                      running && "bg-accent/10",
+                    )}
+                    title={agent.summary ?? undefined}
+                  >
+                    <span className="relative flex h-1.5 w-1.5 shrink-0">
+                      {running ? (
+                        <span className="bg-accent-strong absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" aria-hidden />
+                      ) : null}
+                      <span className={cn("relative h-1.5 w-1.5 shrink-0 rounded-full", DOT[agent.status])} aria-hidden />
+                    </span>
+                    <span className={cn("min-w-0 flex-1 truncate text-[11px]", running ? "text-ink font-semibold" : "text-ink-soft")}>
+                      {agent.label}
+                    </span>
+                    <span className={STATUS_CHIP[agent.status]}>{running ? "Working…" : agent.status}</span>
+                    <span className="text-ink-faint w-12 shrink-0 text-right font-mono text-[9px]">
+                      {agent.duration_ms > 0 ? `${agent.duration_ms.toFixed(0)} ms` : "—"}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </section>
         ))}

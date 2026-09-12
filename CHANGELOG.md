@@ -1,5 +1,52 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-12 — RAG goes live with real sources; command-center recording/agent/warning legibility fixes
+
+**Added/Changed:**
+- `rag/sources/`: 5 real, identified TIER_1 authoritative sources ingested (NOAA/NWS tsunami safety, FEMA
+  flood safety, NOAA/NHC hurricane hazards, NOAA/OR&R oil spill response, FEMA NIMS/ICS overview) — the
+  registry is no longer empty; `RAG_PROVIDER=chroma` switched on in local dev (`backend/.env`, gitignored,
+  never the code default — CLAUDE.md §26b still documents `none` as the shipped default until an operator
+  ingests real sources for their own environment).
+- Fixed `rag/metadata/discovery.py`: `rag/sources/README.md` was picked up as a "source" by `python -m rag
+  validate`/`ingest` (any `.md` file matched); excluded by name, since it carries no frontmatter and isn't a
+  source.
+- New convention: a disposable `TEST_DATABASE_URL`-pointed database for the backend test suite, documented in
+  `docs/development/database.md` — real ingested `RagSource` rows (or any other real dev data) in the shared
+  dev database were breaking tests that assert an empty table on a fresh install. Two tests that assert the
+  `RAG_PROVIDER=none` default posture now pin it explicitly for their own duration
+  (`tests/api/test_rag.py::not_configured`, `tests/api/test_ai_analysis.py::rag_not_configured`) rather than
+  relying on the ambient environment having no override.
+- `RunsPanel.tsx`/`useScenarioSession.ts`: "Record run" creates and synchronously executes a deterministic
+  `SimulationRun` (CLAUDE.md §26 — intentional, not a live frame-by-frame capture), but gave no feedback while
+  that request was in flight and silently jumped into replay on completion, reading as broken/instant. Added
+  an indeterminate progress bar while recording and a real, measured (`performance.now()`-timed) "Run
+  recorded — N frames in T ms" confirmation afterward.
+- `AgentExecutionHud.tsx`: a `RUNNING` agent was visually identical to every other row except a 1.5px dot —
+  now gets a highlighted row, a bold label, a ping animation, and a loud "Working…" pill instead of the same
+  9px mono status text every other state shares.
+- `IntelligencePanel.tsx`: `data_limitations` (agent-reported warnings) were buried inside the collapsed audit
+  `<details>` at the panel's dimmest text tier. Promoted to a "Warnings" tile in the always-visible summary
+  row and a severity-colored, always-visible list (same MAX_ROWS/Overflow pattern as exposures/priorities);
+  removed the now-duplicate copy from inside the audit block.
+
+**Why:**
+- User-reported: RAG had no real content to ground agent answers in; "Record run" felt instant/broken;
+  agent-in-progress state was too subtle to notice; warnings were too easy to miss.
+
+**Files/Modules:**
+- `rag/sources/{tsunami,flood,cyclone,oil-spill,general}/*.md`, `rag/metadata/discovery.py`,
+  `backend/.env.example`, `docs/development/database.md`, `backend/tests/api/{test_rag,test_ai_analysis}.py`,
+  `frontend/src/features/command-center/{components/RunsPanel.tsx,components/AgentExecutionHud.tsx,
+  components/IntelligencePanel.tsx,hooks/useScenarioSession.ts,CommandCenterPage.tsx}`.
+
+**Future Context:**
+- Local dev Postgres now has a sibling `aquashield_test` database; anyone running the backend suite should
+  export `TEST_DATABASE_URL` to it (see `docs/development/database.md`) rather than the dev-data-bearing
+  `aquashield` database.
+- Only 5 of 8 `rag/sources/` categories have real content (tsunami, flood, cyclone, oil-spill, general);
+  pollution/search-rescue/environmental remain empty until real authoritative sources are identified for them.
+
 ### 2026-09-12 — Disaster-aware RAG pipeline: ingestion, hybrid retrieval, evidence-gated citations (Prompt 16)
 
 **Added/Changed:**

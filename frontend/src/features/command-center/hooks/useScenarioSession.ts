@@ -106,6 +106,8 @@ export function useScenarioSession(clock: PlaybackClock) {
   const [runs, setRuns] = useState<SimulationRun[]>([]);
   const [recording, setRecording] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
+  const [lastRecordedRun, setLastRecordedRun] = useState<{ frameCount: number; durationMs: number } | null>(null);
+  const lastRecordedRunTimer = useRef<number | null>(null);
   const [replayRunId, setReplayRunId] = useState<string | null>(null);
   const [replayFrames, setReplayFrames] = useState<TimelineFrame[]>([]);
   const [replayStatus, setReplayStatus] = useState<AsyncStatus>("idle");
@@ -241,6 +243,7 @@ export function useScenarioSession(clock: PlaybackClock) {
   useEffect(
     () => () => {
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
+      if (lastRecordedRunTimer.current) window.clearTimeout(lastRecordedRunTimer.current);
     },
     [],
   );
@@ -364,8 +367,11 @@ export function useScenarioSession(clock: PlaybackClock) {
 
   const recordRun = useCallback(async () => {
     if (!selectedScenarioId) return;
+    if (lastRecordedRunTimer.current) window.clearTimeout(lastRecordedRunTimer.current);
+    setLastRecordedRun(null);
     setRecording(true);
     setRunError(null);
+    const startedAt = performance.now();
     try {
       // Make sure the version being run is the one on screen.
       if (saveTimer.current) {
@@ -380,6 +386,8 @@ export function useScenarioSession(clock: PlaybackClock) {
       const merged: SimulationRun = { ...created, ...executed };
       setRuns((prev) => [merged, ...prev]);
       setReplayRunId(merged.id);
+      setLastRecordedRun({ frameCount: merged.frame_count ?? 0, durationMs: Math.round(performance.now() - startedAt) });
+      lastRecordedRunTimer.current = window.setTimeout(() => setLastRecordedRun(null), 6000);
     } catch (err) {
       setRunError(errorMessage(err, "Recording failed"));
     } finally {
@@ -494,6 +502,7 @@ export function useScenarioSession(clock: PlaybackClock) {
     recording,
     recordRun,
     runError,
+    lastRecordedRun,
     replayRunId,
     replayStatus,
     replayFrames,
