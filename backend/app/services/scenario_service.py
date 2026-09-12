@@ -12,6 +12,7 @@ from app.db.models.scenario import Scenario
 from app.db.models.scenario_version import ScenarioVersion
 from app.db.models.simulation_run import SimulationRun
 from app.repositories.scenario_repository import ScenarioRepository
+from app.repositories.simulation_artifact_repository import SimulationArtifactRepository
 from app.repositories.simulation_run_repository import SimulationRunRepository
 from app.schemas.scenario import (
     ScenarioCreateRequest,
@@ -20,6 +21,7 @@ from app.schemas.scenario import (
     SimulationRunCreateRequest,
 )
 from app.schemas.scenario_config import is_config_populated, validate_scenario_config
+from app.services.run_selection import RunSelectionCandidate, select_default_run_id
 
 
 class ScenarioServiceError(Exception):
@@ -39,6 +41,10 @@ class ScenarioService:
         self.session = session
         self.scenarios = ScenarioRepository(session)
         self.runs = SimulationRunRepository(session)
+        # Only needed here for get_run_frame_count/get_default_run below —
+        # actual artifact persistence stays SimulationService's job
+        # (app/services/simulation_service.py).
+        self.artifacts = SimulationArtifactRepository(session)
 
     # --- Scenarios ---
 
@@ -222,3 +228,40 @@ class ScenarioService:
     ) -> list[SimulationRun]:
         self.get_scenario(scenario_id)  # 404 if missing
         return self.runs.list_for_scenario(scenario_id, status=status)
+
+    def get_run_frame_count(self, run_id: UUID) -> int | None:
+        """None means "no artifact yet" (pending/running/failed run) — never
+        confused with 0, which means "an artifact exists but produced no
+        frames" (see docs/geospatial/impact-visualization.md — a COMPLETED
+        run is not assumed to have usable frames)."""
+        artifact = self.artifacts.get_latest_for_run(run_id)
+        if artifact is None:
+            return None
+        return artifact.extra_metadata.get("frame_count")
+
+    def get_default_run(self, scenario_id: UUID) -> SimulationRun | None:
+        """Prompt 10.1: picks the "best default" run for the Command Center
+        to auto-select, per the priority documented in
+        app/services/run_selection.py — never blindly "the newest run"
+        (Prompt 8's original `runList[0]` bug, which could select a PENDING
+        run created after a perfectly good COMPLETED one). Returns None if
+        the scenario has no run that qualifies (e.g. only FAILED/CANCELLED
+        runs exist) — the frontend leaves nothing auto-selected in that case
+        and the user picks explicitly via the run selector."""
+        self.get_scenario(scenario_id)  # 404 if missing
+        runs = self.runs.list_for_scenario(scenario_id)
+        if not runs:
+            return None
+        candidates = [
+            RunSelectionCandidate(
+                id=run.id,
+                status=run.status,
+                created_at=run.created_at,
+                frame_count=self.get_run_frame_count(run.id),
+            )
+            for run in runs
+        ]
+        best_id = select_default_run_id(candidates)
+        if best_id is None:
+            return None
+        return next(run for run in runs if run.id == best_id)

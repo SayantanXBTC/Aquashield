@@ -98,6 +98,13 @@ export interface SimulationRun {
   model_identifier?: string | null;
   error_message?: string | null;
   created_at?: string;
+  /** Prompt 10.1: mirrors SimulationRunDetail.frame_count — null before an
+   * artifact exists (pending/running/failed), 0 when an artifact exists but
+   * produced no frames (a COMPLETED run is never assumed to have usable
+   * frames — see docs/geospatial/impact-visualization.md). Present on both
+   * GET /scenarios/{id}/runs list items and GET /scenarios/{id}/runs/default
+   * so the run selector never needs a second call per run. */
+  frame_count?: number | null;
 }
 
 // --- API request/response envelopes ---

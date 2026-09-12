@@ -109,15 +109,24 @@ export function useCommandCenterSession() {
 
     (async () => {
       try {
-        const [detail, runList] = await Promise.all([
+        // getDefaultRun applies the real completed-preferred priority
+        // (backend/app/services/run_selection.py) — never "the newest run
+        // regardless of status" (the old runList[0] bug that could
+        // auto-select a PENDING run created after a perfectly good
+        // COMPLETED one; see docs/geospatial/impact-visualization.md).
+        // runList itself is still fetched in full for the run selector UI,
+        // which must let a user explicitly pick any run, including a
+        // pending or failed one.
+        const [detail, runList, defaultRun] = await Promise.all([
           scenarioApi.getScenario(selectedScenarioId),
           scenarioApi.getRuns(selectedScenarioId),
+          scenarioApi.getDefaultRun(selectedScenarioId),
         ]);
         if (cancelled) return;
         setScenarioDetail(detail);
         setRuns(runList);
         setScenarioStatus("idle");
-        setSelectedRunId(runList[0]?.id ?? null);
+        setSelectedRunId(defaultRun?.id ?? null);
       } catch (err) {
         if (cancelled) return;
         setScenarioStatus("error");

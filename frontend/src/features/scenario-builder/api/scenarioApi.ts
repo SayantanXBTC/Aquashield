@@ -112,6 +112,15 @@ export const scenarioApi = {
     return request(`/scenarios/${id}/runs`, { method: "POST", body: JSON.stringify(data) });
   },
 
+  /** Prompt 10.1: the "best default" run to auto-select for this scenario —
+   * latest COMPLETED run with usable frames, else latest RUNNING, else
+   * latest PENDING, never a FAILED/CANCELLED run (see
+   * backend/app/services/run_selection.py). Null (not 404) when nothing
+   * qualifies — the caller leaves nothing auto-selected in that case. */
+  getDefaultRun(id: string): Promise<SimulationRun | null> {
+    return request(`/scenarios/${id}/runs/default`);
+  },
+
   /** GET /disaster-types — a discovery/documentation aid (Prompt 9.1 §F),
    * not this form's live data source; DISASTER_FIELD_SPECS stays that (see
    * disasterFieldSpecs.ts's comment and docs/development/scenarios.md). */

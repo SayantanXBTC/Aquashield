@@ -63,9 +63,20 @@ export function SceneRoot({ scenarioLocation, scenarioName, visualState, dataLay
           references). */}
       {Visualizer && visualState ? createElement(Visualizer, { visualState, origin: scenarioLocation }) : null}
 
-      {/* Prompt 10 geospatial overlays — additive, conditional on data
-          actually being present (never rendered just because a toggle is
-          on with nothing to show). */}
+      {/* TWO HAZARD-VISUAL SYSTEMS DELIBERATELY COEXIST HERE (Prompt 10.1):
+          (A) the per-disaster-type Visualizer above (HazardDisc/HazardRing
+          etc., three/disasters/*), driven by simulationVisualAdapter's
+          toVisualState(currentFrame) — a stylized, disaster-specific visual
+          language (expanding disc for flood, rotating rings for cyclone,
+          ...) that reads clearly at a glance regardless of real-world
+          geometry, and (B) HazardFootprintLayer just below, driven by real
+          GET /simulation-runs/{id}/hazard-footprints Polygon/Point geometry
+          — the authoritative geographic footprint for this phase's
+          hazard/exposure/impact panels. (A) is not removed: it's still the
+          "read clearly" visual language earlier prompts established and
+          other code may depend on it; (B) is what Data Layers/Impact panels
+          and geospatial analysis actually reason about. See
+          docs/geospatial/impact-visualization.md for the full rationale. */}
       {dataLayers?.hazardFootprint ? (
         <HazardFootprintLayer origin={scenarioLocation} footprint={dataLayers.hazardFootprint} />
       ) : null}

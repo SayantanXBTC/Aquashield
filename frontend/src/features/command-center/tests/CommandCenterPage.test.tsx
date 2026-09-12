@@ -15,6 +15,7 @@ vi.mock("@/features/scenario-builder/api/scenarioApi", () => ({
     getScenarios: vi.fn(),
     getScenario: vi.fn(),
     getRuns: vi.fn(),
+    getDefaultRun: vi.fn(),
     createRun: vi.fn(),
   },
 }));
@@ -104,6 +105,7 @@ function mockScenariosResolved() {
   });
   vi.mocked(scenarioApi.getScenario).mockResolvedValue(SCENARIO_DETAIL);
   vi.mocked(scenarioApi.getRuns).mockResolvedValue([PENDING_RUN]);
+  vi.mocked(scenarioApi.getDefaultRun).mockResolvedValue(PENDING_RUN);
   vi.mocked(simulationApi.getRun).mockResolvedValue(PENDING_RUN);
 }
 
@@ -112,6 +114,7 @@ describe("CommandCenterPage", () => {
     vi.mocked(scenarioApi.getScenarios).mockReset();
     vi.mocked(scenarioApi.getScenario).mockReset();
     vi.mocked(scenarioApi.getRuns).mockReset();
+    vi.mocked(scenarioApi.getDefaultRun).mockReset();
     vi.mocked(scenarioApi.createRun).mockReset();
     vi.mocked(simulationApi.getRun).mockReset();
     vi.mocked(simulationApi.executeRun).mockReset();

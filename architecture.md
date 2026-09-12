@@ -713,3 +713,34 @@ hand-kept-in-sync parallel-registry decision stands). The Scenario Builder's for
 tokens/`components/ui` primitives, replacing raw Tailwind slate/sky classes that predated that system. Full
 detail — including the fact-checked parameter-consumption honesty table (which exposed fields each of the 5
 underlying models actually reads vs. accepts-but-ignores) — in docs/development/scenarios.md.
+
+### 28d. Prompt 10.1 — Connect and Visualize Geospatial Impact Data
+
+A corrective integration pass, not new architecture: Prompt 10 built real PostGIS-backed geospatial
+infrastructure (`geographic_datasets`/`geographic_features`, an ingested Natural Earth coastline dataset,
+hazard-footprint/exposure/impact analysis, and their REST endpoints) that a diagnostic audit found the
+Command Center never actually displayed — not because the backend was broken, but because
+`useCommandCenterSession` auto-selected `runList[0]` (the newest `SimulationRun` by `created_at`,
+regardless of status), which could pick a freshly-created `PENDING` run over an older `COMPLETED` run that
+already had real hazard/exposure/impact data sitting in the database.
+
+Fixed with a documented, testable priority rule rather than a one-line reorder:
+`backend/app/services/run_selection.py`'s pure `select_default_run_id` picks the latest `COMPLETED` run
+that actually has `frame_count > 0` (verified via `SimulationArtifact.extra_metadata`, never assumed from
+status alone), falling back to the latest `RUNNING`, then latest `PENDING`, and never auto-selecting
+`FAILED`/`CANCELLED` (those remain reachable only through the new `RunSelector.tsx`'s explicit choice).
+`ScenarioService.get_default_run` applies it; `GET /scenarios/{id}/runs/default` exposes it;
+`SimulationRunOut`/`SimulationRun` (shared contract) gained a `frame_count` field so the run list and the
+default-run lookup both carry real counts with no extra per-run round trip.
+
+Once run selection was fixed, `useDataLayers`'s existing hazard-footprint/exposure fetches (already keyed
+correctly on `frameIndex`) started working as designed; this phase added the one piece that was actually
+missing — a per-frame `getImpact(runId, frameIndex)` fetch and a dedicated `ImpactPanel.tsx` — plus a new
+`GeographicContextPanel.tsx` (real scenario coordinates, coastline provenance derived from the live
+`GET /geographic-features/nearby` response, an honest "Synthetic demo assets" infrastructure label, and
+explicit Elevation/Terrain limitations). `three/core/SceneRoot.tsx` now carries a comment explaining why
+two hazard-visual systems deliberately coexist: the per-disaster-type `Visualizer` (registry-resolved,
+stylized) and `HazardFootprintLayer` (real Polygon/Point geometry from `GET .../hazard-footprints`) — the
+former is kept as the earlier prompts' "read clearly" visual language, the latter is what this phase's
+Data Layers/Impact panels actually reason about. No DEM/elevation/rasterio was introduced — terrain stays
+procedural, labeled as such everywhere it's shown. Full detail: docs/geospatial/impact-visualization.md.

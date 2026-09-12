@@ -1,5 +1,64 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-12 — Connect and Visualize Geospatial Impact Data (Prompt 10.1)
+
+**Added/Changed:**
+- Fixed the Command Center's default-run selection: `useCommandCenterSession` picked `runList[0]?.id` (the
+  newest run by `created_at`, regardless of status), which could auto-select a `PENDING` run created after a
+  perfectly good `COMPLETED` run with real hazard/exposure/impact data already in the database (confirmed
+  live against the "Geo Test Flood" scenario's 3 runs — see docs/geospatial/impact-visualization.md).
+  Replaced with a documented priority rule: `backend/app/services/run_selection.py`'s pure
+  `select_default_run_id` (latest `COMPLETED` run with `frame_count > 0` → latest `RUNNING` → latest
+  `PENDING`, never `FAILED`/`CANCELLED`), exposed via new `GET /scenarios/{id}/runs/default` and called from
+  `useCommandCenterSession` via `scenarioApi.getDefaultRun`.
+- `SimulationRunOut`/shared `SimulationRun` gained `frame_count` (mirrors `SimulationRunDetail.frame_count`)
+  so the run list carries real per-run frame counts with no extra round trip.
+- New `RunSelector.tsx` (+ `runFormatting.ts`, unit tested) lets a user see and explicitly switch between a
+  scenario's runs ("COMPLETED · 25 frames", "PENDING · No playback data available") — wired into
+  `SimulationStatusPanel`, which also gained an honest "No playback data available" state for a selected
+  non-completed run.
+- `useDataLayers` gained a per-frame `getImpact(runId, frameIndex)` fetch (previously never called);
+  confirmed the existing hazard-footprint/exposure fetches were already frame-correct once run selection was
+  fixed (`useDataLayers.test.ts`'s new frame-sync test proves a real before/after change on `frameIndex`).
+- New `ImpactPanel.tsx` (severity band, exposed counts by type/criticality, model id/demo disclaimer) and
+  `GeographicContextPanel.tsx` (real coordinates, coastline provenance derived from the live API response,
+  an honest "Synthetic demo assets" infrastructure label, explicit Elevation/Terrain limitations).
+  `DataLayersPanel` gained a per-asset Exposure listing and a read-only Terrain status line.
+- `three/core/SceneRoot.tsx` documents (code comment) why the per-disaster-type `Visualizer` and the
+  geographic `HazardFootprintLayer` deliberately coexist — the latter is now authoritative for Data
+  Layers/Impact, the former is kept as the established "read clearly" visual language.
+- 148 backend tests passing (up from 84 at Prompt 10: new `test_run_selection.py` pure-function tests +
+  `test_scenarios.py` default-run/frame_count tests). 130 frontend tests passing (up from 98).
+  `simulation/tests`: 64 passing, unchanged by this phase.
+
+**Why:**
+- A diagnostic audit found Prompt 10's real geospatial backend (hazard-footprint/exposure/impact analysis,
+  the ingested Natural Earth coastline dataset) worked correctly end to end, but the Command Center never
+  displayed any of it — not a backend bug, a run-selection bug. This phase is the narrow fix plus the
+  display surfaces that were still missing once selection pointed at the right data.
+
+**Files/Modules:**
+- `backend/app/services/run_selection.py` (new), `app/services/scenario_service.py`,
+  `app/api/routes/scenarios.py`, `app/schemas/scenario.py`.
+- `backend/tests/services/test_run_selection.py` (new), `backend/tests/api/test_scenarios.py`.
+- `shared/types/index.ts`.
+- `frontend/src/features/scenario-builder/api/scenarioApi.ts`.
+- `frontend/src/features/command-center/hooks/{useCommandCenterSession,useDataLayers}.ts`.
+- `frontend/src/features/command-center/components/{RunSelector,ImpactPanel,GeographicContextPanel,
+  DataLayersPanel,SimulationStatusPanel}.tsx` (`RunSelector`/`ImpactPanel`/`GeographicContextPanel` new).
+- `frontend/src/features/command-center/utils/runFormatting.ts` (new).
+- `frontend/src/features/command-center/CommandCenterPage.tsx`.
+- `frontend/src/three/core/SceneRoot.tsx`.
+- `docs/geospatial/impact-visualization.md` (new), `architecture.md` (§28d).
+
+**Future Context:**
+- No browser automation available in this environment — the run-selection fix was verified against the
+  real dev PostgreSQL/PostGIS database via a real `TestClient(app)` request (not a mock or unit test double).
+  A live browser walkthrough (run selector, Data Layers/Impact/Geographic Context panels updating during
+  scrubbing/playback) remains the right next check before demo use.
+- Terrain remains procedural because DEM ingestion is not part of Prompt 10.1.
+- No AI/agents/RAG in this pass — still deferred to Prompts 11-13.
+
 ### 2026-09-12 — Complete Disaster Catalog, Scenario Templates & Disaster-Specific Parameters (Prompt 9.1)
 
 **Added/Changed:**

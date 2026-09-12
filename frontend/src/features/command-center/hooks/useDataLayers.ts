@@ -1,7 +1,7 @@
 import { startTransition, useCallback, useEffect, useState } from "react";
 import type { LatLon } from "@/three/utils/geoProjection";
 import { geospatialApi } from "../api/geospatialApi";
-import type { ExposureResult, GeographicFeature, GeospatialDataQuality, HazardFootprint } from "../types";
+import type { ExposureResult, GeographicFeature, GeospatialDataQuality, HazardFootprint, ImpactFrame } from "../types";
 
 export type DataLayerKey = "hazardFootprint" | "infrastructure" | "exposure" | "coastline";
 
@@ -48,6 +48,7 @@ export function useDataLayers({
   const [infrastructureAssets, setInfrastructureAssets] = useState<ExposureResult[]>([]);
   const [coastlineFeatures, setCoastlineFeatures] = useState<GeographicFeature[]>([]);
   const [dataQuality, setDataQuality] = useState<GeospatialDataQuality>("unknown");
+  const [impact, setImpact] = useState<ImpactFrame | null>(null);
   const [status, setStatus] = useState<AsyncStatus>("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -163,6 +164,33 @@ export function useDataLayers({
     };
   }, [runId, runCompleted, frameIndex, enabled.infrastructure, enabled.exposure]);
 
+  // Impact (severity band + aggregated exposure counts) is likewise
+  // per-frame — it summarizes the same frame's hazard footprint + exposure,
+  // so it's refetched on frame change exactly like exposure above. A
+  // dedicated Impact panel (ImpactPanel.tsx) is this fetch's only consumer;
+  // it never gates the hazard-footprint/exposure fetches above, so a
+  // failure here never blocks the rest of the Data Layers panel.
+  useEffect(() => {
+    if (!runId || !runCompleted || !enabled.hazardFootprint) {
+      startTransition(() => setImpact(null));
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await geospatialApi.getImpact(runId, frameIndex);
+        if (cancelled) return;
+        setImpact(response);
+      } catch (err) {
+        if (cancelled) return;
+        setError(errorMessage(err, "Failed to load impact summary"));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [runId, runCompleted, frameIndex, enabled.hazardFootprint]);
+
   const toggleLayer = useCallback((key: DataLayerKey) => {
     setEnabled((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
@@ -187,6 +215,7 @@ export function useDataLayers({
     infrastructureCount: infrastructureAssets.length,
     coastlineFeatures: enabled.coastline ? coastlineFeatures : [],
     dataQuality,
+    impact,
     status,
     error,
   };
