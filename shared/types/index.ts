@@ -632,7 +632,40 @@ export interface AIRecommendedAction {
   /** Always RESOURCE_DATA_UNAVAILABLE until a resource inventory exists. */
   resources: string;
   requires_human_approval: true;
+  /** Simulation evidence ids (E1, E2, ...) from the Context Collector. */
   evidence_ids: string[];
+  /** Authoritative-source evidence ids ("RAG-...") — always resolvable
+   * against the brief's own `evidence_citations`, never invented. */
+  citations: string[];
+}
+
+// --- RAG evidence (Prompt 16) -----------------------------------------------
+// Disaster-aware retrieval-augmented generation: authoritative-document
+// excerpts a Precaution/Response action may cite. Mirrors rag/schemas/models.py.
+
+export type AITrustLevel = "TIER_1" | "TIER_2" | "TIER_3" | "TIER_4";
+export type AIEvidenceStatus = "SUPPORTED" | "INSUFFICIENT_EVIDENCE" | "UNAVAILABLE";
+export type AIClaimStatus = "SUPPORTED" | "PARTIAL" | "UNSUPPORTED";
+export type AIClaimTypeRag = "OBSERVED" | "CALCULATED" | "EVIDENCE_GROUNDED" | "RECOMMENDED";
+
+export interface AIEvidenceItem {
+  evidence_id: string;
+  source_id: string;
+  authority: string;
+  title: string;
+  trust_level: AITrustLevel;
+  section?: string | null;
+  page?: number | null;
+  url?: string | null;
+  relevance_score: number;
+  text_snippet: string;
+}
+
+export interface AIClaimMapping {
+  claim_text: string;
+  claim_type: AIClaimTypeRag;
+  supported_by: string[];
+  validation_status: AIClaimStatus;
 }
 
 /** One graph node's execution record — what the Agent Execution HUD shows. */
@@ -664,6 +697,10 @@ export interface CommandBrief {
   resource_status: string;
   agent_runs: AIAgentRun[];
   evidence_references: AIEvidenceRef[];
+  /** Every authoritative-source citation actually used somewhere in this
+   * brief — a `citations` id on an action always resolves to one of these. */
+  evidence_citations: AIEvidenceItem[];
+  claim_mappings: AIClaimMapping[];
   data_limitations: AIDataLimitation[];
   uncertainties: string[];
   human_review_required: true;
@@ -732,7 +769,10 @@ export type AIEventType =
   | "AGENT_COMPLETED"
   | "AI_ANALYSIS_COMPLETED"
   | "AI_ANALYSIS_FAILED"
-  | "AI_ANALYSIS_STALE";
+  | "AI_ANALYSIS_STALE"
+  | "RAG_RETRIEVAL_STARTED"
+  | "RAG_RETRIEVAL_COMPLETED"
+  | "AGENT_EVIDENCE_ATTACHED";
 
 export interface AIEvent {
   type: AIEventType;
@@ -749,4 +789,9 @@ export interface AIEvent {
   execution_ms?: number | null;
   command_brief?: CommandBrief | null;
   error?: string | null;
+  /** RAG_RETRIEVAL_* / AGENT_EVIDENCE_ATTACHED only. */
+  role?: string;
+  evidence_status?: AIEvidenceStatus;
+  item_count?: number;
+  evidence_ids?: string[];
 }

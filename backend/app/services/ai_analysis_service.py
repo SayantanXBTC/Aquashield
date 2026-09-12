@@ -40,7 +40,7 @@ from app.services.simulation_service import SimulationRunNotFoundError, Simulati
 from agents.graph.workflow.graph import AnalysisRequest, GraphDeps, run_analysis
 from agents.llm.provider import LLMProvider, LLMProviderError, build_provider
 from agents.prompts.versions import PROMPT_VERSION
-from agents.tools.retrieval.evidence_retriever import NotConfiguredEvidenceRetriever
+from app.services.rag_retrieval_service import get_retriever
 from agents.tools.sanitize import sanitize_question
 
 
@@ -149,7 +149,12 @@ class AIAnalysisService:
         deps = GraphDeps(
             data=BackendAnalysisDataAccess(self.session, owner_uid=self.owner_uid),
             provider=provider,
-            retriever=NotConfiguredEvidenceRetriever(),
+            # RAG_PROVIDER=none (default) keeps the pre-Prompt-16 posture:
+            # every regulatory_evidence limitation reads NOT_CONFIGURED, exactly
+            # as before this layer existed. RAG_PROVIDER=chroma switches every
+            # new analysis to the real hybrid retriever, cached at module level
+            # (app/services/rag_retrieval_service.py) rather than rebuilt per request.
+            retriever=get_retriever(),
             emit=emit,
         )
         result = run_analysis(

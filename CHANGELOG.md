@@ -1,5 +1,72 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-12 — Disaster-aware RAG pipeline: ingestion, hybrid retrieval, evidence-gated citations (Prompt 16)
+
+**Added/Changed:**
+- `rag/` implemented end to end: `parsing/` (md frontmatter, txt/pdf + sidecar `.meta.json`), `chunking/`
+  (500-1000 "tokens", section/page-aware, never spans a section change), `embeddings/`
+  (`DeterministicHashEmbedding` — no network, no credits, the default), `vectorstore/` (`ChromaVectorStore`,
+  cosine distance, `aquashield_evidence` collection), `retrieval/` (`HybridRetriever`, role-scoped query
+  builder, disaster-type metadata filter, `RAG_RELEVANCE_THRESHOLD`), `ingestion/pipeline.py` (framework-free
+  parse→chunk→embed→upsert), `rag/schemas/models.py` (`SourceMetadata`, `Chunk`, `EvidenceItem`,
+  `EvidencePack`, `ClaimMapping`, `RetrievalQuery`). `rag/__main__.py` CLI: `ingest`/`validate`/`list-sources`
+  (argparse subcommands — `python -m rag.list-sources` isn't valid Python, documented deviation).
+- `agents/`: new graph node `evidence_retrieval` between Tier 1 and Tier 2, producing one role-scoped
+  `EvidencePack` each for Precaution/Response. `agents/tools/retrieval/evidence_retriever.py` rewritten as
+  the sole `agents/` ↔ `rag/` boundary (`EvidenceRetriever.retrieve(RetrievalQuery) -> EvidencePack`,
+  `build_evidence_retriever("none"|"chroma")`). `SafetyValidator.validate_citations` keeps only citation ids
+  that literally exist in the pack an agent was given. `CommandBrief` gains `evidence_citations` and
+  `claim_mappings`; `RecommendedAction` gains `citations`. `PROMPT_VERSION` bumped to `2026-09-12.3`.
+- Backend: `rag_sources` / `rag_ingestion_log` tables (migration `1bc3c8e45abe`, idempotent checksum-based
+  registry), `RagIngestionService`, `RagRetrievalService` (cached retriever), routes `POST /rag/retrieve`,
+  `GET /rag/sources`, `GET /rag/sources/{source_id}`, `GET /rag/health`. Settings `RAG_PROVIDER` (default
+  `none`), `RAG_EMBEDDING_PROVIDER`, `RAG_RELEVANCE_THRESHOLD`, `RAG_VECTORSTORE_DIR`. RAG milestone events
+  (`RAG_RETRIEVAL_STARTED`, `RAG_RETRIEVAL_COMPLETED`, `AGENT_EVIDENCE_ATTACHED`) ride the existing `/ws/ai`
+  bus.
+- Frontend: `AIEvidenceItem`, `AIClaimMapping`, extended `CommandBrief`/`AIRecommendedAction`/`AIEvent` in
+  `shared/types`. `IntelligencePanel` shows a citation badge on a cited action (authority/section/page
+  tooltip) and lists cited sources with trust level in the audit block.
+- `rag/tests/fixtures/` — three `TEST_FIXTURE`-labelled sources (tsunami, cyclone, a cross-cutting "general"
+  one), never under `rag/sources/`.
+- New dependency: `pypdf==6.18.1` (PDF text extraction, pure Python).
+- Tests: `rag/tests/` 25, `agents/tests/test_rag_integration.py` 8 (incl. one real end-to-end run against
+  the actual ChromaDB pipeline), `backend/tests/test_rag_ingestion_service.py` 7,
+  `backend/tests/api/test_rag.py` 11, plus one extended `test_ai_analysis.py` end-to-end citation test.
+  Backend suite 181 passing against real PostgreSQL/PostGIS; agents suite 30; frontend suite 51.
+
+**Why:**
+- Prompt 16 — recommendations need to cite the authoritative guidance they're based on, not just
+  deterministic simulation facts, while preserving every existing guarantee: retrieved text is evidence a
+  citation must be verifiable against, never an instruction, and a low-confidence or absent retrieval must
+  say so (`INSUFFICIENT_EVIDENCE`/`UNAVAILABLE`) rather than fabricate a source.
+- `RAG_PROVIDER=none` default keeps every Prompt 14/15 test and behaviour unchanged — RAG is additive, not a
+  breaking change to the AI layer's existing contract.
+
+**Files/Modules:**
+- `rag/**` (new package), `agents/tools/retrieval/evidence_retriever.py`,
+  `agents/agents/command/synthesis.py`, `agents/graph/workflow/graph.py`, `agents/schemas/{outputs,brief,
+  state}.py`, `agents/agents/tactical/{precaution_agent,response_agent}.py`, `agents/prompts/versions.py`,
+  `agents/llm/local_rules.py`
+- `backend/app/db/models/rag_source.py`, `backend/app/repositories/rag_source_repository.py`,
+  `backend/app/services/{rag_ingestion_service,rag_retrieval_service,ai_analysis_service}.py`,
+  `backend/app/api/routes/rag.py`, `backend/app/schemas/rag.py`, `backend/app/config/settings.py`,
+  `backend/app/main.py`, `backend/alembic/versions/1bc3c8e45abe_rag_sources_registry.py`
+- `frontend/src/features/command-center/components/IntelligencePanel.tsx`, `shared/types/index.ts`
+- `architecture.md` §10/§30/§30b/ADR-008, `CLAUDE.md` §23/§26b, `docs/rag/pipeline.md` (new),
+  `docs/agents/ai-layer.md`, `requirements.txt`, `.env.example`, `backend/.env.example`
+
+**Future Context:**
+- `DeterministicHashEmbedding` is a bag-of-hashed-words vector, not semantic — good enough for deterministic,
+  offline-testable ranking; a hosted embeddings provider is a documented gap (Anthropic has no embeddings
+  API), the seam is `rag/embeddings/provider.py::build_embedding_provider`.
+- `rag/sources/` stays empty until a real authoritative source is identified and approved — do not add
+  placeholder content there; test/demo material stays under `rag/tests/fixtures/`.
+- The disaster-type metadata filter scans stored `disaster_types` combinations
+  (`ChromaVectorStore._candidate_disaster_keys`) rather than a native list-membership query — fine at a
+  curated library's scale, revisit if source count grows into the thousands.
+- `RagIngestionService.REPO_ROOT` assumes a monorepo checkout; a source ingested from outside the repo still
+  works (falls back to an absolute `file_path`) but won't be repo-relative in the registry.
+
 ### 2026-09-12 — Structures actually fail when hit; Intelligence panel condensed
 
 **Added/Changed:**

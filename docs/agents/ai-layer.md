@@ -74,7 +74,9 @@ scenario → recorded run → brief, owner scoping, no writes to simulation tabl
 
 - Demo-world runs carry no real-world geometry, so PostGIS asset exposure is always `partial`
   (`DATA_UNAVAILABLE: asset_exposure`); exposures come from user-placed structures instead.
-- No regulatory knowledge base: `NOT_CONFIGURED: regulatory_evidence` on every brief.
+- No regulatory knowledge base **as originally shipped in Prompt 14** — since Prompt 16 this is
+  configurable (`RAG_PROVIDER`); see the "Prompt 16" section below and docs/rag/pipeline.md. `NOT_CONFIGURED`
+  remains the default until an operator ingests real sources.
 - No resource inventory: every action's `resources` is `RESOURCE_DATA_UNAVAILABLE`.
 - Structure exposure bands and all hazard values come from SIMPLIFIED DEMONSTRATION MODELS.
 
@@ -178,3 +180,33 @@ No chatbot surface, no sparkle icons: both are ordinary HUD panels using the exi
   eviction, stale/superseded discard.
 - `frontend/src/features/command-center/components/IntelligencePanel.test.tsx` — unexposed → potentially
   exposed transition, placeholders for missing values, agent chip statuses.
+
+
+---
+
+## Prompt 16 — RAG-grounded Precaution/Response citations
+
+The graph gains one node, `evidence_retrieval`, between Tier 1 and Tier 2 (see docs/rag/pipeline.md for the
+full pipeline). It produces one role-scoped `EvidencePack` each for the Precaution and Response agents;
+either may cite a retrieved `EvidenceItem.evidence_id` in its `citations`, verified by
+`SafetyValidator.validate_citations` against the pack the node actually received — the same evidence-gate
+discipline `evidence_ids` already had, extended to authoritative-source citations.
+
+`CommandBrief` gains `evidence_citations` (every citation actually resolved, deduped) and `claim_mappings`
+(an audit record per kept claim: `claim_type` OBSERVED/CALCULATED/EVIDENCE_GROUNDED/RECOMMENDED,
+`validation_status`). `RecommendedAction.citations` is separate from `evidence_ids` — one for authoritative
+guidance, one for simulation facts; neither can stand in for the other (`RAG_GUARDRAILS`,
+agents/prompts/versions.py).
+
+`RAG_PROVIDER=none` (default) keeps every Prompt 14/15 behaviour and test byte-for-byte unchanged:
+`NotConfiguredEvidenceRetriever` still returns the same `NOT_CONFIGURED` posture, now as a
+`regulatory_evidence:<role>` `DataLimitation` (role-scoped — was a single unscoped `regulatory_evidence`
+subject before Prompt 16). `RAG_PROVIDER=chroma` switches on the real `HybridRetriever`.
+
+`IntelligencePanel` shows a small book-icon badge on a cited action (tooltip: authority, title, section/page)
+and lists every resolved citation with trust level in the audit block ("Sources cited").
+
+Tests: `agents/tests/test_rag_integration.py` (8, incl. one real end-to-end run against the actual
+`ChromaVectorStore`), `backend/tests/api/test_rag.py` (11), `backend/tests/test_rag_ingestion_service.py`
+(7), `rag/tests/` (25), plus the extended `test_analyze_frame_carries_real_rag_citations_end_to_end` in
+`backend/tests/api/test_ai_analysis.py`. Full detail: docs/rag/pipeline.md.

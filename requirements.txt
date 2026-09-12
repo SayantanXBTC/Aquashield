@@ -29,8 +29,11 @@ langchain-core==1.6.2
 # the default local deterministic provider needs no network or key.
 anthropic==1.5.0
 
-# --- rag (ChromaDB) — INSTALLED, NOT IMPLEMENTED ---
+# --- rag (ChromaDB) ---
 chromadb==1.5.9
+# PDF text extraction for RAG ingestion (rag/parsing/) — pure Python, no
+# compiled/native dependency. Markdown/plain-text sources need no library.
+pypdf==6.18.1
 
 # --- testing ---
 pytest==9.1.1

@@ -1,7 +1,7 @@
-import { Radar, ShieldAlert } from "lucide-react";
+import { BookOpen, Radar, ShieldAlert } from "lucide-react";
 import { EmptyState } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import type { AIPriorityLevel, AIRecommendedAction, CommandBrief, StructureConfig } from "../types";
+import type { AIEvidenceItem, AIPriorityLevel, AIRecommendedAction, CommandBrief, StructureConfig } from "../types";
 import { HudPanel } from "./HudPanel";
 
 interface IntelligencePanelProps {
@@ -50,15 +50,28 @@ function Overflow({ total }: { total: number }) {
   return <li className="text-ink-faint text-[10px]">+{total - MAX_ROWS} more in the audit below</li>;
 }
 
-function ActionRow({ action, tag }: { action: AIRecommendedAction; tag: string }) {
+/** One tooltip string per authoritative-source citation: authority, title,
+ * section/page — what a source badge would show, without a popup. */
+function citationLabel(item: AIEvidenceItem): string {
+  const where = [item.section, item.page ? `p. ${item.page}` : null].filter(Boolean).join(", ");
+  return `${item.authority} — ${item.title}${where ? ` (${where})` : ""}`;
+}
+
+function ActionRow({ action, tag, citations }: { action: AIRecommendedAction; tag: string; citations: Map<string, AIEvidenceItem> }) {
   // Prerequisites and risks are what an operator checks before acting, not
   // while scanning — they stay on the row, one line, in the tooltip.
   const detail = [action.prerequisites.length ? `Prerequisites: ${action.prerequisites.join("; ")}` : "", action.risks.length ? `Risks: ${action.risks.join("; ")}` : ""].filter(Boolean).join("\n");
+  const cited = action.citations.map((id) => citations.get(id)).filter((item): item is AIEvidenceItem => item !== undefined);
   return (
     <li className="flex items-start gap-1.5 text-[11px]" title={detail || undefined}>
       <Badge level={action.priority} />
       <span className="text-ink-faint shrink-0 font-mono text-[9px] uppercase">{tag}</span>
-      <span className="text-ink line-clamp-2">{action.action}</span>
+      <span className="text-ink min-w-0 flex-1 line-clamp-2">{action.action}</span>
+      {cited.length ? (
+        <span className="text-accent-strong shrink-0" title={cited.map(citationLabel).join(" · ")}>
+          <BookOpen className="h-3 w-3" />
+        </span>
+      ) : null}
     </li>
   );
 }
@@ -81,6 +94,7 @@ export function IntelligencePanel({ brief, structures, frameIndex, briefIsBehind
   const byId = new Map(structures.map((s) => [s.id, s]));
 
   const exposures = brief ? [...brief.key_exposures].sort((a, b) => LEVEL_RANK[a.severity_hint] - LEVEL_RANK[b.severity_hint]) : [];
+  const citationsById = new Map((brief?.evidence_citations ?? []).map((item) => [item.evidence_id, item]));
   const priorities = brief?.priorities ?? [];
   const actions = brief ? [...brief.recommended_actions, ...brief.precautions] : [];
   const topLevel = priorities[0]?.level;
@@ -171,7 +185,7 @@ export function IntelligencePanel({ brief, structures, frameIndex, briefIsBehind
             {actions.length ? (
               <ul className="flex flex-col gap-1">
                 {actions.slice(0, MAX_ROWS).map((action, index) => (
-                  <ActionRow key={index} action={action} tag={index < brief.recommended_actions.length ? "act" : "prec"} />
+                  <ActionRow key={index} action={action} tag={index < brief.recommended_actions.length ? "act" : "prec"} citations={citationsById} />
                 ))}
                 <Overflow total={actions.length} />
               </ul>
@@ -201,7 +215,22 @@ export function IntelligencePanel({ brief, structures, frameIndex, briefIsBehind
                 <dd className="font-mono">{provider ?? MISSING}</dd>
                 <dt>Evidence</dt>
                 <dd className="font-mono">{brief.evidence_references.length}</dd>
+                <dt>Sources cited</dt>
+                <dd className="font-mono">{brief.evidence_citations.length}</dd>
               </dl>
+
+              {brief.evidence_citations.length ? (
+                <ul className="flex flex-col gap-0.5">
+                  {brief.evidence_citations.map((item) => (
+                    <li key={item.evidence_id} className="text-ink-faint text-[10px] leading-relaxed">
+                      <BookOpen className="mr-1 inline h-3 w-3" />
+                      <span className="font-mono">{item.trust_level}</span> · {item.authority} — {item.title}
+                      {item.section ? `, ${item.section}` : ""}
+                      {item.page ? ` (p. ${item.page})` : ""}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
 
               {brief.hazard_progression.length ? (
                 <ul className="flex flex-col gap-0.5">

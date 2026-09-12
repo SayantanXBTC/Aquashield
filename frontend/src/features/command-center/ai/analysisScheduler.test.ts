@@ -25,6 +25,8 @@ function brief(frameIndex: number): CommandBrief {
     uncertainties: [],
     human_review_required: true,
     validation_notes: [],
+    evidence_citations: [],
+    claim_mappings: [],
     disclaimer: "",
   };
 }

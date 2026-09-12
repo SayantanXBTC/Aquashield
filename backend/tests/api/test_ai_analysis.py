@@ -53,10 +53,13 @@ def test_analyze_returns_grounded_brief_and_audit_trail(client):
         assert set(finding["evidence_ids"]) <= known
     # The port is impacted by frame 4 in this configuration.
     assert any(x["subject"] == "Harbour" for x in brief["key_exposures"])
-    # Demo-world runs carry no real geometry -> exposure is DATA_UNAVAILABLE, RAG NOT_CONFIGURED.
+    # Demo-world runs carry no real geometry -> exposure is DATA_UNAVAILABLE.
+    # RAG is NOT_CONFIGURED by default (RAG_PROVIDER=none) -> one role-scoped
+    # limitation per Tier 2 role that asked for evidence.
     codes = {(l["code"], l["subject"]) for l in brief["data_limitations"]}
     assert ("DATA_UNAVAILABLE", "asset_exposure") in codes
-    assert ("NOT_CONFIGURED", "regulatory_evidence") in codes
+    assert ("NOT_CONFIGURED", "regulatory_evidence:precaution") in codes
+    assert ("NOT_CONFIGURED", "regulatory_evidence:response") in codes
 
     status = client.get(f"/ai/requests/{body['id']}/status").json()
     assert status["status"] == "completed"
@@ -202,3 +205,53 @@ def test_ai_events_socket_streams_agent_milestones(client):
     assert {"hazard_agent", "damage_agent", "risk_agent", "safety_validator"} <= started
     assert all(m["request_id"] == body["id"] for m in seen)
     assert all(m["frame_index"] == 4 for m in seen if m["type"] == "AGENT_STARTED")
+
+
+# --- Prompt 16: RAG-grounded evidence flowing into the persisted brief ------
+
+
+def test_analyze_frame_carries_real_rag_citations_end_to_end(client, db_session, tmp_path):
+    """RAG_PROVIDER=chroma, TEST_FIXTURE sources actually ingested: proves
+    the full path — evidence_retrieval node -> role-scoped HybridRetriever
+    -> local deterministic provider citing a real id -> Safety Validator
+    keeping it because it genuinely exists in the pack -> persisted
+    CommandBrief.evidence_citations / claim_mappings."""
+
+    from pathlib import Path as _Path
+
+    from app.config.settings import settings
+    from app.services.rag_ingestion_service import RagIngestionService
+    from app.services.rag_retrieval_service import reset_retriever_cache
+    from rag.embeddings.provider import DeterministicHashEmbedding
+    from rag.vectorstore.chroma_store import ChromaVectorStore
+
+    repo_root = _Path(__file__).resolve().parents[3]
+    fixtures_dir = repo_root / "rag" / "tests" / "fixtures"
+    vector_store = ChromaVectorStore(persist_directory=tmp_path / "chroma")
+    RagIngestionService(db_session, vector_store=vector_store, embedding_provider=DeterministicHashEmbedding()).ingest_root(fixtures_dir, is_test_fixture=True)
+    db_session.commit()
+
+    original_provider, original_dir = settings.rag_provider, settings.rag_vectorstore_dir_override
+    settings.rag_provider = "chroma"
+    settings.rag_vectorstore_dir_override = str(tmp_path / "chroma")
+    reset_retriever_cache()
+    try:
+        scenario, run = _recorded_run(client, disaster_type="tsunami")
+        response = client.post("/ai/analyze-frame", json={"scenario_id": scenario["id"], "simulation_run_id": run["id"], "frame_index": 4, "request_type": "manual"})
+        assert response.status_code == 201, response.text
+        brief = client.get(f"/ai/requests/{response.json()['id']}/result").json()["result"]
+    finally:
+        settings.rag_provider, settings.rag_vectorstore_dir_override = original_provider, original_dir
+        reset_retriever_cache()
+
+    assert brief["evidence_citations"], "expected at least one real citation to survive validation"
+    citation_ids = {item["evidence_id"] for item in brief["evidence_citations"]}
+    assert all(cid.startswith("RAG-") for cid in citation_ids)
+    cited_actions = [a for a in [*brief["precautions"], *brief["recommended_actions"]] if a["citations"]]
+    assert cited_actions
+    assert set(cited_actions[0]["citations"]) <= citation_ids
+    grounded = [c for c in brief["claim_mappings"] if c["claim_type"] == "EVIDENCE_GROUNDED"]
+    assert grounded and all(c["validation_status"] == "SUPPORTED" for c in grounded)
+    # RAG is now configured and both fixtures matched -> no NOT_CONFIGURED
+    # regulatory_evidence limitation remains.
+    assert not any(l["code"] == "NOT_CONFIGURED" and l["subject"].startswith("regulatory_evidence") for l in brief["data_limitations"])
