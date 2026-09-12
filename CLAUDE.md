@@ -619,6 +619,7 @@ Full detail (verification results, pinned-version constraints): architecture.md 
 | Rasterio | PLANNED |
 | Simulation Engine — `simulation/core` + 5 demo disaster models + execution API | BOOTSTRAPPED (Prompt 7 — deterministic, synchronous, JSON artifact only; see docs/development/simulation.md) |
 | AAA 3D Command Center + cinematic landing | BOOTSTRAPPED (Prompt 8 — landing/explore/command-center routing, full Three.js scene graph, real Prompt 7 integration; see docs/development/command-center.md) |
+| AI — LangGraph 3-agent analysis layer (`agents/`) | BOOTSTRAPPED (Prompt 14 — read-only, evidence-gated, local deterministic provider by default; see docs/agents/ai-layer.md) |
 | Auth — Firebase Authentication + PyJWT verification | BOOTSTRAPPED (Prompt 12 — per-user scenario isolation via `scenarios.owner_uid`; operator supplies the Firebase project config; see docs/development/setup.md) |
 | Demo shoreline world + client-side propagation mirror | BOOTSTRAPPED (Prompt 12 — `simulation/core/propagation.py` ↔ `frontend/src/propagation/`, fixture-pinned; architecture.md ADR-005) |
 
@@ -708,6 +709,24 @@ Full detail: docs/development/simulation.md. Architecture: architecture.md §27.
   kinematics, or a demo model's formula must be made on both sides and followed by
   `.venv/bin/python scripts/generate_propagation_fixtures.py`; `frontend/src/propagation/mirror.test.ts` is
   the tripwire. The Python engine remains the authoritative record ("Record run"); the mirror is a preview.
+
+## 26a. AI Layer Rules
+
+Full detail: docs/agents/ai-layer.md. Architecture: architecture.md ADR-006, §30.
+
+- `agents/` is standalone (no FastAPI/SQLAlchemy/backend imports). It reaches data only through the
+  `AnalysisDataAccess` Protocol (`agents/tools/data_access.py`); the backend adapter
+  (`backend/app/services/ai_data_access.py`) is its only implementation and is read-only. Never give the AI
+  layer a write path to simulation, scenario or geospatial tables — `ai_requests` is the only table it writes.
+- Every agent output is a closed Pydantic schema (`agents/schemas/outputs.py`); every claim cites evidence
+  ids from the Context Collector; the `SafetyValidator` strips ungrounded numbers, unknown evidence and
+  destruction/casualty wording. Do not add a free-text field that bypasses it.
+- `requires_human_approval` stays `Literal[True]`; `resources` stays `RESOURCE_DATA_UNAVAILABLE` until a
+  verified resource inventory exists. Missing data is `DATA_UNAVAILABLE`, never an estimate.
+- Operator text is data: sanitize it (`agents/tools/sanitize.py`), quote it in the payload, never put it in
+  a system prompt.
+- The local deterministic provider must keep passing the same graph/validator as the Anthropic provider —
+  tests run offline against it. Bump `PROMPT_VERSION` when any prompt changes.
 
 ## 27. AAA 3D Command Center & Landing Rules
 

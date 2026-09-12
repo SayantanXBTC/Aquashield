@@ -10,6 +10,7 @@ import { PlaybackBar } from "./components/PlaybackBar";
 import { RunsPanel } from "./components/RunsPanel";
 import { ScenarioTray } from "./components/ScenarioTray";
 import { StructuresPanel } from "./components/StructuresPanel";
+import { CommandBriefPanel } from "./components/CommandBriefPanel";
 import { TelemetryPanel } from "./components/TelemetryPanel";
 import { TopBar } from "./components/TopBar";
 import { useScenarioSession } from "./hooks/useScenarioSession";
@@ -167,6 +168,13 @@ export function CommandCenterPage() {
               onRecord={() => void session.recordRun()}
               onReplay={session.setReplayRunId}
               onExitReplay={session.exitReplay}
+            />
+            <CommandBriefPanel
+              scenarioId={session.selectedScenarioId}
+              runs={session.runs}
+              replayRunId={session.replayRunId}
+              clock={clock}
+              recordedTimestepMinutes={RECORDED_TIMESTEP_MINUTES}
             />
             {session.scenarioStatus === "error" && session.scenarioError ? (
               <p role="alert" className="text-status-critical pointer-events-auto rounded-[8px] border border-status-critical/40 bg-[rgba(9,14,20,0.8)] px-3 py-2 text-[11px] backdrop-blur-xl">

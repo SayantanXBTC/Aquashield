@@ -574,3 +574,122 @@ export interface StructureImpact {
   exposure: number;
   status: StructureStatus;
 }
+
+// --- AI intelligence layer (Prompt 14) ---------------------------------------
+// Mirrors agents/schemas/{evidence,outputs,brief}.py and backend/app/schemas/ai.py.
+// Read-only analysis over recorded frames; every action is human-gated.
+
+export type AIRequestStatus = "pending" | "running" | "completed" | "failed";
+export type AIPriorityLevel = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+export type AIClaimKind = "observed_simulation_fact" | "spatial_exposure";
+export type AIEvidenceKind = "scenario" | "simulation_run" | "timeline_frame" | "hazard_footprint" | "asset_exposure" | "structure_impact";
+
+export interface AIEvidenceRef {
+  id: string;
+  kind: AIEvidenceKind;
+  simulation_run_id?: string | null;
+  frame_index?: number | null;
+  asset_id?: string | null;
+  structure_id?: string | null;
+  summary: string;
+  values: Record<string, unknown>;
+  source: string;
+}
+
+export interface AIDataLimitation {
+  /** DATA_UNAVAILABLE | RESOURCE_DATA_UNAVAILABLE | NOT_CONFIGURED | AGENT_FAILED */
+  code: string;
+  subject: string;
+  detail: string;
+}
+
+export interface AIGroundedStatement {
+  statement: string;
+  evidence_ids: string[];
+}
+
+export interface AIExposureFinding {
+  subject: string;
+  subject_ref: string;
+  claim_kind: AIClaimKind;
+  statement: string;
+  evidence_ids: string[];
+  severity_hint: AIPriorityLevel;
+}
+
+export interface AIPriority {
+  level: AIPriorityLevel;
+  subject: string;
+  rationale: string;
+  evidence_ids: string[];
+}
+
+export interface AIRecommendedAction {
+  action: string;
+  priority: AIPriorityLevel;
+  prerequisites: string[];
+  risks: string[];
+  /** Always RESOURCE_DATA_UNAVAILABLE until a resource inventory exists. */
+  resources: string;
+  requires_human_approval: true;
+  evidence_ids: string[];
+}
+
+export interface CommandBrief {
+  scenario_id: string;
+  simulation_run_id: string;
+  frame_index: number;
+  generated_at: string;
+  situation: string;
+  current_hazard: string;
+  hazard_progression: AIGroundedStatement[];
+  key_exposures: AIExposureFinding[];
+  priorities: AIPriority[];
+  recommended_actions: AIRecommendedAction[];
+  evidence_references: AIEvidenceRef[];
+  data_limitations: AIDataLimitation[];
+  uncertainties: string[];
+  human_review_required: true;
+  validation_notes: string[];
+  disclaimer: string;
+}
+
+export interface AIAnalyzeRequest {
+  scenario_id: string;
+  simulation_run_id: string;
+  frame_index: number;
+  user_question?: string | null;
+}
+
+export interface AIRequestOut {
+  id: string;
+  scenario_id: string;
+  simulation_run_id: string;
+  frame_index: number;
+  user_question?: string | null;
+  status: AIRequestStatus;
+  provider?: string | null;
+  model?: string | null;
+  prompt_version?: string | null;
+  agent_versions: Record<string, string>;
+  tools_called: { agent: string; tool: string; arguments?: Record<string, unknown>; ok: boolean; duration_ms: number; note?: string | null }[];
+  execution_ms?: number | null;
+  error?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface AIRequestStatusOut {
+  id: string;
+  status: AIRequestStatus;
+  execution_ms?: number | null;
+  error?: string | null;
+}
+
+export interface AIRequestResultOut {
+  id: string;
+  status: AIRequestStatus;
+  result: CommandBrief | null;
+  error?: string | null;
+}
