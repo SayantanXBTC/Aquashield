@@ -23,6 +23,12 @@ class AIRequest(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     owner_uid: Mapped[str] = mapped_column(String(128), index=True)
     scenario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("scenarios.id", ondelete="CASCADE"), index=True)
     simulation_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("simulation_runs.id", ondelete="CASCADE"), index=True)
+    # The scenario version the client believed it was looking at. A request
+    # whose version no longer matches the run's is stale and is refused
+    # rather than answered about the wrong configuration (Prompt 15).
+    scenario_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("scenario_versions.id", ondelete="CASCADE"), nullable=True, index=True)
+    # What triggered the analysis: playback | scrub | paused | complete | manual.
+    request_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     frame_index: Mapped[int] = mapped_column(Integer)
     user_question: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[AIRequestStatus] = mapped_column(

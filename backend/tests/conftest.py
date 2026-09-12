@@ -90,9 +90,10 @@ def _make_client(db_session, user):
     that reads a test-only header the client sets by default, so two clients
     (`client`, `other_user_client`) can coexist in one test with different
     verified uids."""
-    from fastapi import Request
+    from fastapi import Request, WebSocket
     from fastapi.testclient import TestClient
 
+    from app.api.websocket.ai_events import websocket_user
     from app.core.auth import get_current_user
     from app.db.session import get_db
     from app.main import app
@@ -103,12 +104,19 @@ def _make_client(db_session, user):
     def override_current_user(request: Request):
         return _test_user(request.headers.get(_TEST_UID_HEADER, TEST_USER.uid))
 
+    def override_websocket_user(websocket: WebSocket):
+        # Same test-only header, so an AI event socket is scoped to the same
+        # verified uid as the HTTP client that opened it.
+        return _test_user(websocket.headers.get(_TEST_UID_HEADER, TEST_USER.uid))
+
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_current_user
+    app.dependency_overrides[websocket_user] = override_websocket_user
     with TestClient(app, headers={_TEST_UID_HEADER: user.uid}) as test_client:
         yield test_client
     app.dependency_overrides.pop(get_db, None)
     app.dependency_overrides.pop(get_current_user, None)
+    app.dependency_overrides.pop(websocket_user, None)
 
 
 @pytest.fixture()

@@ -1,14 +1,23 @@
 // Re-exported from the cross-domain shared contracts (architecture.md §22) —
 // this feature never redefines these shapes locally.
 export type {
+  AIAgentExecutionStatus,
+  AIAgentRun,
   AIAnalyzeRequest,
   AIDataLimitation,
+  AIEvent,
+  AIEventType,
+  AIEvidenceRef,
+  AIExposureFinding,
+  AIGroundedStatement,
+  AIPriority,
   AIPriorityLevel,
   AIRecommendedAction,
   AIRequestOut,
   AIRequestResultOut,
   AIRequestStatus,
   AIRequestStatusOut,
+  AIRequestType,
   CommandBrief,
   DisasterType,
   HazardPhase,
