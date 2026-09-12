@@ -25,7 +25,11 @@ export function ExploreGatewayPage() {
   // resolves; this keeps the redirect guard below from short-circuiting the
   // warp in that window.
   const [attempting, setAttempting] = useState(false);
-  const from = (location.state as { from?: string } | null)?.from;
+  const routeState = location.state as { from?: string; entrance?: string } | null;
+  const from = routeState?.from;
+  // Arriving via the landing page's dive: the screen is already void, so the
+  // backdrop and card surface out of it instead of popping in.
+  const [dive] = useState(() => routeState?.entrance === "dive");
   const destination = from && from.startsWith("/") ? from : "/command-center";
 
   const wrap = useCallback(
@@ -57,8 +61,9 @@ export function ExploreGatewayPage() {
     <main className="bg-void relative h-screen w-screen overflow-hidden">
       <motion.div
         className="absolute inset-0"
+        initial={dive ? { scale: 1.2, opacity: 0 } : false}
         animate={warping ? { scale: 1.35, opacity: 0.4 } : { scale: 1, opacity: 1 }}
-        transition={{ duration: 1.1, ease: [0.4, 0, 1, 1] }}
+        transition={warping ? { duration: 1.1, ease: [0.4, 0, 1, 1] } : { duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
       >
         <FluidBackdrop />
       </motion.div>
@@ -72,8 +77,9 @@ export function ExploreGatewayPage() {
 
       <motion.div
         className="relative z-10 flex h-full items-center justify-center px-6"
-        animate={warping ? { scale: 2.4, opacity: 0, filter: "blur(6px)" } : { scale: 1, opacity: 1, filter: "blur(0px)" }}
-        transition={{ duration: 0.9, ease: [0.5, 0, 0.9, 0.2] }}
+        initial={dive ? { scale: 0.94, opacity: 0, y: 28, filter: "blur(8px)" } : false}
+        animate={warping ? { scale: 2.4, opacity: 0, filter: "blur(6px)" } : { scale: 1, opacity: 1, y: 0, filter: "blur(0px)" }}
+        transition={warping ? { duration: 0.9, ease: [0.5, 0, 0.9, 0.2] } : { duration: 0.9, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
       >
         <SignInCard
           disabledReason={disabledReason}
