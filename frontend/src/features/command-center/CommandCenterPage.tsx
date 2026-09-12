@@ -3,6 +3,8 @@ import { toVisualState } from "@/three/adapters/simulationVisualAdapter";
 import { CommandCenterHeader } from "./components/CommandCenterHeader";
 import { CommandCenterViewport } from "./components/CommandCenterViewport";
 import { DataLayersPanel } from "./components/DataLayersPanel";
+import { GeographicContextPanel } from "./components/GeographicContextPanel";
+import { ImpactPanel } from "./components/ImpactPanel";
 import { ScenarioContextPanel } from "./components/ScenarioContextPanel";
 import { SimulationStatusPanel } from "./components/SimulationStatusPanel";
 import { useCommandCenterSession } from "./hooks/useCommandCenterSession";
@@ -59,7 +61,7 @@ export function CommandCenterPage() {
         </div>
 
         <div className="pointer-events-none absolute inset-0 flex flex-col justify-between gap-3 p-3 md:p-4">
-          <div className="pointer-events-auto flex w-full flex-col gap-3 md:w-80">
+          <div className="pointer-events-auto flex max-h-full w-full flex-col gap-3 overflow-y-auto md:w-80">
             <ScenarioContextPanel
               scenarios={session.scenarios}
               scenariosStatus={session.scenariosStatus}
@@ -80,10 +82,19 @@ export function CommandCenterPage() {
               dataQuality={dataLayers.dataQuality}
               hasRun={runCompleted}
             />
+            <ImpactPanel impact={dataLayers.impact} hasRun={runCompleted} />
+            <GeographicContextPanel
+              scenarioLocation={scenarioLocation}
+              coastlineFeatures={dataLayers.coastlineFeatures}
+              infrastructureCount={dataLayers.infrastructureCount}
+            />
           </div>
 
           <div className="pointer-events-auto w-full md:ml-auto md:w-96">
             <SimulationStatusPanel
+              runs={session.runs}
+              selectedRunId={session.selectedRunId}
+              onSelectRun={session.setSelectedRunId}
               runDetail={session.runDetail}
               runStatus={session.runStatus}
               runError={session.runError}

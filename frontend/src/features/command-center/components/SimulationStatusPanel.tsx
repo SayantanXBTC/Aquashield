@@ -1,7 +1,8 @@
 import { CommandButton, CommandPanel, DataReadout, EmptyState, ErrorState, SectionLabel, StatusIndicator } from "@/components/ui";
 import type { StatusTone } from "@/components/ui";
 import { PlaybackControls } from "./PlaybackControls";
-import type { SimulationRunDetail, SimulationStatus, TimelineFrame } from "../types";
+import { RunSelector } from "./RunSelector";
+import type { SimulationRun, SimulationRunDetail, SimulationStatus, TimelineFrame } from "../types";
 
 const RUN_STATUS_TONE: Record<SimulationStatus, StatusTone> = {
   pending: "offline",
@@ -12,6 +13,9 @@ const RUN_STATUS_TONE: Record<SimulationStatus, StatusTone> = {
 };
 
 interface SimulationStatusPanelProps {
+  runs: SimulationRun[];
+  selectedRunId: string | null;
+  onSelectRun: (id: string) => void;
   runDetail: SimulationRunDetail | null;
   runStatus: "idle" | "loading" | "error";
   runError: string | null;
@@ -33,6 +37,9 @@ interface SimulationStatusPanelProps {
 }
 
 export function SimulationStatusPanel({
+  runs,
+  selectedRunId,
+  onSelectRun,
   runDetail,
   runStatus,
   runError,
@@ -64,7 +71,9 @@ export function SimulationStatusPanel({
 
         {!hasRuns ? (
           <EmptyState title="No simulation run exists" detail="Create one to execute this scenario's current version." />
-        ) : null}
+        ) : (
+          <RunSelector runs={runs} selectedRunId={selectedRunId} onSelectRun={onSelectRun} />
+        )}
 
         <div className="flex flex-wrap gap-2">
           <CommandButton onClick={onCreateRun} disabled={creatingRun}>
@@ -117,6 +126,20 @@ export function SimulationStatusPanel({
             <EmptyState
               title="Awaiting playback data"
               detail="This run completed without timeline frames. Timeline playback and scrubbing arrive in a future phase."
+            />
+          </div>
+        ) : runDetail ? (
+          <div className="border-hairline flex flex-col gap-1 border-t pt-3">
+            <SectionLabel>Simulation timeline</SectionLabel>
+            <EmptyState
+              title="No playback data available"
+              detail={
+                runDetail.status === "pending"
+                  ? "Execute this run to produce timeline frames."
+                  : runDetail.status === "running"
+                    ? "This run is still executing."
+                    : "This run did not complete successfully."
+              }
             />
           </div>
         ) : null}

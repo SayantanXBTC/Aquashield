@@ -13,6 +13,7 @@ vi.mock("@/features/scenario-builder/api/scenarioApi", () => ({
     getScenarios: vi.fn(),
     getScenario: vi.fn(),
     getRuns: vi.fn(),
+    getDefaultRun: vi.fn(),
     createRun: vi.fn(),
   },
 }));
@@ -96,6 +97,7 @@ function setupPlayableRun(frameCount: number, runId = "run1") {
   });
   vi.mocked(scenarioApi.getScenario).mockResolvedValue(SCENARIO_DETAIL);
   vi.mocked(scenarioApi.getRuns).mockResolvedValue([run]);
+  vi.mocked(scenarioApi.getDefaultRun).mockResolvedValue(run);
   vi.mocked(simulationApi.getRun).mockResolvedValue(run);
   vi.mocked(simulationApi.getTimeline).mockResolvedValue({
     simulation_run_id: runId,
@@ -110,6 +112,7 @@ describe("useCommandCenterSession playback", () => {
     vi.mocked(scenarioApi.getScenarios).mockReset();
     vi.mocked(scenarioApi.getScenario).mockReset();
     vi.mocked(scenarioApi.getRuns).mockReset();
+    vi.mocked(scenarioApi.getDefaultRun).mockReset();
     vi.mocked(scenarioApi.createRun).mockReset();
     vi.mocked(simulationApi.getRun).mockReset();
     vi.mocked(simulationApi.executeRun).mockReset();
@@ -274,6 +277,59 @@ describe("useCommandCenterSession playback", () => {
     act(() => result.current.setFrameIndex(3));
     expect(result.current.isPlaying).toBe(false);
     expect(result.current.frameIndex).toBe(3);
+  });
+
+  it("selects the run returned by getDefaultRun, not just the newest run in the list (Prompt 10.1)", async () => {
+    // Reproduces the diagnostic's exact "Geo Test Flood" shape: the newest
+    // run by created_at is PENDING, but an older COMPLETED run with real
+    // frames exists — the backend's getDefaultRun (backend/app/services/
+    // run_selection.py) is the one source of truth for which run to
+    // auto-select, never runList[0].
+    const pendingNewest = { ...makeRun("pending-newest"), status: "pending" as const };
+    const completedOlder = makeRun("completed-older");
+
+    vi.mocked(scenarioApi.getScenarios).mockResolvedValue({
+      items: [SCENARIO_LIST_ITEM],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+    vi.mocked(scenarioApi.getScenario).mockResolvedValue(SCENARIO_DETAIL);
+    vi.mocked(scenarioApi.getRuns).mockResolvedValue([pendingNewest, completedOlder]);
+    vi.mocked(scenarioApi.getDefaultRun).mockResolvedValue(completedOlder);
+    vi.mocked(simulationApi.getRun).mockImplementation(async (id: string) =>
+      id === "pending-newest" ? pendingNewest : completedOlder,
+    );
+    vi.mocked(simulationApi.getTimeline).mockResolvedValue({
+      simulation_run_id: "completed-older",
+      frame_count: 4,
+      frames: makeFrames("completed-older", 4),
+    });
+
+    const { result } = renderHook(() => useCommandCenterSession());
+
+    await waitFor(() => expect(result.current.selectedRunId).toBe("completed-older"));
+    await waitFor(() => expect(result.current.frames).toHaveLength(4));
+    expect(result.current.runDetail?.status).toBe("completed");
+  });
+
+  it("leaves nothing selected when getDefaultRun returns null (e.g. only failed runs exist)", async () => {
+    vi.mocked(scenarioApi.getScenarios).mockResolvedValue({
+      items: [SCENARIO_LIST_ITEM],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+    vi.mocked(scenarioApi.getScenario).mockResolvedValue(SCENARIO_DETAIL);
+    const failedRun = { ...makeRun("failed-run"), status: "failed" as const };
+    vi.mocked(scenarioApi.getRuns).mockResolvedValue([failedRun]);
+    vi.mocked(scenarioApi.getDefaultRun).mockResolvedValue(null);
+
+    const { result } = renderHook(() => useCommandCenterSession());
+
+    await waitFor(() => expect(result.current.runs).toHaveLength(1));
+    expect(result.current.selectedRunId).toBeNull();
+    expect(simulationApi.getRun).not.toHaveBeenCalled();
   });
 
   it("play() is a no-op at the last frame (never loops)", async () => {
