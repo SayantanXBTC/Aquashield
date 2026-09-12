@@ -371,6 +371,10 @@ export function useScenarioSession(clock: PlaybackClock) {
     setLastRecordedRun(null);
     setRecording(true);
     setRunError(null);
+    // The live preview may be mid-playback when Record is clicked; entering
+    // replay must always start paused, never carry over a stale "playing"
+    // state the transport controls (and the operator) don't expect.
+    clock.pause();
     const startedAt = performance.now();
     try {
       // Make sure the version being run is the one on screen.
@@ -393,7 +397,7 @@ export function useScenarioSession(clock: PlaybackClock) {
     } finally {
       setRecording(false);
     }
-  }, [selectedScenarioId, params, durationHours, persist]);
+  }, [selectedScenarioId, params, durationHours, persist, clock]);
 
   useEffect(() => {
     if (!replayRunId) {
@@ -408,6 +412,12 @@ export function useScenarioSession(clock: PlaybackClock) {
         if (cancelled) return;
         setReplayFrames(timeline.frames);
         setReplayStatus("idle");
+        // A recorded run's own length, not whatever the live scenario's
+        // duration slider happened to say — otherwise the scrubber range
+        // doesn't match the frames actually available and playback clamps
+        // to the last frame almost immediately, reading as frozen.
+        const lastFrame = timeline.frames.at(-1);
+        if (lastFrame) clock.setDuration(lastFrame.timestep * RECORDED_TIMESTEP_MINUTES);
         clock.restart();
       } catch (err) {
         if (cancelled) return;
@@ -420,7 +430,14 @@ export function useScenarioSession(clock: PlaybackClock) {
     };
   }, [replayRunId, clock]);
 
-  const exitReplay = useCallback(() => setReplayRunId(null), []);
+  const exitReplay = useCallback(() => {
+    setReplayRunId(null);
+    // Restore the live scenario's own duration/position — replay just left
+    // the clock set to the recorded run's length, not the live preview's.
+    clock.pause();
+    clock.setDuration(durationHours * 60);
+    clock.restart();
+  }, [clock, durationHours]);
 
   // --- the per-frame snapshot accessor -----------------------------------
 
