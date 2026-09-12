@@ -19,9 +19,8 @@ def test_graph_topology_matches_spec(fake_data):
         assert (agent, "evidence_retrieval") in edges
     assert ("evidence_retrieval", "precaution_agent") in edges
     assert ("evidence_retrieval", "response_agent") in edges
-    assert ("precaution_agent", "resource_agent") in edges
-    assert ("response_agent", "resource_agent") in edges
-    assert ("resource_agent", "safety_validator") in edges
+    assert ("precaution_agent", "safety_validator") in edges
+    assert ("response_agent", "safety_validator") in edges
     assert ("safety_validator", "command_synthesizer") in edges
     assert ("command_synthesizer", "__end__") in edges
     # Agents within a tier never depend on each other.
@@ -72,9 +71,9 @@ def test_full_run_completes_with_grounded_brief(fake_data):
 def test_agent_execution_hud_record_covers_every_node(fake_data):
     brief = _run(fake_data).state.command_brief
     by_agent = {r.agent: r for r in brief.agent_runs}
-    expected = {"context_collector", "hazard_agent", "damage_agent", "risk_agent", "precaution_agent", "response_agent", "resource_agent", "safety_validator", "command_synthesizer"}
+    expected = {"context_collector", "hazard_agent", "damage_agent", "risk_agent", "precaution_agent", "response_agent", "safety_validator", "command_synthesizer"}
     assert expected <= set(by_agent)
-    assert by_agent["resource_agent"].status == "UNAVAILABLE"
+    assert "resource_agent" not in by_agent
     assert brief.resource_status == "RESOURCE_DATA_UNAVAILABLE"
     assert all(r.label for r in brief.agent_runs)
     # Graph order, so the HUD renders the pipeline in the order it ran.

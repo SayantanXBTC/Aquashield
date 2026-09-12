@@ -544,7 +544,7 @@ manifests (`frontend/package.json`, root `requirements.txt`) are the source of t
   the React → R3F → Three.js pipeline works; it is not an AQUASHIELD scene.
 - Anime.js — one `useFadeIn` micro-interaction hook proves the import/integration works; no disaster animation.
 - NumPy, SciPy, xarray, Shapely, GeoPandas — import-verified in the venv; no simulation model uses them yet.
-- LangGraph, langchain-core — BOOTSTRAPPED (Prompt 14/15, §30/§30a): the 10-node analysis graph.
+- LangGraph, langchain-core — BOOTSTRAPPED (Prompt 14/15, §30/§30a): the 9-node analysis graph.
 
 **PLANNED** (not installed):
 
@@ -971,7 +971,7 @@ POST /ai/analyze-frame ──► AIAnalysisService ──► run_analysis(GraphD
                          │              └─► { hazard_agent ‖ damage_agent ‖ risk_agent }
                          │                        └─► evidence_retrieval ──► rag/ (role-scoped EvidencePack, READ)
                          │                                  └─► { precaution_agent ‖ response_agent }
-                         │                                            └─► resource_agent → safety_validator → command_synthesizer → END
+                         │                                            └─► safety_validator → command_synthesizer → END
                          │                      │
                          │   Agent → ToolRunner → BackendAnalysisDataAccess → Scenario/Simulation/Footprint/Exposure services → repositories → PostGIS/DB (READ)
                          ├──► AIEventBus (per-owner, in-process) ──► /ws/ai ──► Agent Execution HUD

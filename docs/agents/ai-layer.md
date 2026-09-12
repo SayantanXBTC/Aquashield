@@ -85,7 +85,7 @@ scenario → recorded run → brief, owner scoping, no writes to simulation tabl
 
 ## Prompt 15 — frame-synchronised analysis in the command center
 
-### The graph today (9 nodes)
+### The graph as originally shipped (9 nodes; superseded below)
 
 ```
 START → context_collector
@@ -103,9 +103,12 @@ START → context_collector
 | `risk_agent` | `RiskAssessment` | `local_rules.risk_assessment` |
 | `precaution_agent` | `PrecautionSet` | `local_rules.precaution_set` |
 | `response_agent` | `ResponsePlan` | `local_rules.response_plan` |
-| `resource_agent` | `ResourceAssessment` | none — always `RESOURCE_DATA_UNAVAILABLE` |
+| `resource_agent` | `ResourceAssessment` | none — always `RESOURCE_DATA_UNAVAILABLE` (removed — see "Resource Agent removed" below) |
 | `safety_validator` | validated findings on state | n/a |
 | `command_synthesizer` | `CommandBrief` | `local_rules.situation_narrative` |
+
+See "The graph today" further down for the current, live topology (`evidence_retrieval` added by Prompt 16,
+`resource_agent` removed after it).
 
 `ImpactAnalysis` / `TacticalPlan` remain as composite views the validator writes back to state, so anything
 reading the pre-Prompt-15 shapes still works.
@@ -210,3 +213,26 @@ Tests: `agents/tests/test_rag_integration.py` (8, incl. one real end-to-end run 
 `ChromaVectorStore`), `backend/tests/api/test_rag.py` (11), `backend/tests/test_rag_ingestion_service.py`
 (7), `rag/tests/` (25), plus the extended `test_analyze_frame_carries_real_rag_citations_end_to_end` in
 `backend/tests/api/test_ai_analysis.py`. Full detail: docs/rag/pipeline.md.
+
+## Resource Agent removed
+
+`resource_agent` never did anything but stamp `RESOURCE_DATA_UNAVAILABLE` — no verified resource inventory
+exists to back it (still true; see "Known data limitations" above), and it added a permanently-UNAVAILABLE
+chip to the HUD with no way for it to ever read otherwise. Removed as a graph node, an
+`AquaShieldAgentState` field, an `AGENT_LABELS`/`AGENT_ROSTER` entry and a frontend HUD stage.
+`RecommendedAction.resources` and `CommandBrief.resource_status` still read `RESOURCE_DATA_UNAVAILABLE`
+directly (`agents/schemas/evidence.py`'s `RESOURCE_DATA_UNAVAILABLE` constant, stamped in
+`agents/llm/local_rules.py` and `agents/agents/command/synthesis.py`) — that honesty guarantee (CLAUDE.md
+§26a) does not depend on a dedicated node to exist. `AGENT_VERSIONS["resource_agent"]` is kept so an
+`ai_requests` row recorded before the removal still resolves. `PROMPT_VERSION` bumped to `2026-09-12.4`.
+
+### The graph today (9 nodes)
+
+```
+START → context_collector
+          ├─ (conditional) no analysable frame → safety_validator
+          └─ hazard_agent ‖ damage_agent ‖ risk_agent      (Tier 1, one superstep)
+                 └─ evidence_retrieval                     (role-scoped RAG; see Prompt 16 above)
+                        └─ precaution_agent ‖ response_agent  (Tier 2, one superstep)
+                               └─ safety_validator → command_synthesizer → END
+```

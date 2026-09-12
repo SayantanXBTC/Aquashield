@@ -1,7 +1,7 @@
 """Versioned prompt text. Bump PROMPT_VERSION whenever any system prompt
 below changes — it is persisted on every AI request for audit."""
 
-PROMPT_VERSION = "2026-09-12.3"
+PROMPT_VERSION = "2026-09-12.4"
 
 AGENT_VERSIONS = {
     "context_collector": "1.1.0",
@@ -11,7 +11,6 @@ AGENT_VERSIONS = {
     "risk_agent": "1.0.0",
     "precaution_agent": "1.0.0",
     "response_agent": "1.0.0",
-    "resource_agent": "1.0.0",
     "safety_validator": "1.0.0",
     "command_synthesizer": "1.0.0",
     "evidence_retrieval": "1.0.0",
@@ -19,6 +18,11 @@ AGENT_VERSIONS = {
     "impact_analyst": "1.0.0",
     "tactical_advisor": "1.0.0",
     "synthesis_safety": "1.0.0",
+    # Retained so a stored audit row from before the Resource Agent was
+    # removed (no verified resource inventory exists to back it — every
+    # action's `resources` field still reads RESOURCE_DATA_UNAVAILABLE
+    # directly, CLAUDE.md §26a) still resolves.
+    "resource_agent": "1.0.0",
 }
 
 # Display names for the Agent Execution HUD, in graph order. The HUD renders
@@ -31,7 +35,6 @@ AGENT_LABELS = {
     "evidence_retrieval": "Evidence Retrieval",
     "precaution_agent": "Precaution Agent",
     "response_agent": "Tactical Response Agent",
-    "resource_agent": "Resource Agent",
     "safety_validator": "Safety Validator",
     "command_synthesizer": "Command Synthesizer",
 }
