@@ -27,3 +27,28 @@ if (!("ResizeObserver" in window)) {
   // @ts-expect-error -- jsdom has no ResizeObserver; this is a minimal test-only stand-in
   window.ResizeObserver = MockResizeObserver;
 }
+
+// jsdom has no Web Animations API. framer-motion drives scroll-linked
+// transforms (the landing page's `useScroll` + `useTransform` values)
+// through `element.animate()` without feature-detecting it first, so mount
+// would throw. This inert stand-in makes those animations no-ops in tests.
+if (typeof Element.prototype.animate !== "function") {
+  Element.prototype.animate = function animate() {
+    const stub = {
+      currentTime: 0,
+      startTime: 0,
+      playbackRate: 1,
+      playState: "idle",
+      timeline: null,
+      onfinish: null,
+      effect: { getComputedTiming: () => ({ duration: 0 }), updateTiming: () => {} },
+      play: () => {},
+      pause: () => {},
+      cancel: () => {},
+      finish: () => {},
+      commitStyles: () => {},
+      finished: Promise.resolve(),
+    };
+    return stub as unknown as Animation;
+  };
+}
