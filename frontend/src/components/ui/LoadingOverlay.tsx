@@ -16,36 +16,44 @@ export function LoadingOverlay({ stages, activeStage }: LoadingOverlayProps) {
     <div
       role="status"
       aria-live="polite"
-      className="bg-void fixed inset-0 z-50 flex flex-col items-center justify-center gap-8"
+      className="bg-void fixed inset-0 z-50 flex flex-col items-center justify-center gap-10 px-6"
     >
-      <div className="border-hairline-strong relative h-10 w-10 overflow-hidden rounded-full border">
-        <div className="motion-safe:animate-[spin_1.4s_linear_infinite] absolute inset-0">
-          <div className="bg-accent absolute top-0 left-1/2 h-1/2 w-[2px] -translate-x-1/2 opacity-90" />
+      <div className="flex flex-col items-center gap-4">
+        <p className="text-ink text-[11px] font-semibold tracking-[0.34em] uppercase">Initializing AQUASHIELD</p>
+        {/* Indeterminate sweep — a moving band on a fixed track, never a
+            percentage-width bar, because there is no measured progress. */}
+        <div className="border-hairline bg-abyss-2 relative h-[3px] w-56 overflow-hidden rounded-full border">
+          <span
+            aria-hidden="true"
+            className="bg-accent absolute inset-y-0 w-1/3 motion-safe:animate-[loading-sweep_1.3s_ease-in-out_infinite]"
+          />
         </div>
       </div>
 
-      <div className="flex flex-col items-center gap-3">
-        <p className="text-ink text-xs font-semibold tracking-[0.3em] uppercase">Initializing AQUASHIELD</p>
-        <ul className="flex flex-col gap-1.5">
-          {stages.map((stage, index) => {
-            const isDone = activeStage !== undefined && index < activeStage;
-            const isActive = index === activeStage;
-            return (
-              <li
-                key={stage}
-                className={`flex items-center gap-2 text-[11px] tracking-[0.08em] uppercase ${
-                  isDone ? "text-status-ok" : isActive ? "text-accent-strong" : "text-ink-faint"
+      <ul className="flex flex-col gap-2">
+        {stages.map((stage, index) => {
+          const isDone = activeStage !== undefined && index < activeStage;
+          const isActive = index === activeStage;
+          return (
+            <li
+              key={stage}
+              className={`flex items-center gap-2.5 text-[11px] tracking-[0.12em] uppercase ${
+                isDone ? "text-status-ok" : isActive ? "text-accent-strong" : "text-ink-faint"
+              }`}
+            >
+              <span
+                aria-hidden="true"
+                className={`h-1 w-1 rounded-full ${
+                  isDone ? "bg-status-ok" : isActive ? "bg-accent-strong" : "bg-ink-faint"
                 }`}
-              >
-                <span aria-hidden="true" className="font-mono">
-                  {isDone ? "✓" : "·"}
-                </span>
-                {stage}
-              </li>
-            );
-          })}
-        </ul>
-      </div>
+              />
+              {stage}
+            </li>
+          );
+        })}
+      </ul>
+
+      <style>{`@keyframes loading-sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }`}</style>
     </div>
   );
 }

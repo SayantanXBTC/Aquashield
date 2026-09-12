@@ -37,8 +37,13 @@ class ScenarioValidationError(ScenarioServiceError):
 
 
 class ScenarioService:
-    def __init__(self, session: Session) -> None:
+    """Every method is scoped to `owner_uid` — the verified Firebase uid
+    (app/core/auth.py). A scenario belonging to another user is treated
+    exactly like a missing one (ScenarioNotFoundError), never as a 403."""
+
+    def __init__(self, session: Session, *, owner_uid: str) -> None:
         self.session = session
+        self.owner_uid = owner_uid
         self.scenarios = ScenarioRepository(session)
         self.runs = SimulationRunRepository(session)
         # Only needed here for get_run_frame_count/get_default_run below —
@@ -58,7 +63,8 @@ class ScenarioService:
             location_name=data.location_name,
             location=latlon_to_point(data.latitude, data.longitude),
             status=ScenarioStatus.READY if ready else ScenarioStatus.DRAFT,
-            created_by=data.created_by,
+            created_by=data.created_by or self.owner_uid,
+            owner_uid=self.owner_uid,
         )
         self.scenarios.add(scenario)
 
@@ -74,7 +80,7 @@ class ScenarioService:
         return scenario
 
     def get_scenario(self, scenario_id: UUID) -> Scenario:
-        scenario = self.scenarios.get(scenario_id)
+        scenario = self.scenarios.get(scenario_id, owner_uid=self.owner_uid)
         if scenario is None:
             raise ScenarioNotFoundError(f"Scenario {scenario_id} not found")
         return scenario
@@ -92,6 +98,7 @@ class ScenarioService:
     ) -> tuple[list[Scenario], int]:
         try:
             return self.scenarios.list(
+                owner_uid=self.owner_uid,
                 disaster_type=disaster_type,
                 status=status,
                 search=search,
@@ -171,6 +178,7 @@ class ScenarioService:
             location=original.location,
             status=ScenarioStatus.DRAFT,
             created_by=original.created_by,
+            owner_uid=self.owner_uid,
         )
         self.scenarios.add(duplicate)
 

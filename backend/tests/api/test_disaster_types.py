@@ -26,10 +26,10 @@ def test_disaster_type_entries_report_real_resolved_model_identifier(client) -> 
     # The aliasing cases explicitly, so a fabricated per-type model id
     # (e.g. "storm-surge-demo-v1") would be caught even if the generic loop
     # above had a typo.
-    assert by_type["storm_surge"]["model_identifier"] == "cyclone-demo-v1"
-    assert by_type["chemical_pollution"]["model_identifier"] == "oil-spill-demo-v1"
-    assert by_type["flash_flood"]["model_identifier"] == "flood-demo-v1"
-    assert by_type["coastal_flood"]["model_identifier"] == "flood-demo-v1"
+    assert by_type["storm_surge"]["model_identifier"] == "cyclone-demo-v2"
+    assert by_type["chemical_pollution"]["model_identifier"] == "oil-spill-demo-v2"
+    assert by_type["flash_flood"]["model_identifier"] == "coastal-flood-demo-v2"
+    assert by_type["coastal_flood"]["model_identifier"] == "coastal-flood-demo-v2"
 
 
 @requires_postgres

@@ -49,6 +49,12 @@ class DisasterModel(ABC):
         current internal state — called immediately after `initialize()`/`step()`
         for the same `timestep`."""
 
+    def get_infrastructure_impacts(self, timestep: int) -> list[dict[str, Any]]:
+        """Per-structure exposure for the user-placed structures in
+        `config["structures"]` (simulation/core/structures.py). Default: none.
+        Called immediately after `get_state()` for the same timestep."""
+        return []
+
     def is_complete(self, timestep: int) -> bool:
         """Default: complete once the scenario's configured duration has
         elapsed. Override for a model with a genuine early-stop condition."""

@@ -352,7 +352,7 @@ export interface IncidentActionPlan {
 //
 // Discovery/documentation metadata for GET /disaster-types — additive, NOT
 // the Scenario Builder form's live data source (that stays
-// frontend/src/features/scenario-builder/disasterFieldSpecs.ts, mirrored by
+// the command center's preset registry (frontend/src/features/command-center/presets.ts), mirrored by
 // hand from the same backend truth per CLAUDE.md §25 — see
 // docs/development/scenarios.md).
 
@@ -500,4 +500,77 @@ export interface ImpactFrame {
   risk_assessment_id: string | null;
   is_demo_model: true;
   cached: boolean;
+}
+
+// --- Demo shoreline world propagation (Prompt 12) ---------------------------
+//
+// Common propagation parameters every disaster type accepts inside
+// `scenario_config` (backend/app/schemas/scenario_config.py PropagationConfig
+// is the validating mirror; simulation/core/propagation.py consumes them).
+// Coordinates are kilometres in the synthetic demo shoreline world
+// (shared/constants/demo_world.json) — never real-world lat/lon.
+
+export interface PropagationConfig {
+  origin_x_km?: number;
+  origin_y_km?: number;
+  /** Compass degrees: 0 = north (+y), 90 = east (+x). */
+  heading_deg?: number;
+  speed_kmh?: number;
+  /** 0-1. */
+  intensity?: number;
+  spread_radius_km?: number;
+  /** 0-1. */
+  dispersion_rate?: number;
+  duration_hours?: number;
+}
+
+export type HazardPhase = "offshore" | "landfall" | "inland";
+
+/** The disaster-agnostic keys every recorded frame's `hazard_state`
+ * carries (simulation/core/propagation.py FrontState.to_hazard_state). */
+export interface PropagationHazardState {
+  world: string;
+  origin_km: { x: number; y: number };
+  position_km: { x: number; y: number };
+  heading_deg: number;
+  speed_kmh: number;
+  intensity: number;
+  traveled_km: number;
+  coast_distance_total_km: number | null;
+  distance_to_coast_km: number | null;
+  arrival_progress: number;
+  arrived: boolean;
+  eta_minutes: number | null;
+  phase: HazardPhase;
+  radius_km: number;
+}
+
+// --- User-placed structures (Prompt 13) -------------------------------------
+// Validated by backend/app/schemas/scenario_config.py `StructureConfig`;
+// exposure assessed per frame by simulation/core/structures.py (mirrored in
+// frontend/src/propagation/structures.ts).
+
+export type StructureType = "building" | "hospital" | "port" | "power_plant" | "lighthouse" | "fuel_terminal";
+
+export interface StructureConfig {
+  id: string;
+  type: StructureType;
+  name: string;
+  /** Demo-world km. */
+  x_km: number;
+  y_km: number;
+  enabled: boolean;
+}
+
+export type StructureStatus = "clear" | "at_risk" | "impacted" | "severe";
+
+/** One entry of a frame's `infrastructure_impacts`. */
+export interface StructureImpact {
+  structure_id: string;
+  structure_type: StructureType;
+  name: string;
+  distance_km: number;
+  /** 0-1. */
+  exposure: number;
+  status: StructureStatus;
 }

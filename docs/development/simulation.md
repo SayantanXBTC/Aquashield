@@ -1,5 +1,40 @@
 # Simulation Engine — AQUASHIELD
 
+## Prompt 12 — Demo shoreline world (2026-09-12)
+
+> Current behaviour for tsunami / cyclone / oil_spill / flood (+ their reuse aliases). `search_rescue` keeps
+> its v1 model. Sections below describe the engine, which is unchanged.
+
+`simulation/core/propagation.py` defines the one world every v2 demo model runs in: a 300 km square,
+ocean west of `shore_x(y)` (base 196 km + three sine terms, constants in `shared/constants/demo_world.json`),
+land east. `PropagationParams.from_config` reads the common block (with per-model defaults for speed and
+spread), `distance_to_coast_along_heading` marches the heading line to the first land point (0.5 km steps +
+bisection), and `front_state(params, minutes, stop_at_coast)` advances the front and reports remaining
+distance, ETA, arrival, minutes since arrival. Every frame's `hazard_state` carries the disaster-agnostic keys
+(`world`, `origin_km`, `position_km`, `heading_deg`, `speed_kmh`, `intensity`, `traveled_km`,
+`coast_distance_total_km`, `distance_to_coast_km`, `arrival_progress`, `arrived`, `eta_minutes`, `phase`,
+`radius_km`) plus the model's own (`wave_height_m`/`front_radius_km`/`coastal_impact_m`/`inundation_km`;
+`wind_speed_kt`/`hazard_radius_km`/`wind_decay`; `slick_radius_km`/`slick_area_km2`/`concentration_index`/
+`beached`; `water_level_m`/`peak_level_m`/`inundation_km`). `affected_area` is `None` — there is no
+real-world geometry; the hazard-footprint/exposure endpoints report `partial`.
+
+Model identifiers: `tsunami-demo-v2`, `cyclone-demo-v2`, `oil-spill-demo-v2`, `coastal-flood-demo-v2`. Each
+model's `assumptions` list its illustrative constants (e.g. tsunami initial height 0.5 m + 9.5 m × intensity,
+35% decay over the approach, 30-minute run-up ramp; cyclone 35 kt + 125 kt × intensity with
+exp(−0.6·dispersion·hours inland) decay; oil radius → spread × (1 − exp(−(0.4 + 1.6·dispersion)·h)),
+concentration exp(−0.35·dispersion·h); flood peak 0.5 m + 5.5 m × intensity over a 60-minute smoothstep,
+receding as exp(−0.3·dispersion·h past peak)).
+
+**Structures.** `config["structures"]` (see scenarios.md) is assessed each frame by
+`simulation/core/structures.py` — `DisasterModel.get_infrastructure_impacts(timestep)` (default `[]`) is
+called by the engine right after `get_state` and lands in `SimulationState.infrastructure_impacts`. Rules
+per kind and status bands are documented in that module's docstring; `simulation/tests/test_structures.py`
+covers them.
+
+**Mirror discipline.** `frontend/src/propagation/` ports these formulas for the live preview. After any
+change here run `.venv/bin/python scripts/generate_propagation_fixtures.py` and update the TS side until
+`frontend/src/propagation/mirror.test.ts` passes.
+
 The deterministic, disaster-agnostic engine that turns a `ScenarioVersion` into a time-evolving
 `SimulationRun`. **This calculates WHAT IS HAPPENING — never WHAT HUMANS SHOULD DO.** Risk scoring, AI
 interpretation, and response planning are later phases (see "Future integration" below).

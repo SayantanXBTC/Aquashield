@@ -1,0 +1,38 @@
+import type { StructureConfig } from "@shared/types";
+import type { HazardSnapshot } from "@/propagation/hazards";
+import { StructureModel } from "./StructureModel";
+
+export interface StructureLayerProps {
+  structures: StructureConfig[];
+  visible: boolean;
+  getSnapshot: () => HazardSnapshot | null;
+  onDrag: (id: string, xKm: number, yKm: number) => void;
+  onDragEnd: () => void;
+  locked: boolean;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}
+
+/** Every enabled, user-placed structure (three/structures/StructureModel).
+ * Disabled structures are not rendered and not assessed. */
+export function StructureLayer({ structures, visible, getSnapshot, onDrag, onDragEnd, locked, selectedId, onSelect }: StructureLayerProps) {
+  if (!visible) return null;
+  return (
+    <group>
+      {structures
+        .filter((s) => s.enabled)
+        .map((s) => (
+          <StructureModel
+            key={s.id}
+            structure={s}
+            getSnapshot={getSnapshot}
+            onDrag={onDrag}
+            onDragEnd={onDragEnd}
+            locked={locked}
+            selected={s.id === selectedId}
+            onSelect={onSelect}
+          />
+        ))}
+    </group>
+  );
+}

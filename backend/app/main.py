@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.routes.auth import router as auth_router
 from app.api.routes.disaster_types import router as disaster_types_router
 from app.api.routes.geographic_features import router as geographic_features_router
 from app.api.routes.health import router as health_router
@@ -31,6 +32,15 @@ from app.services.simulation_service import (
 )
 
 app = FastAPI(title=settings.app_name)
+
+if settings.auth_dev_bypass_uid:
+    import logging
+
+    logging.getLogger("uvicorn.error").warning(
+        "AUTH_DEV_BYPASS_UID is set (%s): unauthenticated requests are treated as that user. "
+        "Local development only — never enable this in a deployed environment.",
+        settings.auth_dev_bypass_uid,
+    )
 
 # Local development only — production CORS must be restricted to the
 # deployed frontend origin(s), never allow_origins=["*"].
@@ -74,6 +84,7 @@ def handle_simulation_execution_failed(request: Request, exc: SimulationExecutio
 
 
 app.include_router(health_router)
+app.include_router(auth_router)
 app.include_router(websocket_router)
 app.include_router(scenarios_router)
 app.include_router(simulation_runs_router)

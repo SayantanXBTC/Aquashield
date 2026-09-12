@@ -1,58 +1,81 @@
 /**
  * AQUASHIELD design tokens — the single source of truth for color, radius,
- * shadow/glow, and motion timing. Tailwind v4 reads `@theme` and generates
+ * elevation, and motion timing. Tailwind v4 reads `@theme` and generates
  * utilities from it (e.g. `--color-accent` -> `bg-accent`/`text-accent`/
  * `border-accent`) — components should use those utilities or `var(--token)`
  * rather than hardcoding a hex value or a duration. See
  * docs/development/command-center.md "Design tokens" for the full rationale.
  *
- * Visual language: deep near-black blue, restrained cyan/aqua accent,
- * glass surfaces, thin borders, controlled glow — scientific/cinematic, not
- * neon cyberpunk. Every glow token below is intentionally low-alpha.
+ * Visual language (Prompt 11 revision): an emergency-operations console —
+ * flat, high-contrast instrument surfaces, hairline rules, tabular numerics,
+ * and ONE accent used for state rather than decoration.
+ *
+ * Prompt 12 amendment: the command-center HUD overlays (features/command-center/
+ * components/HudPanel.tsx, TopBar, PlaybackBar) are deliberately glassmorphic —
+ * a translucent blurred surface over the 3D world — because they float over a
+ * live scene rather than sit in a rail. The "no glow" rule still holds: their
+ * borders are hairlines and their shadows neutral.
+ *
+ * Two rules this file exists to enforce:
+ *  1. NO GLOW. Panels are separated by a 1px hairline and a soft, neutral
+ *     drop shadow — never a colored halo/`box-shadow` bloom around a border.
+ *     `--shadow-glow-accent` was deliberately deleted, not re-tuned.
+ *  2. Elevation is a fixed 3-step scale (`--shadow-panel`, `--shadow-raised`,
+ *     `--shadow-overlay`), so no component invents its own shadow value.
  */
 
 @theme {
-  /* --- Surfaces (deep blacks / near-black blue) --- */
-  --color-void: #030608;
-  --color-abyss: #070c12;
-  --color-abyss-2: #0b131c;
-  --color-surface: #0e1720;
-  --color-surface-raised: #121d29;
+  /* --- Surfaces (deep, slightly cool blacks) --- */
+  --color-void: #05080b;
+  --color-abyss: #080c11;
+  --color-abyss-2: #0b1118;
+  --color-surface: #0d141c;
+  --color-surface-raised: #131d27;
+  --color-surface-active: #1a2734;
 
-  /* --- Borders --- */
-  --color-hairline: #1b2733;
-  --color-hairline-strong: #2a3b4a;
+  /* --- Borders: hairline rules, never glowing outlines --- */
+  --color-hairline: #1a242f;
+  --color-hairline-strong: #27353f;
 
   /* --- Text (named "ink" so generated utilities stay clean: text-ink,
      text-ink-soft, text-ink-faint — "text-text-primary" would be a mouthful) --- */
-  --color-ink: #e7edf3;
-  --color-ink-soft: #92a4b5;
-  --color-ink-faint: #56656f;
+  --color-ink: #e8eef4;
+  --color-ink-soft: #9cb0c0;
+  --color-ink-faint: #63768a;
 
-  /* --- Accent (restrained cyan/aqua) --- */
-  --color-accent: #2bc8d4;
-  --color-accent-soft: #1a7d8a;
-  --color-accent-strong: #6be9f2;
+  /* --- Accent (single restrained cyan; used for state, not decoration) --- */
+  --color-accent: #22b8cf;
+  --color-accent-soft: #17707e;
+  --color-accent-strong: #5fd8e4;
 
-  /* --- Hazard / status (restrained, not neon) --- */
+  /* --- Hazard / status --- */
   --color-status-ok: #3fbf8a;
   --color-status-warning: #d99a3d;
-  --color-status-critical: #d9564d;
+  --color-status-critical: #e2564c;
   --color-status-offline: #4a5763;
 
-  /* --- Radii --- */
-  --radius-panel: 10px;
-  --radius-control: 6px;
+  /* --- Severity bands (ImpactPanel's documented UI bands — backend/app/
+     services/impact_severity.py — never an official hazard scale) --- */
+  --color-severity-low: #3fbf8a;
+  --color-severity-moderate: #d9b23d;
+  --color-severity-high: #e08a3c;
+  --color-severity-critical: #e2564c;
 
-  /* --- Shadow / glow (kept subtle — not everything glows) --- */
-  --shadow-panel: 0 8px 32px -12px rgb(0 0 0 / 0.6);
-  --shadow-glow-accent: 0 0 24px -6px rgb(43 200 212 / 0.35);
+  /* --- Radii: instrument-panel square-ish, not pill-soft --- */
+  --radius-panel: 4px;
+  --radius-control: 3px;
 
-  /* --- Font --- */
-  --font-display:
-    -apple-system, "Segoe UI", system-ui, sans-serif;
-  --font-ui: -apple-system, "Segoe UI", system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  /* --- Elevation: neutral drop shadows only. No colored bloom. --- */
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.5);
+  --shadow-raised: 0 4px 16px -6px rgb(0 0 0 / 0.7);
+  --shadow-overlay: 0 18px 48px -18px rgb(0 0 0 / 0.85);
+
+  /* --- Font: IBM Plex — industrial/technical, not the ubiquitous
+     geometric-grotesque UI default. Mono carries every numeric readout so
+     digits are tabular and a changing value never reflows its row. --- */
+  --font-display: "IBM Plex Sans", -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-ui: "IBM Plex Sans", -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Code", monospace;
 }
 
 :root {
@@ -61,8 +84,14 @@
      sync if either changes; these drive CSS transitions, presets.ts drives
      Anime.js-authored motion. */
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
-  --duration-fast: 180ms;
-  --duration-base: 320ms;
+  --duration-fast: 140ms;
+  --duration-base: 260ms;
+
+  /* Dense-dashboard spacing scale. Rails and panels reference these instead
+     of scattering one-off pixel values. */
+  --rail-width-left: 292px;
+  --rail-width-right: 340px;
+  --header-height: 52px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -72,6 +101,6 @@
 }
 
 ::selection {
-  background: color-mix(in oklab, var(--color-accent) 35%, transparent);
+  background: color-mix(in oklab, var(--color-accent) 32%, transparent);
   color: var(--color-ink);
 }

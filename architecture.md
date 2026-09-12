@@ -240,6 +240,44 @@ Frontend tests, Python tests, Playwright E2E testing
 
 **Consequences:** Every Python domain (backend, simulation, agents, rag) that touches the database depends on `sqlalchemy`, `alembic`, `geoalchemy2`, `psycopg` (added to the shared root `requirements.txt`, see ADR-002). A local PostgreSQL+PostGIS instance (via `infrastructure/docker-compose.yml`, or any equivalent) is now a development prerequisite for `backend/tests/db/*`, which skip cleanly (not silently substituted with SQLite) when it isn't reachable. See `docs/development/database.md` for full detail, including two documented GeoAlchemy2/Alembic interaction gotchas (duplicate spatial index creation, orphaned Postgres ENUM types on downgrade) and how they're handled.
 
+### ADR-004: Firebase Authentication with server-side PyJWT verification
+
+Decision: Firebase Authentication (Google + email/password + password reset) on the frontend via the
+Firebase JS SDK; the FastAPI backend verifies Firebase ID tokens itself with `PyJWT[crypto]` against
+Google's published x509 certs (`backend/app/core/auth.py`) and needs only `FIREBASE_PROJECT_ID`.
+Reason: user isolation has to be enforced server-side (every scenario/run row carries the verified
+`owner_uid`), and verifying RS256 tokens against Google's certs needs no service account and no
+`firebase-admin` (which drags the google-cloud dependency tree in for one function). No Firebase MCP
+server was available in the build environment; the SDK path is the supported one regardless.
+Alternatives: `firebase-admin` (heavier, needs credentials for anything beyond verification); a
+self-hosted auth (out of scope); trusting a client-sent uid (rejected — trivially spoofable).
+Consequences: `scenarios.owner_uid` is NOT NULL (migration `5b2f9c1d7e10`; existing scenario data was
+wiped first via `scripts/wipe_scenario_data.py`). A scenario owned by another user reads as 404, never 403.
+An explicit, env-gated local-development bypass exists on both sides (`AUTH_DEV_BYPASS_UID` /
+`VITE_AUTH_DEV_BYPASS`) and is ignored in production builds.
+
+### ADR-005: One synthetic shoreline world + a client-side propagation mirror
+
+Decision: every disaster type runs in the same synthetic 300 km "demo shoreline world" (ocean west of an
+analytic shoreline curve, land east — `shared/constants/demo_world.json`, `simulation/core/propagation.py`)
+with a common propagation parameter block (origin, heading, speed, intensity, spread radius, dispersion)
+inside `scenario_config`. The frontend carries a line-for-line TypeScript mirror
+(`frontend/src/propagation/`) of the world and of the four demo models' formulas, pinned by fixtures the
+Python side generates (`scripts/generate_propagation_fixtures.py` → `shared/fixtures/propagation_cases.json`
+→ `mirror.test.ts`).
+Reason: real-time interaction (drag the origin, move a slider, see the hazard trajectory change on the
+same frame) cannot round-trip through HTTP per frame, and creating a `SimulationRun` per slider tick would
+be absurd. The mirror gives instant feedback; the Python engine stays the authoritative record — "Record
+run" executes the same formulas server-side and the console can replay that recorded timeline read-only.
+Real-world lat/lon, Natural Earth coastlines, Esri imagery and infrastructure exposure were dropped from
+the console: they conflicted with the product decision to have no real-world place names or coordinates.
+Alternatives: server round-trips (too slow, DB spam); WebSocket streaming of a live server simulation
+(deferred by CLAUDE.md §26's synchronous-execution decision); dropping the backend models (would break
+the SIMULATE → VISUALIZE record and the determinism guarantee).
+Consequences: `simulation/` and `frontend/src/propagation/` must change together — the fixture test is the
+tripwire. The geospatial endpoints (`/hazard-footprints`, `/exposure`, `/impact`) still exist but report
+`partial`/zero exposure for demo-world runs (no real geometry), which their tests now assert.
+
 ## 14. Data Sources
 
 All external environmental/geospatial data providers are **PLANNED / TO BE DECIDED**. No data provider is selected or assumed at this stage.
@@ -289,7 +327,7 @@ Alternatives:
 Consequences:
 ```
 
-See ADR-001, ADR-002, and ADR-003 (Section 13) for the decisions recorded so far. Future major decisions (LLM provider, deployment infrastructure, additional disaster model integrations, large-scientific-data storage format) must be recorded here before being silently adopted.
+See ADR-001 through ADR-005 (Section 13) for the decisions recorded so far. Future major decisions (LLM provider, deployment infrastructure, additional disaster model integrations, large-scientific-data storage format) must be recorded here before being silently adopted.
 
 ## 18. Repository Architecture
 
@@ -744,3 +782,121 @@ stylized) and `HazardFootprintLayer` (real Polygon/Point geometry from `GET .../
 former is kept as the earlier prompts' "read clearly" visual language, the latter is what this phase's
 Data Layers/Impact panels actually reason about. No DEM/elevation/rasterio was introduced — terrain stays
 procedural, labeled as such everywhere it's shown. Full detail: docs/geospatial/impact-visualization.md.
+
+### 28e. Prompt 11 — Console redesign, real satellite basemap, water rewrite
+
+A visual/structural correction pass across the frontend. Three problems were addressed, each with a
+different kind of fix.
+
+**1. Layout was structurally broken, not just unstyled.** The Command Center's panels were absolutely
+positioned overlays inside the 3D viewport. Below a very wide window the left stack overflowed its own
+container and collided with the simulation panel, and the Data Layers buttons wrapped outside their card.
+`CommandCenterPage.tsx` is now an explicit three-column grid — a fixed-width left rail, the viewport, a
+fixed-width right rail — where each rail is an independently scrolling column with `min-h-0`. A long panel
+now scrolls inside its own rail and cannot overlap anything. Below `xl` the grid collapses to one column
+with a fixed-height viewport. Panels moved to a `flush` `CommandPanel` variant (no radius, no side borders)
+so a rail reads as one instrument stack rather than a pile of floating cards.
+
+Two panels were split out so neither column has to hold two unrelated questions at once:
+`HazardMetricsPanel.tsx` (what the current frame reports — the adapter's own label, timestep, radius, and
+the backend footprint's intensity/geometry) and the existing `ImpactPanel` (what that means for assets).
+`ViewportChrome.tsx` adds non-interactive corner annotation over the canvas: per-disaster colour keys, the
+exposure key, the real view extent, and data provenance. It is `pointer-events-none` as a whole so it can
+never intercept an orbit drag.
+
+**2. Design language.** Tokens were rebuilt around a flat emergency-operations console: IBM Plex Sans/Mono
+(tabular numerics on every readout), a 3-step neutral elevation scale, 3-4px radii, and hairline rules.
+`--shadow-glow-accent` was deleted rather than re-tuned — a coloured halo around a border is now a banned
+effect, and `LiquidMetalButton` was rebuilt as an unblurred machined rim instead of a blurred conic glow.
+A single inline SVG icon set (`components/ui/icons.tsx`, one grid, one stroke width) replaced ad-hoc glyphs
+and the one emoji that had reached the UI. New primitives: `Toggle` (a real `role="switch"`, which is what
+the Data Layers controls always were semantically), `MetricTile`, `SeverityBadge`, `LegendBar`.
+
+**3. The 3D world.** Three independent changes, in order of visual weight:
+
+- **Scene scale (`SCENE_UNITS_PER_KM` 0.12 → 1.1).** This was the root cause of "the disaster is a speck".
+  The old scale made the visible world ~2,300 km across, so a 20 km hazard footprint projected to 2.4 units
+  inside a 280-unit terrain plate. The plate is now 320 units ≈ 291 km — a regional view — and that same
+  footprint projects to 22 units. `geoProjection.ts` owns the constant, the plate size, and the derived
+  `SCENE_WORLD_SPAN_KM` so terrain and basemap cannot disagree about how much ground is on screen.
+- **Automatic framing (`CameraController`).** The camera previously sat at a fixed world position regardless
+  of where the hazard was. It now slews its orbit target onto the focal point and pulls to a distance that
+  fits the hazard radius at the current FOV. `SceneRoot` derives both (hazard centre when the model reports
+  one, else the scenario origin) — composition is decided in exactly one place, never by a visualizer. Any
+  manual orbit input cancels the slew permanently; `prefers-reduced-motion` applies it as an instant cut.
+- **Water (`shaders/water.ts`).** Rewritten from stacked sine displacement to six Gerstner components with
+  analytic normals, plus a real water shading model (Schlick fresnel over a sky-gradient reflection,
+  depth-tinted body colour, wrap lighting, forward scatter through crests, tight specular + noise-broken
+  glitter, steepness-driven foam, distance fade to the horizon). The plane went from 64 to 320 segments,
+  because Gerstner displacement is per-vertex and the old grid could not represent a crest. ACES tone
+  mapping was enabled on the canvas — the specular terms deliberately exceed 1.0 and were previously
+  clipping to flat white.
+
+**New: a real satellite basemap (`three/terrain/satelliteBasemap.ts`).** Esri World Imagery XYZ tiles
+(public, key-free, CORS-enabled) are stitched into one canvas covering exactly the terrain plate's ground
+footprint, centred on the scenario's real coordinates, and used as the plate's texture. This is the one
+place in `three/` that renders genuinely real-world data rather than synthetic geometry, and the boundary is
+drawn carefully:
+
+- Imagery is **not** elevation. The plate's *shape* stays procedural; no DEM is ingested, and
+  `GeographicContextPanel` still reports elevation as unavailable, because that remains true.
+- A land/water mask is derived from the imagery by a documented colour heuristic (open water is darker and
+  bluer) purely so the animated water surface meets the coastline visible in the picture instead of
+  contradicting it. It is a rendering convenience, is never analysed, and is never displayed as a
+  measurement. Exposure/hazard-footprint/impact remain server-side PostGIS results.
+- Failure is a first-class path: offline, blocked, CORS-refused or a partially-loaded grid all resolve to
+  `status: "unavailable"` and the plate falls back to the previous procedural vertex-colour terrain. The
+  real status is surfaced in the UI (Geographic Context "Satellite" row, viewport provenance line) — the app
+  never claims imagery it doesn't have. Attribution is a licence obligation and is always rendered.
+
+No Google Maps/SerpAPI dependency was introduced: that route needs a paid key and returns place *data*, not
+basemap tiles, so it could not have produced this view. No new npm dependency was added for any of the above.
+
+**Honesty corrections.** The `/explore` gateway had acquired fabricated telemetry — a fixed
+"CHENNAI_SECTOR_01" identifier, a hardcoded lat/lon, a "60_FPS_ACTV" readout, a "3D SENSOR GRID READY"
+status, and a claim of "hydrodynamic storm surge modeling". None of it was real. It was replaced with a
+statement of what the console actually contains (CLAUDE.md §12/§26/§27). The header's ANALYZE/RESPOND/REPORT
+modes are rendered as explicitly unavailable (`aria-disabled`, muted, "planned" tooltip) rather than as live
+tabs that would do nothing.
+
+## 29. Authenticated Interactive Console (Prompt 12)
+
+The console was rebuilt around three decisions: Firebase Authentication with per-user data isolation
+(ADR-004), one synthetic shoreline world with a client-side propagation mirror (ADR-005), and in-situ
+scenario creation (the standalone `/scenarios` builder route is gone; `/scenarios` redirects).
+
+```
+Landing ("/")  ->  Sign-in gateway ("/explore", Firebase)  ->  warp  ->  Command Center ("/command-center")
+                                                                              |
+      New test (name + generic preset)  ->  POST /scenarios (owner_uid = verified uid)
+                                                                              |
+      Inline HUD sliders / draggable origin pin  ->  PropagationParams (live)  ->  autosave as a new
+                                                                                    ScenarioVersion
+                                                                              |
+      LIVE PREVIEW: frontend/src/propagation (mirror) -> HazardSnapshot per frame -> three/hazard/hazardChannel
+                                                                              |
+      Record run: POST /scenarios/{id}/runs + /execute  ->  simulation/ (authoritative)  ->  REPLAY (read-only)
+```
+
+Frontend structure: `features/auth/` (provider, guard, token getter), `api/client.ts` (the one HTTP
+client, attaches the bearer token), `features/command-center/` (session hook, playback clock, HUD
+components, presets), `propagation/` (the mirror), `three/world/demoWorld.ts` (km ↔ scene + GLSL twin of
+the shoreline/terrain functions), `three/hazard/hazardChannel.ts` (visualizer → water-shader uniforms at
+frame rate, no React state), `three/markers/OriginPin.tsx` (drag on the y=0 plane, clamped to water).
+
+Watertight shoreline: the water fragment shader evaluates the same `terrainHeightKm` the terrain mesh was
+built from and discards itself wherever land is above the surface; swell amplitude is damped to zero over
+the last 25 km. A coastal flood / tsunami run-up extends the surface inland by the model's inundation
+reach, riding on that same terrain function.
+
+**Structures (Prompt 13).** `scenario_config.structures` (validated `StructureConfig`s in world km) are
+rendered by `three/structures/` and assessed every frame by `simulation/core/structures.py` (Python, fills
+`infrastructure_impacts`) and its mirror `frontend/src/propagation/structures.ts` (live preview) — the same
+fixture tripwire as the propagation mirror. Exposure is an illustrative 0-1 band per hazard kind (tsunami
+run-up sector, cyclone wind field, oil at the coast, flood inundation stretch), never a damage model.
+
+Backend: `app/core/auth.py`, `app/api/routes/auth.py` (`GET /auth/me`), owner scoping through
+`ScenarioRepository.get/list` → `ScenarioService(owner_uid)` → `SimulationService(owner_uid)` →
+`ImpactService(owner_uid)`; `PropagationConfig` in `app/schemas/scenario_config.py`; the four demo models
+rewritten on `simulation/core/propagation.py` (`*-demo-v2` identifiers). `search_rescue` keeps its v1
+model (no shoreline visual, not offered as a preset).

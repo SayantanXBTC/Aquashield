@@ -39,6 +39,19 @@ class Settings(BaseSettings):
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
+    # --- Auth (Firebase Authentication) ---
+    # The Firebase project whose ID tokens this API accepts. Verification is
+    # RS256 against Google's published certs (app/core/auth.py); no service
+    # account is needed. Unset => every protected route answers 503 with an
+    # explicit "auth not configured" message rather than silently allowing
+    # anonymous access.
+    firebase_project_id: str | None = Field(default=None, validation_alias="FIREBASE_PROJECT_ID")
+    # LOCAL DEVELOPMENT ONLY. When set, a request WITHOUT a bearer token is
+    # treated as this uid so the console can be exercised before a Firebase
+    # project exists. Requests that do carry a token are still verified.
+    # Never set this in any deployed environment.
+    auth_dev_bypass_uid: str | None = Field(default=None, validation_alias="AUTH_DEV_BYPASS_UID")
+
     # --- Simulation artifacts ---
     # Where SimulationService writes prototype JSON timeline artifacts.
     # Defaults to the gitignored simulation/outputs/ directory (architecture.md

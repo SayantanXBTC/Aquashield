@@ -1,122 +1,183 @@
-import { useMemo } from "react";
-import { toVisualState } from "@/three/adapters/simulationVisualAdapter";
-import { CommandCenterHeader } from "./components/CommandCenterHeader";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { motion } from "framer-motion";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { CommandCenterViewport } from "./components/CommandCenterViewport";
-import { DataLayersPanel } from "./components/DataLayersPanel";
-import { GeographicContextPanel } from "./components/GeographicContextPanel";
-import { ImpactPanel } from "./components/ImpactPanel";
-import { ScenarioContextPanel } from "./components/ScenarioContextPanel";
-import { SimulationStatusPanel } from "./components/SimulationStatusPanel";
-import { useCommandCenterSession } from "./hooks/useCommandCenterSession";
-import { useDataLayers } from "./hooks/useDataLayers";
-import type { SimulationState } from "./types";
+import { NewTestModal } from "./components/NewTestModal";
+import { ParameterPanel } from "./components/ParameterPanel";
+import { PlaybackBar } from "./components/PlaybackBar";
+import { RunsPanel } from "./components/RunsPanel";
+import { ScenarioTray } from "./components/ScenarioTray";
+import { StructuresPanel } from "./components/StructuresPanel";
+import { TelemetryPanel } from "./components/TelemetryPanel";
+import { TopBar } from "./components/TopBar";
+import { useScenarioSession } from "./hooks/useScenarioSession";
+import { usePlaybackClock } from "./playback/usePlaybackClock";
+
+const RECORDED_TIMESTEP_MINUTES = 15;
 
 /**
- * The AQUASHIELD command center — the real 3D-dominant application shell
- * Prompt 8 establishes. Command panels float as overlays on the viewport
- * rather than splitting it into a sidebar/content grid (Prompt 8 "Panels
- * should feel like overlays on a command environment").
+ * The AQUASHIELD command center — one full-bleed 3D shoreline world with
+ * glass HUD overlays: tests tray + parameters on the left, telemetry +
+ * recorded runs on the right, transport along the bottom. Arriving via the
+ * post-login warp plays the camera entrance and reveals the HUD only once
+ * the camera has landed.
  */
 export function CommandCenterPage() {
-  const session = useCommandCenterSession();
+  const clock = usePlaybackClock();
+  const session = useScenarioSession(clock);
+  const location = useLocation();
+  const reducedMotion = usePrefersReducedMotion();
+  const [entrance] = useState(() => (location.state as { entrance?: string } | null)?.entrance === "warp" && !reducedMotion);
+  const [hudVisible, setHudVisible] = useState(!entrance);
+  const [hudOpen, setHudOpen] = useState(true);
+  const [newTestOpen, setNewTestOpen] = useState(false);
+  const [selectedStructureId, setSelectedStructureId] = useState<string | null>(null);
 
-  const currentFrameLabel = useMemo(() => {
-    if (!session.currentFrame) return null;
-    return toVisualState(session.currentFrame.state as unknown as SimulationState).label;
-  }, [session.currentFrame]);
+  // Clear the router state so a reload doesn't replay the entrance.
+  useEffect(() => {
+    if (entrance) window.history.replaceState({}, "");
+  }, [entrance]);
 
-  const runCompleted = session.runDetail?.status === "completed";
-  const scenarioLatitude = session.scenarioDetail?.latitude ?? null;
-  const scenarioLongitude = session.scenarioDetail?.longitude ?? null;
-  // Stable object identity across renders (keyed on the primitive values, not
-  // scenarioDetail itself) so useDataLayers's coastline-fetch effect can
-  // safely depend on the object without an eslint-disable or a re-fetch loop.
-  const scenarioLocation = useMemo(
-    () => (scenarioLatitude != null && scenarioLongitude != null ? { latitude: scenarioLatitude, longitude: scenarioLongitude } : null),
-    [scenarioLatitude, scenarioLongitude],
+  // Dev aid: `?t=<minutes>` seeks the clock once a test is loaded, so a
+  // headless screenshot can capture a specific moment. Dev builds only.
+  useEffect(() => {
+    if (!import.meta.env.DEV || !session.params) return;
+    const t = Number(new URLSearchParams(window.location.search).get("t"));
+    if (Number.isFinite(t) && t > 0) clock.seek(t);
+  }, [clock, session.params]);
+
+  const replaying = session.replayRunId !== null;
+  const originKm = useMemo<[number, number]>(
+    () => (session.params ? [session.params.originXKm, session.params.originYKm] : [70, 150]),
+    [session.params],
   );
-  const dataLayers = useDataLayers({
-    runId: session.runDetail?.id ?? null,
-    runCompleted,
-    frameIndex: session.frameIndex,
-    scenarioLocation,
-  });
+
+  const handleOriginDrag = useCallback((x: number, y: number) => session.setParams({ originXKm: x, originYKm: y }), [session]);
+  const handleOriginDragEnd = useCallback(() => session.commitParams(), [session]);
+  const handleEntranceComplete = useCallback(() => setHudVisible(true), []);
+  const handleStructureDrag = useCallback((id: string, x: number, y: number) => session.moveStructure(id, x, y), [session]);
+  const handleStructureDragEnd = useCallback(() => session.commitStructures(), [session]);
+  const handleStructureSelect = useCallback((id: string | null) => setSelectedStructureId(id), []);
+
+  const replayMarkers = useMemo(
+    () => session.replayFrames.filter((f) => f.is_key_event && f.timestep > 0).map((f) => f.timestep * RECORDED_TIMESTEP_MINUTES),
+    [session.replayFrames],
+  );
+
+  const hudMotion = {
+    // Only animate the reveal when arriving via the warp; otherwise the HUD
+    // is simply there (no first-paint flash, nothing to wait on).
+    initial: entrance ? { opacity: 0, y: 8 } : false,
+    animate: hudVisible ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 },
+    transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] as const },
+  };
 
   return (
-    <div className="bg-void flex h-screen w-screen flex-col overflow-hidden">
-      <CommandCenterHeader scenario={session.scenarioDetail} runStatus={session.runDetail?.status} />
+    <div className="bg-void relative h-screen w-screen overflow-hidden">
+      <CommandCenterViewport
+        kind={session.kind}
+        originKm={originKm}
+        headingDeg={session.params?.headingDeg ?? 90}
+        coastDistanceKm={session.coastDistanceKm}
+        getSnapshot={session.getSnapshot}
+        onOriginDrag={handleOriginDrag}
+        onOriginDragEnd={handleOriginDragEnd}
+        originLocked={replaying || !session.params}
+        entrance={entrance}
+        onEntranceComplete={handleEntranceComplete}
+        structures={{
+          structures: session.structures,
+          visible: session.showStructures,
+          onDrag: handleStructureDrag,
+          onDragEnd: handleStructureDragEnd,
+          locked: replaying || !session.params,
+          selectedId: selectedStructureId,
+          onSelect: handleStructureSelect,
+        }}
+      />
 
-      <div className="relative flex-1">
-        <div className="absolute inset-0">
-          <CommandCenterViewport
-            scenario={session.scenarioDetail}
-            currentFrame={session.currentFrame}
-            dataLayers={{
-              enabled: dataLayers.enabled,
-              hazardFootprint: dataLayers.hazardFootprint,
-              exposureResults: dataLayers.exposureResults,
-              coastlineFeatures: dataLayers.coastlineFeatures,
-            }}
-          />
-        </div>
+      {/* HUD layer — pointer-events pass through to the canvas except on the panels themselves. */}
+      <motion.div {...hudMotion} className="pointer-events-none absolute inset-0 flex flex-col gap-3 p-3">
+        <TopBar scenario={session.scenario} saveStatus={session.saveStatus} replaying={replaying} />
 
-        <div className="pointer-events-none absolute inset-0 flex flex-col justify-between gap-3 p-3 md:p-4">
-          <div className="pointer-events-auto flex max-h-full w-full flex-col gap-3 overflow-y-auto md:w-80">
-            <ScenarioContextPanel
+        <div className="relative z-10 flex min-h-0 flex-1 gap-3">
+          <div className={`flex w-[300px] shrink-0 flex-col gap-3 overflow-y-auto ${hudOpen ? "" : "hidden"}`}>
+            <ScenarioTray
               scenarios={session.scenarios}
-              scenariosStatus={session.scenariosStatus}
-              scenariosError={session.scenariosError}
-              selectedScenarioId={session.selectedScenarioId}
-              onSelectScenario={session.setSelectedScenarioId}
-              scenario={session.scenarioDetail}
-              scenarioStatus={session.scenarioStatus}
-              scenarioError={session.scenarioError}
+              status={session.scenariosStatus}
+              error={session.scenariosError}
+              selectedId={session.selectedScenarioId}
+              onSelect={session.setSelectedScenarioId}
+              onNew={() => setNewTestOpen(true)}
+              onArchive={(id) => void session.archiveTest(id)}
+              onRetry={() => void session.reloadScenarios()}
             />
-            <DataLayersPanel
-              enabled={dataLayers.enabled}
-              onToggle={dataLayers.toggleLayer}
-              hazardFootprint={dataLayers.hazardFootprint}
-              exposureResults={dataLayers.exposureResults}
-              infrastructureCount={dataLayers.infrastructureCount}
-              coastlineFeatureCount={dataLayers.coastlineFeatures.length}
-              dataQuality={dataLayers.dataQuality}
-              hasRun={runCompleted}
-            />
-            <ImpactPanel impact={dataLayers.impact} hasRun={runCompleted} />
-            <GeographicContextPanel
-              scenarioLocation={scenarioLocation}
-              coastlineFeatures={dataLayers.coastlineFeatures}
-              infrastructureCount={dataLayers.infrastructureCount}
+            <ParameterPanel
+              kind={session.kind}
+              params={session.params}
+              durationHours={session.durationHours}
+              coastDistanceKm={session.coastDistanceKm}
+              locked={replaying}
+              onChange={session.setParams}
+              onCommit={session.commitParams}
+              onDurationChange={session.setDurationHours}
             />
           </div>
 
-          <div className="pointer-events-auto w-full md:ml-auto md:w-96">
-            <SimulationStatusPanel
-              runs={session.runs}
-              selectedRunId={session.selectedRunId}
-              onSelectRun={session.setSelectedRunId}
-              runDetail={session.runDetail}
-              runStatus={session.runStatus}
-              runError={session.runError}
-              executing={session.executing}
-              onExecute={() => void session.executeRun()}
-              creatingRun={session.creatingRun}
-              onCreateRun={() => void session.createRun()}
-              hasRuns={session.runs.length > 0}
-              frames={session.frames}
-              timelineStatus={session.timelineStatus}
-              timelineError={session.timelineError}
-              frameIndex={session.frameIndex}
-              onFrameIndexChange={session.setFrameIndex}
-              currentFrameLabel={currentFrameLabel}
-              isPlaying={session.isPlaying}
-              onTogglePlay={session.togglePlay}
-              playbackSpeed={session.playbackSpeed}
-              onPlaybackSpeedChange={session.setPlaybackSpeed}
+          <div className="flex min-w-0 flex-1 flex-col justify-end">
+            <div className="pointer-events-auto mb-1 self-start">
+              <button
+                type="button"
+                onClick={() => setHudOpen((v) => !v)}
+                aria-label={hudOpen ? "Hide side panels" : "Show side panels"}
+                className="text-ink-soft hover:text-ink flex h-8 w-8 cursor-pointer items-center justify-center rounded-[6px] border border-white/[0.07] bg-[rgba(9,14,20,0.66)] backdrop-blur-xl"
+              >
+                {hudOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+              </button>
+            </div>
+            <div className="mx-auto w-full max-w-2xl">
+              <PlaybackBar clock={clock} disabled={!session.params} markers={replayMarkers} />
+            </div>
+          </div>
+
+          <div className={`flex w-[320px] shrink-0 flex-col gap-3 overflow-y-auto ${hudOpen ? "" : "hidden"}`}>
+            <TelemetryPanel kind={session.kind} clock={clock} getSnapshot={session.getSnapshot} />
+            <StructuresPanel
+              structures={session.structures}
+              visible={session.showStructures}
+              onVisibleChange={session.setShowStructures}
+              selectedId={selectedStructureId}
+              onSelect={handleStructureSelect}
+              onAdd={(type) => setSelectedStructureId(session.addStructure(type).id)}
+              onRemove={session.removeStructure}
+              onToggle={session.toggleStructure}
+              onRename={session.renameStructure}
+              getSnapshot={session.getSnapshot}
+              locked={replaying || !session.params}
             />
+            <RunsPanel
+              runs={session.runs}
+              recording={session.recording}
+              error={session.runError}
+              replayRunId={session.replayRunId}
+              replayStatus={session.replayStatus}
+              canRecord={Boolean(session.params)}
+              onRecord={() => void session.recordRun()}
+              onReplay={session.setReplayRunId}
+              onExitReplay={session.exitReplay}
+            />
+            {session.scenarioStatus === "error" && session.scenarioError ? (
+              <p role="alert" className="text-status-critical pointer-events-auto rounded-[8px] border border-status-critical/40 bg-[rgba(9,14,20,0.8)] px-3 py-2 text-[11px] backdrop-blur-xl">
+                {session.scenarioError}
+              </p>
+            ) : null}
           </div>
         </div>
-      </div>
+      </motion.div>
+
+      <NewTestModal open={newTestOpen} busy={session.creating} onClose={() => setNewTestOpen(false)} onCreate={async (name, preset) => void (await session.createTest(name, preset))} />
     </div>
   );
 }

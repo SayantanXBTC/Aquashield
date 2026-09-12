@@ -1,5 +1,28 @@
 # Scenario System — AQUASHIELD
 
+## Prompt 12 — User-owned tests, in-situ creation, propagation parameters (2026-09-12)
+
+> Current behaviour; the sections below describe the original builder and are kept as history.
+
+- Every scenario belongs to the signed-in Firebase user: `scenarios.owner_uid` (NOT NULL, indexed) is set
+  from the verified token's `sub` by `ScenarioService(owner_uid=...)`; `ScenarioRepository.get/list` filter
+  on it; another user's scenario is a 404. Simulation runs inherit ownership through
+  `run.scenario_version.scenario.owner_uid` (`SimulationService(owner_uid=...)`).
+- Creation is inline in the command center (`NewTestModal`: a name + one of the generic presets in
+  `features/command-center/presets.ts` — Demo Oil Spill / Demo Tsunami / Demo Cyclone / Demo Coastal Flood).
+  No location fields exist in the UI; `location_name/latitude/longitude` remain optional API fields nothing
+  sends. The seed no longer creates scenarios.
+- `scenario_config` gains the common `PropagationConfig` block (validated for every type):
+  `origin_x_km`, `origin_y_km` (0–300), `heading_deg` (0–360, compass), `speed_kmh` (>0, ≤2000), `intensity`
+  (0–1), `spread_radius_km` (0–150), `dispersion_rate` (0–1). Any of these counts as "populated" for the
+  READY status. Disaster-specific fields (magnitude, oil_type, …) still validate and are carried through but
+  the v2 demo models only read the propagation block.
+- `scenario_config.structures` (Prompt 13): up to 50 `{id, type, name, x_km, y_km, enabled}` entries
+  (`type` ∈ building/hospital/port/power_plant/lighthouse/fuel_terminal). Placed and toggled inline; a
+  disabled structure is kept but neither drawn nor assessed. Saved with every parameter version.
+- Inline edits autosave as new immutable `ScenarioVersion`s (label "Inline parameter edit") — the versioning
+  rule is unchanged; expect many versions per test.
+
 The first functional vertical slice: create, persist, version, modify, duplicate, inspect, and prepare a
 disaster scenario for a future simulation engine. **No physics, AI, or RAG runs here** — a SimulationRun
 created by this system is metadata only (see §"Simulation runs" below).

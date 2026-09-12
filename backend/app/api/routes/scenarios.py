@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.core.auth import CurrentUser
 from app.db.geo import point_to_latlon
 from app.db.models.enums import DisasterType, ScenarioStatus, SimulationStatus
 from app.db.models.scenario import Scenario
@@ -26,8 +27,11 @@ from app.services.scenario_service import ScenarioService
 router = APIRouter(prefix="/scenarios", tags=["scenarios"])
 
 
-def get_scenario_service(db: Annotated[Session, Depends(get_db)]) -> ScenarioService:
-    return ScenarioService(db)
+def get_scenario_service(db: Annotated[Session, Depends(get_db)], user: CurrentUser) -> ScenarioService:
+    """Every scenario route is authenticated and scoped to the caller —
+    the dependency itself carries the verified uid into the service, so no
+    route can forget to pass it."""
+    return ScenarioService(db, owner_uid=user.uid)
 
 
 ScenarioServiceDep = Annotated[ScenarioService, Depends(get_scenario_service)]

@@ -54,14 +54,22 @@ def _now() -> datetime:
 
 
 class SimulationService:
-    def __init__(self, session: Session) -> None:
+    """`owner_uid` (the verified Firebase uid, app/core/auth.py) scopes every
+    lookup: a run whose scenario belongs to another user is reported as not
+    found, never as forbidden. `owner_uid=None` is for internal callers
+    (services composing this one after they have already authorised)."""
+
+    def __init__(self, session: Session, *, owner_uid: str | None = None) -> None:
         self.session = session
+        self.owner_uid = owner_uid
         self.runs = SimulationRunRepository(session)
         self.artifacts = SimulationArtifactRepository(session)
 
     def get_run(self, run_id: UUID) -> SimulationRun:
         run = self.runs.get(run_id)
         if run is None:
+            raise SimulationRunNotFoundError(f"SimulationRun {run_id} not found")
+        if self.owner_uid is not None and run.scenario_version.scenario.owner_uid != self.owner_uid:
             raise SimulationRunNotFoundError(f"SimulationRun {run_id} not found")
         return run
 

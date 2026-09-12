@@ -619,6 +619,8 @@ Full detail (verification results, pinned-version constraints): architecture.md 
 | Rasterio | PLANNED |
 | Simulation Engine — `simulation/core` + 5 demo disaster models + execution API | BOOTSTRAPPED (Prompt 7 — deterministic, synchronous, JSON artifact only; see docs/development/simulation.md) |
 | AAA 3D Command Center + cinematic landing | BOOTSTRAPPED (Prompt 8 — landing/explore/command-center routing, full Three.js scene graph, real Prompt 7 integration; see docs/development/command-center.md) |
+| Auth — Firebase Authentication + PyJWT verification | BOOTSTRAPPED (Prompt 12 — per-user scenario isolation via `scenarios.owner_uid`; operator supplies the Firebase project config; see docs/development/setup.md) |
+| Demo shoreline world + client-side propagation mirror | BOOTSTRAPPED (Prompt 12 — `simulation/core/propagation.py` ↔ `frontend/src/propagation/`, fixture-pinned; architecture.md ADR-005) |
 
 "Dependency foundation only" means the package is installed and import-verified, with no AQUASHIELD logic
 built on it — do not treat its presence in `node_modules`/the venv as a green light to start implementing the
@@ -662,9 +664,19 @@ Full detail: docs/development/scenarios.md. Architecture: architecture.md §26.
   timestep results, or risk output — the simulation engine doesn't exist yet.
 - Client-side form validation (`frontend/src/features/scenario-builder/validation.ts`) is a UX convenience
   only — the server is always authoritative; don't skip a server-side check because the client already has one.
-- Adding a disaster-specific config field: update both `backend/app/schemas/scenario_config.py` (validation)
-  and `frontend/src/features/scenario-builder/disasterFieldSpecs.ts` (form rendering) — they're intentionally
-  parallel registries, not generated from each other.
+- Scenario creation happens inside the command center (`features/command-center/components/NewTestModal.tsx`
+  + `presets.ts`) — there is no standalone builder route. Presets are generic demo disasters only: never add a
+  real-world place name or coordinate to a preset, the scenario form, or a scene label.
+- Every scenario/run row is scoped to the verified Firebase uid (`scenarios.owner_uid`, `app/core/auth.py`).
+  Never accept an owner from a request body, never list across owners, and report another user's row as 404
+  (not 403). New endpoints touching scenarios/runs must depend on `CurrentUser` and go through a service
+  constructed with `owner_uid`.
+- Adding a common propagation field: update `PropagationConfig` (`backend/app/schemas/scenario_config.py`),
+  `simulation/core/propagation.py`, `frontend/src/propagation/kinematics.ts`, and regenerate the fixtures.
+- Structures (`scenario_config.structures`) are assessed by `simulation/core/structures.py` and mirrored in
+  `frontend/src/propagation/structures.ts`; a new structure type is added to `STRUCTURE_TYPES` (both
+  schema and core), `shared/types` `StructureType`, `STRUCTURE_LABELS`, and `three/structures/models`.
+  Exposure bands are illustrative — never present them as damage or casualty estimates.
 
 ## 26. Simulation Engine Rules
 
@@ -691,18 +703,27 @@ Full detail: docs/development/simulation.md. Architecture: architecture.md §27.
 - Execution is currently synchronous (`POST /simulation-runs/{run_id}/execute` blocks until done) — a
   deliberate, documented prototype choice (Prompt 7 §26), not an oversight. Don't introduce Celery/Redis/a
   job queue without an explicit instruction to do so.
+- The demo shoreline world (`simulation/core/propagation.py`, `shared/constants/demo_world.json`) is mirrored
+  line-for-line in `frontend/src/propagation/` for the live preview. Any change to a shoreline constant, the
+  kinematics, or a demo model's formula must be made on both sides and followed by
+  `.venv/bin/python scripts/generate_propagation_fixtures.py`; `frontend/src/propagation/mirror.test.ts` is
+  the tripwire. The Python engine remains the authoritative record ("Record run"); the mirror is a preview.
 
 ## 27. AAA 3D Command Center & Landing Rules
 
 Full detail: docs/development/command-center.md. Architecture: architecture.md §28.
 
-- `three/adapters/simulationVisualAdapter.ts` is the only place a `SimulationState`/`hazard_state` is
-  interpreted for rendering. A disaster visualizer (`three/disasters/<type>/`) never reads backend field
-  names directly — it only ever receives a `SimulationVisualState`. A backend field rename should only
-  ever require editing the adapter, not every visualizer.
-- `SceneRoot` resolves each disaster's visualizer through `three/disasters/registry.ts`'s lookup only —
-  never an if/else chain, mirroring `simulation/core/registry.py`'s server-side pattern (including the
-  same disaster-type reuse decisions).
+- `frontend/src/propagation/hazards.ts` is the only place a hazard's numbers are produced for rendering —
+  `computeHazard` (live mirror) and `snapshotFromRecordedFrame` (a recorded frame's `hazard_state`) both
+  yield the same `HazardSnapshot`. A disaster visualizer (`three/disasters/<kind>/`) never reads backend
+  field names directly and never computes physics; it turns a snapshot into meshes/uniforms via
+  `three/hazard/hazardChannel.ts` inside `useFrame`.
+- `SceneRoot` resolves each hazard kind's visualizer through `three/disasters/registry.ts`'s lookup only —
+  never an if/else chain, mirroring `simulation/core/registry.py`'s server-side pattern; disaster-type →
+  kind reuse decisions live in `hazardKindFor`.
+- The shoreline is watertight by construction: the water fragment shader evaluates the same
+  `terrainHeightKm` (`three/world/demoWorld.ts`, JS + GLSL twins) the terrain mesh is built from. Never
+  change one twin without the other, and never add a second water or terrain mesh.
 - Every visual quantity that isn't a direct simulation field (e.g. a tsunami's visual impact radius) is a
   documented, fixed rendering convenience — never an invented physical formula. Say so in a comment where
   it's computed.

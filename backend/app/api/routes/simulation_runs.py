@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.core.auth import CurrentUser
 from app.db.models.simulation_run import SimulationRun
 from app.db.session import get_db
 from app.schemas.geospatial import (
@@ -27,8 +28,8 @@ from app.services.simulation_service import SimulationService
 router = APIRouter(prefix="/simulation-runs", tags=["simulation"])
 
 
-def get_simulation_service(db: Annotated[Session, Depends(get_db)]) -> SimulationService:
-    return SimulationService(db)
+def get_simulation_service(db: Annotated[Session, Depends(get_db)], user: CurrentUser) -> SimulationService:
+    return SimulationService(db, owner_uid=user.uid)
 
 
 def get_hazard_footprint_service(
@@ -37,8 +38,8 @@ def get_hazard_footprint_service(
     return HazardFootprintService(simulation_service)
 
 
-def get_impact_service(db: Annotated[Session, Depends(get_db)]) -> ImpactService:
-    return ImpactService(db)
+def get_impact_service(db: Annotated[Session, Depends(get_db)], user: CurrentUser) -> ImpactService:
+    return ImpactService(db, owner_uid=user.uid)
 
 
 SimulationServiceDep = Annotated[SimulationService, Depends(get_simulation_service)]

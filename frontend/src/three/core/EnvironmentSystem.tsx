@@ -1,28 +1,31 @@
 import { Sky } from "@react-three/drei";
+import { useDiagnostics } from "../diagnostics/diagnosticStore";
 
 /**
- * Atmosphere without a network-fetched HDRI: drei's `Sky` is a procedural
- * Preetham sky dome (geometry + shader, no texture download), tuned low and
- * desaturated for a moody dusk horizon rather than a colorful sunset — this
- * is what gives the scene an actual horizon line and sense of scale instead
- * of a flat black void (Prompt 8.1 "Camera": "visible horizon/depth").
- * `fogExp2` still fades distant water/terrain into that horizon color so
- * the two blend instead of the sky dome clipping in behind hard-edged
- * geometry. Entirely synthetic atmosphere — not a claim about real weather
- * or lighting conditions at any location.
+ * VISUAL DEMONSTRATION ATMOSPHERE — entirely synthetic, and not a claim
+ * about real weather, visibility or lighting conditions at any location.
+ *
+ * drei's `Sky` is a procedural Preetham sky dome (geometry + shader, no
+ * texture download), tuned for a clear high-altitude daylight rather than a
+ * coloured sunset: a command centre needs the ground legible, and a heavy
+ * orange horizon fights every hazard colour in the scene. `fogExp2` fades
+ * distant water and terrain into the same horizon value the water shader
+ * fades to (`uHorizonColor`), so the plate's far edge and the sky dome meet
+ * instead of the geometry clipping in against it.
  */
 export function EnvironmentSystem() {
+  const { fogEnabled } = useDiagnostics();
   return (
     <>
       <Sky
-        distance={700}
-        sunPosition={[60, 6, -90]}
-        turbidity={9}
-        rayleigh={1.4}
-        mieCoefficient={0.006}
-        mieDirectionalG={0.85}
+        distance={2600}
+        sunPosition={[-48, 58, 30]}
+        turbidity={6}
+        rayleigh={3}
+        mieCoefficient={0.004}
+        mieDirectionalG={0.82}
       />
-      <fogExp2 attach="fog" args={["#0a1620", 0.0075]} />
+      {fogEnabled && <fogExp2 attach="fog" args={["#9fb6c6", 0.0006]} />}
     </>
   );
 }
