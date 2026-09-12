@@ -1,5 +1,38 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-12 — Structures actually fail when hit; Intelligence panel condensed
+
+**Added/Changed:**
+- `three/structures/collapse.ts` — failure now spans the `impacted` and `severe` bands (`IMPACTED_SHARE`
+  0.72) with a front-loaded ramp, short overlapping piece delays and a crumble (pieces lose height as they
+  go). Pieces topple downstream of the hazard's heading, in the model's own frame, instead of in random
+  directions. Stress/lean moved to the `at_risk` band.
+- `IntelligencePanel` rewritten for density: a three-number summary row (exposed / top priority / actions),
+  top-4 rows per section with an explicit "+n more" line, statements and prerequisites moved to tooltips,
+  and evidence ids, run metadata, uncertainties, validator notes and the full disclaimer moved into a
+  collapsed audit block.
+- Tests: `collapse.test.ts` pins the demo tsunami (~0.47) and cyclone (~0.66) exposure peaks to visible
+  failure, plus monotonicity; `IntelligencePanel.test.tsx` covers the summary row, the held-back count and
+  the id fallback. Frontend suite 48 passing.
+
+**Why:**
+- Buildings never collapsed. Failure started above `EXPOSURE_IMPACTED` (0.7), but demo hazards peak
+  mid-`impacted` — a tsunami around 0.47, a cyclone around 0.66 — so the ramp was unreachable in practice
+  and structures stood untouched inside the footprint, which reads as "the hazard missed".
+- The brief was a wall of prose in a 320 px rail. An operator scanning it needs the counts, the top
+  subjects and the proposed actions; evidence ids and prerequisites are what they check afterwards.
+
+**Files/Modules:**
+- `frontend/src/three/structures/{collapse.ts,collapse.test.ts,StructureModel.tsx}`
+- `frontend/src/features/command-center/components/{IntelligencePanel.tsx,IntelligencePanel.test.tsx}`
+- `architecture.md` §28a, `docs/development/command-center.md`, `CLAUDE.md` §27
+
+**Future Context:**
+- The exposure bands, not this module, decide what is drawn. If the propagation rules ever produce higher
+  exposures, retune `IMPACTED_SHARE` rather than adding a threshold here.
+- The panel's `MAX_ROWS` is the density dial. Raising it trades scanability for completeness; the audit
+  block already holds everything.
+
 ### 2026-09-12 — World scenery: instanced forest, ground-fitted structures, illustrative structural response
 
 **Added/Changed:**

@@ -382,9 +382,26 @@ settles into a debris field. `three/structures/collapse.ts` owns it, and three p
 2. **It is a pure function of the current exposure** — no accumulation. Scrub the timeline back and the
    structure stands up again, because that frame is one the hazard had not reached. A structure that stayed
    down would assert a permanent outcome the simulation never produced.
-3. **Only the `severe` band collapses.** The thresholds are imported from `propagation/structures.ts`, so
-   the picture and the reported status cannot disagree: lean from `at_risk`, failure inside `severe`, and an
-   oil slick never knocks anything down.
+3. **The exposure bands decide, not thresholds of its own.** They are imported from
+   `propagation/structures.ts`, so the picture and the reported status cannot disagree:
+
+   | Band | Drawn as |
+   |---|---|
+   | `clear` | untouched |
+   | `at_risk` | lean, and wind shake under a cyclone |
+   | `impacted` | pieces fail and crumble — up to `IMPACTED_SHARE` (0.72) of the ramp |
+   | `severe` | the structure comes down |
+
+   An oil slick never knocks anything down.
+
+   The ramp inside a band is front-loaded (`pow(t, 0.65)`), and pieces fail on short overlapping delays.
+   That is not decoration: demo scenarios spend nearly all their time mid-band — a demo tsunami peaks around
+   0.47 exposure and a cyclone around 0.66, both inside `impacted`. The first version only began failing
+   above 0.7, so in practice nothing ever collapsed and the illustration read as "the hazard missed".
+   `collapse.test.ts` pins both scenario peaks so that regression fails a test.
+
+   Pieces topple **downstream** (the hazard's heading, expressed in the model's own frame, plus a per-piece
+   spread) rather than in random directions, so a wave reads as having pushed them over.
 
 This is an **illustration of the exposure band, not a damage model** — AQUASHIELD has none. The
 `StructuresPanel` says so in the UI, next to the statuses, so the picture is never the only thing telling the

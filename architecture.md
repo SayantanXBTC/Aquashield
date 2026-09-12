@@ -886,8 +886,9 @@ uniform block, the same pattern as `hazardChannel`.
 `three/structures/support.ts`'s `footprintGround` seats a structure on the highest ground under its footprint
 with a foundation reaching past the lowest, so nothing floats or buries on the sloping plate.
 
-`three/structures/collapse.ts` draws the exposure band as structural failure: lean from `at_risk`, pieces
-failing inside `severe`, settling into debris. It is an **illustration of the band, not a damage model** —
+`three/structures/collapse.ts` draws the exposure band as structural failure: lean through `at_risk`, pieces
+failing and crumbling across `impacted`, the structure down inside `severe`, toppled downstream of the
+hazard. It is an **illustration of the band, not a damage model** —
 AQUASHIELD has none — it is a pure function of the current exposure (so it reverses when the timeline is
 scrubbed back), it imports its thresholds from `propagation/structures.ts`, and the UI states the caveat
 alongside the statuses (CLAUDE.md §25). Detail: docs/development/command-center.md.

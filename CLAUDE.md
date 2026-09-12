@@ -778,7 +778,9 @@ Full detail: docs/development/command-center.md. Architecture: architecture.md �
 - A structure's collapse (`frontend/src/three/structures/collapse.ts`) is an ILLUSTRATION OF THE EXPOSURE
   BAND, never a damage model. It must stay a pure function of the current exposure (so scrubbing the timeline
   back stands the structure up), must take its thresholds from `propagation/structures.ts` rather than its
-  own numbers, and must never feed a value back into simulation, exposure or the AI layer. Any UI that shows
+  own numbers, and must never feed a value back into simulation, exposure or the AI layer. Failure spans the
+  `impacted` and `severe` bands — demo hazards peak mid-`impacted`, so a mapping that only fires above
+  `EXPOSURE_IMPACTED` renders nothing in practice (`collapse.test.ts` pins the scenario peaks). Any UI that shows
   it also states that it is illustrative — see `StructuresPanel`.
 - Place a structure with `footprintGround` (`three/structures/support.ts`), never a single centre height
   sample: the plate is not flat and a centre sample leaves a building floating on its downhill corner.

@@ -5,6 +5,7 @@ import type { StructureConfig, StructureImpact, StructureStatus } from "@shared/
 import type { HazardKind, HazardSnapshot } from "@/propagation/hazards";
 import { shoreX, WORLD_KM } from "@/propagation/world";
 import { SceneLabel } from "@/three/overlays/SceneLabel";
+import { hazardChannel } from "@/three/hazard/hazardChannel";
 import { kmToScene } from "@/three/world/demoWorld";
 import { useGroundDrag } from "@/three/markers/useGroundDrag";
 import { createDamageState, updateDamageState, type DamageState } from "./collapse";
@@ -104,7 +105,9 @@ export function StructureModel({ structure, getSnapshot, onDrag, onDragEnd, lock
     const exposure = impact?.exposure ?? 0;
     const kind: HazardKind | null = snapshot?.kind ?? null;
     applyDamage(palette, exposure, kind);
-    updateDamageState(damage, exposure, kind, delta, clock.elapsedTime);
+    // The hazard's scene-space heading, expressed in this model's own frame
+    // (coastal models are rotated to the shoreline), so pieces fall downstream.
+    updateDamageState(damage, exposure, kind, delta, clock.elapsedTime, hazardChannel.headingRad - rotationY);
 
     const g = groupRef.current;
     if (g) {
