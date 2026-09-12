@@ -50,6 +50,25 @@ const EXPOSURE_RESULT = {
   longitude: 88.3,
 };
 
+function makeImpact(frameIndex: number) {
+  return {
+    simulation_run_id: "r1",
+    frame_index: frameIndex,
+    disaster_type: "flood" as const,
+    data_quality: "available" as const,
+    severity_band: "critical" as const,
+    exposed_asset_count: 1,
+    exposed_counts_by_type: { hospital: 1 },
+    exposed_counts_by_criticality: { critical: 1 },
+    hazard_footprint: FOOTPRINTS[frameIndex] ?? null,
+    exposure_results: [EXPOSURE_RESULT],
+    vulnerability_assessment_ids: [],
+    risk_assessment_id: null,
+    is_demo_model: true as const,
+    cached: false,
+  };
+}
+
 beforeEach(() => {
   vi.mocked(geospatialApi.getHazardFootprints).mockResolvedValue({
     simulation_run_id: "r1",
@@ -62,6 +81,9 @@ beforeEach(() => {
     data_quality: "available",
     exposure_results: [EXPOSURE_RESULT],
   });
+  vi.mocked(geospatialApi.getImpact).mockImplementation(async (_runId: string, frameIndex?: number) =>
+    makeImpact(frameIndex ?? 0),
+  );
 });
 
 afterEach(() => {
@@ -73,6 +95,48 @@ describe("useDataLayers", () => {
     renderHook(() => useDataLayers({ runId: null, runCompleted: false, frameIndex: 0 }));
     expect(geospatialApi.getHazardFootprints).not.toHaveBeenCalled();
     expect(geospatialApi.getExposure).not.toHaveBeenCalled();
+    expect(geospatialApi.getImpact).not.toHaveBeenCalled();
+  });
+
+  it("fetches the impact summary once a run is completed, keyed on frameIndex", async () => {
+    const { result } = renderHook(() => useDataLayers({ runId: "r1", runCompleted: true, frameIndex: 1 }));
+
+    await waitFor(() => expect(geospatialApi.getImpact).toHaveBeenCalledWith("r1", 1));
+    await waitFor(() => expect(result.current.impact?.frame_index).toBe(1));
+    expect(result.current.impact?.severity_band).toBe("critical");
+  });
+
+  it("frame sync: changing frameIndex re-fetches hazard footprint, exposure, and impact for the new frame", async () => {
+    const { result, rerender } = renderHook(
+      ({ frameIndex }) => useDataLayers({ runId: "r1", runCompleted: true, frameIndex }),
+      { initialProps: { frameIndex: 0 } },
+    );
+
+    await waitFor(() => expect(result.current.hazardFootprint?.frame_index).toBe(0));
+    await waitFor(() => expect(result.current.impact?.frame_index).toBe(0));
+    expect(geospatialApi.getExposure).toHaveBeenLastCalledWith("r1", 0);
+
+    // Update mocks to return frame-1-specific data, then advance frameIndex —
+    // this is the exact "before/after frame comparison" the frame-sync
+    // requirement asks for: the displayed footprint/exposure/impact must
+    // change to match, not stay pinned to frame 0.
+    vi.mocked(geospatialApi.getExposure).mockResolvedValue({
+      simulation_run_id: "r1",
+      frame_index: 1,
+      data_quality: "available",
+      exposure_results: [{ ...EXPOSURE_RESULT, status: "potentially_exposed" }],
+    });
+
+    rerender({ frameIndex: 1 });
+
+    await waitFor(() => expect(result.current.hazardFootprint?.frame_index).toBe(1));
+    expect(result.current.hazardFootprint?.geometry_type).toBe("Polygon");
+    await waitFor(() => expect(geospatialApi.getExposure).toHaveBeenLastCalledWith("r1", 1));
+    await waitFor(() =>
+      expect(result.current.exposureResults[0]?.status).toBe("potentially_exposed"),
+    );
+    await waitFor(() => expect(geospatialApi.getImpact).toHaveBeenLastCalledWith("r1", 1));
+    await waitFor(() => expect(result.current.impact?.frame_index).toBe(1));
   });
 
   it("fetches footprints and exposure once a run is completed, selecting the current frame's footprint", async () => {

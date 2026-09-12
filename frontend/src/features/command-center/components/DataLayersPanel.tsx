@@ -22,6 +22,16 @@ const LAYER_LABELS: Record<DataLayerKey, string> = {
   coastline: "Coastline",
 };
 
+// "within_hazard_footprint"/"potentially_exposed" only — never "damaged"/
+// "destroyed" (CLAUDE.md wording rule; ExposureStatus's own doc comment in
+// shared/types/index.ts). "no_active_hazard" is the always-available
+// baseline listing (no run executed/selected yet).
+const EXPOSURE_STATUS_LABEL: Record<string, string> = {
+  within_hazard_footprint: "within footprint",
+  potentially_exposed: "potentially exposed",
+  no_active_hazard: "no active hazard",
+};
+
 /** Real Geospatial World & Exposure Analysis (Prompt 10) — compact layer
  * toggles for the command center, following the existing CommandPanel/
  * CommandButton/EmptyState visual language rather than inventing new
@@ -39,6 +49,10 @@ export function DataLayersPanel({
 }: DataLayersPanelProps) {
   const exposedCount = exposureResults.filter((r) => r.status === "within_hazard_footprint").length;
   const nearbyCount = exposureResults.filter((r) => r.status === "potentially_exposed").length;
+  // The dedicated Exposure listing (name/type/status) only ever shows real
+  // per-frame exposure results — never the always-available baseline
+  // "no_active_hazard" listing, which has no hazard to be exposed to yet.
+  const exposedAssets = exposureResults.filter((r) => r.status !== "no_active_hazard");
 
   return (
     <CommandPanel title="Data Layers">
@@ -84,6 +98,16 @@ export function DataLayersPanel({
           </div>
         ) : null}
 
+        {/* Prompt 10.1: a read-only status line, not a toggle — the
+            landmass/water are always rendered by three/terrain/Landmass.tsx
+            regardless of any Data Layers setting. This exists purely so the
+            panel never implies real elevation data is available (CLAUDE.md
+            §27 "no fabricated numbers"; no DEM ingestion in this phase). */}
+        <div className="flex flex-col gap-1.5 text-xs">
+          <SectionLabel>Terrain</SectionLabel>
+          <p className="text-ink-soft">Procedural Demo Terrain · Elevation: Unavailable</p>
+        </div>
+
         {!hasRun ? (
           <EmptyState
             title="Hazard footprint unavailable"
@@ -107,6 +131,19 @@ export function DataLayersPanel({
             <p className="text-ink-soft">
               {exposedCount} within footprint · {nearbyCount} potentially exposed
             </p>
+
+            {exposedAssets.length > 0 ? (
+              <ul className="flex max-h-32 flex-col gap-1 overflow-y-auto">
+                {exposedAssets.map((asset) => (
+                  <li key={asset.asset_id} className="text-ink-soft flex items-center justify-between gap-2">
+                    <span className="truncate">{asset.asset_name}</span>
+                    <span className="text-ink-faint shrink-0 text-[10px] tracking-wide uppercase">
+                      {asset.asset_type} · {EXPOSURE_STATUS_LABEL[asset.status]}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
 
             <p className="text-ink-faint text-[10px] tracking-wide uppercase">
               AQUASHIELD demo model — not an official forecast
