@@ -617,6 +617,11 @@ Full detail (verification results, pinned-version constraints): architecture.md 
 | Testing — Playwright | PLANNED |
 | Deck.gl | PLANNED / OPTIONAL |
 | Rasterio | PLANNED |
+| Simulation Engine — `simulation/core` + 5 demo disaster models + execution API | BOOTSTRAPPED (Prompt 7 — deterministic, synchronous, JSON artifact only; see docs/development/simulation.md) |
+| AAA 3D Command Center + cinematic landing | BOOTSTRAPPED (Prompt 8 — landing/explore/command-center routing, full Three.js scene graph, real Prompt 7 integration; see docs/development/command-center.md) |
+| AI — LangGraph 3-agent analysis layer (`agents/`) | BOOTSTRAPPED (Prompt 14 — read-only, evidence-gated, local deterministic provider by default; see docs/agents/ai-layer.md) |
+| Auth — Firebase Authentication + PyJWT verification | BOOTSTRAPPED (Prompt 12 — per-user scenario isolation via `scenarios.owner_uid`; operator supplies the Firebase project config; see docs/development/setup.md) |
+| Demo shoreline world + client-side propagation mirror | BOOTSTRAPPED (Prompt 12 — `simulation/core/propagation.py` ↔ `frontend/src/propagation/`, fixture-pinned; architecture.md ADR-005) |
 
 "Dependency foundation only" means the package is installed and import-verified, with no AQUASHIELD logic
 built on it — do not treat its presence in `node_modules`/the venv as a green light to start implementing the
@@ -660,6 +665,97 @@ Full detail: docs/development/scenarios.md. Architecture: architecture.md §26.
   timestep results, or risk output — the simulation engine doesn't exist yet.
 - Client-side form validation (`frontend/src/features/scenario-builder/validation.ts`) is a UX convenience
   only — the server is always authoritative; don't skip a server-side check because the client already has one.
-- Adding a disaster-specific config field: update both `backend/app/schemas/scenario_config.py` (validation)
-  and `frontend/src/features/scenario-builder/disasterFieldSpecs.ts` (form rendering) — they're intentionally
-  parallel registries, not generated from each other.
+- Scenario creation happens inside the command center (`features/command-center/components/NewTestModal.tsx`
+  + `presets.ts`) — there is no standalone builder route. Presets are generic demo disasters only: never add a
+  real-world place name or coordinate to a preset, the scenario form, or a scene label.
+- Every scenario/run row is scoped to the verified Firebase uid (`scenarios.owner_uid`, `app/core/auth.py`).
+  Never accept an owner from a request body, never list across owners, and report another user's row as 404
+  (not 403). New endpoints touching scenarios/runs must depend on `CurrentUser` and go through a service
+  constructed with `owner_uid`.
+- Adding a common propagation field: update `PropagationConfig` (`backend/app/schemas/scenario_config.py`),
+  `simulation/core/propagation.py`, `frontend/src/propagation/kinematics.ts`, and regenerate the fixtures.
+- Structures (`scenario_config.structures`) are assessed by `simulation/core/structures.py` and mirrored in
+  `frontend/src/propagation/structures.ts`; a new structure type is added to `STRUCTURE_TYPES` (both
+  schema and core), `shared/types` `StructureType`, `STRUCTURE_LABELS`, and `three/structures/models`.
+  Exposure bands are illustrative — never present them as damage or casualty estimates.
+
+## 26. Simulation Engine Rules
+
+Full detail: docs/development/simulation.md. Architecture: architecture.md §27.
+
+- `simulation/` is a standalone Python package — no FastAPI, SQLAlchemy, React, or Three.js dependency.
+  `backend/app/services/simulation_service.py` is its only caller; never import `simulation.*` from a route
+  handler directly, and never add a `simulation/core` dependency on `backend/app`.
+- A disaster model is selected by `disaster_type` string through `simulation/core/registry.py`'s
+  `MODEL_REGISTRY` only — never an if/elif chain in `SimulationEngine`. Adding a disaster type/model means
+  registering it there, not branching inside the engine.
+- Every `DisasterModel` is a **SIMPLIFIED DEMONSTRATION MODEL** and must say so via its `describe()` output
+  (`type`, `purpose`, `scientific_validation`, `assumptions`) — never claim or imply real forecasting/
+  operational accuracy (CLAUDE.md §12/§31 predecessor rule; Prompt 7 §31).
+- Determinism is required: same `disaster_type` + `scenario_config` + `timestep_config` + `seed` must
+  produce the same `TimelineFrame` sequence. No model may use uncontrolled randomness — if randomness is
+  ever genuinely useful, it must go through the engine's seeded `random.Random`, with the seed recorded in
+  `SimulationRun.timestep_config["seed"]`.
+- `SimulationEngine`/`SimulationService` never store full timestep data in PostgreSQL — only a
+  `SimulationArtifact` metadata row pointing at the JSON file `simulation/outputs/{run_id}.json` (§24, this
+  file). Do not add a column to persist raw frame data.
+- A `SimulationRun` can only be executed once (`PENDING` → `RUNNING` → `COMPLETED`/`FAILED`) — re-running
+  means creating a new `SimulationRun`, never resetting an existing one's status back to `PENDING`.
+- Execution is currently synchronous (`POST /simulation-runs/{run_id}/execute` blocks until done) — a
+  deliberate, documented prototype choice (Prompt 7 §26), not an oversight. Don't introduce Celery/Redis/a
+  job queue without an explicit instruction to do so.
+- The demo shoreline world (`simulation/core/propagation.py`, `shared/constants/demo_world.json`) is mirrored
+  line-for-line in `frontend/src/propagation/` for the live preview. Any change to a shoreline constant, the
+  kinematics, or a demo model's formula must be made on both sides and followed by
+  `.venv/bin/python scripts/generate_propagation_fixtures.py`; `frontend/src/propagation/mirror.test.ts` is
+  the tripwire. The Python engine remains the authoritative record ("Record run"); the mirror is a preview.
+
+## 26a. AI Layer Rules
+
+Full detail: docs/agents/ai-layer.md. Architecture: architecture.md ADR-006, §30.
+
+- `agents/` is standalone (no FastAPI/SQLAlchemy/backend imports). It reaches data only through the
+  `AnalysisDataAccess` Protocol (`agents/tools/data_access.py`); the backend adapter
+  (`backend/app/services/ai_data_access.py`) is its only implementation and is read-only. Never give the AI
+  layer a write path to simulation, scenario or geospatial tables — `ai_requests` is the only table it writes.
+- Every agent output is a closed Pydantic schema (`agents/schemas/outputs.py`); every claim cites evidence
+  ids from the Context Collector; the `SafetyValidator` strips ungrounded numbers, unknown evidence and
+  destruction/casualty wording. Do not add a free-text field that bypasses it.
+- `requires_human_approval` stays `Literal[True]`; `resources` stays `RESOURCE_DATA_UNAVAILABLE` until a
+  verified resource inventory exists. Missing data is `DATA_UNAVAILABLE`, never an estimate.
+- Operator text is data: sanitize it (`agents/tools/sanitize.py`), quote it in the payload, never put it in
+  a system prompt.
+- The local deterministic provider must keep passing the same graph/validator as the Anthropic provider —
+  tests run offline against it. Bump `PROMPT_VERSION` when any prompt changes.
+
+## 27. AAA 3D Command Center & Landing Rules
+
+Full detail: docs/development/command-center.md. Architecture: architecture.md §28.
+
+- `frontend/src/propagation/hazards.ts` is the only place a hazard's numbers are produced for rendering —
+  `computeHazard` (live mirror) and `snapshotFromRecordedFrame` (a recorded frame's `hazard_state`) both
+  yield the same `HazardSnapshot`. A disaster visualizer (`three/disasters/<kind>/`) never reads backend
+  field names directly and never computes physics; it turns a snapshot into meshes/uniforms via
+  `three/hazard/hazardChannel.ts` inside `useFrame`.
+- `SceneRoot` resolves each hazard kind's visualizer through `three/disasters/registry.ts`'s lookup only —
+  never an if/else chain, mirroring `simulation/core/registry.py`'s server-side pattern; disaster-type →
+  kind reuse decisions live in `hazardKindFor`.
+- The shoreline is watertight by construction: the water fragment shader evaluates the same
+  `terrainHeightKm` (`three/world/demoWorld.ts`, JS + GLSL twins) the terrain mesh is built from. Never
+  change one twin without the other, and never add a second water or terrain mesh.
+- Every visual quantity that isn't a direct simulation field (e.g. a tsunami's visual impact radius) is a
+  documented, fixed rendering convenience — never an invented physical formula. Say so in a comment where
+  it's computed.
+- The world (water, terrain, hazard visualizers) is explicitly a VISUAL DEMONSTRATION, not scientific/GIS
+  data — every new terrain/water/visualizer file must carry that distinction in its own comment, not just
+  rely on this rule existing elsewhere.
+- One `<Canvas>` in the whole app (`three/core/AquaCanvas.tsx`). New 3D work extends `SceneRoot`'s
+  composition or adds a new disaster visualizer to the registry — it does not construct a second `<Canvas>`.
+- Every Anime.js handle (a `JSAnimation`, `Timeline`, or `ScrollObserver`) created in a component must be
+  reverted on unmount via `animations/cleanup.ts` — no exceptions, even for a "one-shot" animation.
+- No fabricated numbers anywhere in the UI: a missing/not-yet-loaded value renders `DataReadout`'s `—`
+  placeholder or an explicit `EmptyState`/`ErrorState`, never an invented statistic, percentage, or count
+  (this applies to loading-screen "progress" too — indeterminate only, unless a real measured value exists).
+- The command center and Three.js scene are lazy-loaded (`React.lazy`/`Suspense` in `App.tsx`) — don't
+  import `three`/`@react-three/*` or the command-center feature from a module that's part of the initial
+  bundle (the landing page). Verify with `npm run build`'s chunk output, not by assumption.

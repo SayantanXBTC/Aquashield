@@ -22,9 +22,12 @@ xarray==2026.7.0
 shapely==2.1.2
 geopandas==1.1.4
 
-# --- agents (LangGraph) — INSTALLED, NOT IMPLEMENTED ---
+# --- agents (LangGraph multi-agent analysis layer, agents/) ---
 langgraph==1.2.11
 langchain-core==1.6.2
+# Official Claude SDK — used only when AI_PROVIDER=anthropic (agents/llm/provider.py);
+# the default local deterministic provider needs no network or key.
+anthropic==1.5.0
 
 # --- rag (ChromaDB) — INSTALLED, NOT IMPLEMENTED ---
 chromadb==1.5.9
@@ -32,4 +35,13 @@ chromadb==1.5.9
 # --- testing ---
 pytest==9.1.1
 pytest-asyncio==1.4.0
+# httpx: also reused (not a new dependency) by
+# backend/app/services/geospatial/natural_earth_provider.py for the one
+# outbound fetch of a fixed, code-configured public dataset URL.
 httpx==0.28.1
+
+# --- auth (Firebase ID-token verification, backend/app/core/auth.py) ---
+# PyJWT + cryptography verify RS256 Firebase ID tokens against Google's
+# published x509 certs. Chosen over firebase-admin: no service-account file
+# needed, no google-cloud transitive tree — see architecture.md ADR-007.
+PyJWT[crypto]==2.10.1

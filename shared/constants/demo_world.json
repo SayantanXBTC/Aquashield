@@ -1,0 +1,20 @@
+{
+  "$comment": "Demo shoreline world constants. Source of truth: simulation/core/propagation.py; mirrored by frontend/src/propagation/world.ts. shore_x(y) = shore_base_x_km + sum(amp * sin(2*pi*freq*y/world_km + phase)). Ocean is west (x < shore_x), land east. Heading is compass degrees (0 = north/+y, 90 = east/+x).",
+  "world_id": "demo-shoreline-v1",
+  "world_km": 300.0,
+  "shore_base_x_km": 196.0,
+  "shore_terms": [
+    { "amp": 14.0, "freq": 1.0, "phase": 0.6 },
+    { "amp": 7.0, "freq": 2.3, "phase": 2.1 },
+    { "amp": 3.0, "freq": 5.1, "phase": 4.0 }
+  ],
+  "march_step_km": 0.5,
+  "march_max_km": 450.0,
+  "defaults": {
+    "origin_x_km": 70.0,
+    "origin_y_km": 150.0,
+    "heading_deg": 90.0,
+    "intensity": 0.6,
+    "dispersion_rate": 0.3
+  }
+}

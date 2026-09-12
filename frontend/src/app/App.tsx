@@ -1,31 +1,42 @@
-import { useRef } from "react";
-import { useHealthCheck } from "@/hooks/useHealthCheck";
-import { useFadeIn } from "@/animations/micro-interactions/useFadeIn";
-import { ScenarioBuilderFeature } from "@/features/scenario-builder/ScenarioBuilderFeature";
+import { lazy, Suspense } from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { LoadingOverlay } from "@/components/ui";
+import { AuthProvider } from "@/features/auth/AuthProvider";
+import { RequireAuth } from "@/features/auth/RequireAuth";
+import { LandingPage } from "@/features/landing/LandingPage";
+import { ExploreGatewayPage } from "@/features/landing/ExploreGatewayPage";
 
-export function App() {
-  const { status, data } = useHealthCheck();
-  const headerRef = useRef<HTMLDivElement | null>(null);
-  useFadeIn(headerRef);
+// The command center (Three.js/R3F/drei) stays out of the initial bundle —
+// the landing page is the first thing a visitor loads (CLAUDE.md §27).
+const CommandCenterPage = lazy(() => import("@/features/command-center/CommandCenterPage"));
 
+const COMMAND_CENTER_LOADING_STAGES = ["Environment", "Simulation", "Visualization", "Command Systems"];
+
+function CommandCenterRoute() {
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <header ref={headerRef} className="border-b border-slate-800 px-8 py-6">
-        <h1 className="text-2xl font-semibold">AQUASHIELD</h1>
-        <p className="text-slate-400">Water Disaster Intelligence, Simulation &amp; Response Platform</p>
-        <p className="mt-2 text-xs text-slate-600">
-          Backend:{" "}
-          <span data-testid="health-status">
-            {status === "loading" && "checking..."}
-            {status === "ok" && `${data?.status} (${data?.service})`}
-            {status === "error" && "unreachable"}
-          </span>
-        </p>
-      </header>
+    <RequireAuth>
+      <Suspense fallback={<LoadingOverlay stages={COMMAND_CENTER_LOADING_STAGES} />}>
+        <CommandCenterPage />
+      </Suspense>
+    </RequireAuth>
+  );
+}
 
-      <div className="mx-auto max-w-5xl px-8 py-8">
-        <ScenarioBuilderFeature />
-      </div>
-    </main>
+/** Routes: "/" landing, "/explore" sign-in gateway, "/command-center" the
+ * authenticated console. The standalone scenario builder route is gone —
+ * scenarios are created and tuned inside the command center. */
+export function App() {
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/explore" element={<ExploreGatewayPage />} />
+          <Route path="/command-center" element={<CommandCenterRoute />} />
+          <Route path="/scenarios" element={<Navigate to="/command-center" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }

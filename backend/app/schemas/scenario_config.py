@@ -30,6 +30,31 @@ class _CommonWindow(BaseModel):
     duration_hours: float | None = Field(default=None, gt=0)
 
 
+# Edge length of the demo shoreline world, in km — must equal
+# simulation/core/propagation.py's WORLD_KM (and the frontend mirror).
+DEMO_WORLD_KM = 300.0
+
+
+class PropagationConfig(BaseModel):
+    """Propagation parameters common to every disaster type — the values the
+    Command Center's inline HUD sliders and draggable origin pin edit
+    (simulation/core/propagation.py consumes them). All optional: a model
+    falls back to its own documented default for any key left unset.
+
+    Coordinates are kilometres in the synthetic demo shoreline world, never
+    real-world lat/lon."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    origin_x_km: float | None = Field(default=None, ge=0, le=DEMO_WORLD_KM)
+    origin_y_km: float | None = Field(default=None, ge=0, le=DEMO_WORLD_KM)
+    heading_deg: float | None = Field(default=None, ge=0, le=360)
+    speed_kmh: float | None = Field(default=None, gt=0, le=2000)
+    intensity: float | None = Field(default=None, ge=0, le=1)
+    spread_radius_km: float | None = Field(default=None, ge=0, le=150)
+    dispersion_rate: float | None = Field(default=None, ge=0, le=1)
+
+
 class FloodConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -93,7 +118,34 @@ DISASTER_CONFIG_SCHEMAS: dict[DisasterType, type[BaseModel] | None] = {
     DisasterType.SEARCH_RESCUE: SearchRescueConfig,
 }
 
-_COMMON_KEYS = {"start_time", "duration_hours"}
+STRUCTURE_TYPES = ("building", "hospital", "port", "power_plant", "lighthouse", "fuel_terminal")
+MAX_STRUCTURES = 50
+
+
+class StructureConfig(BaseModel):
+    """A user-placed structure in the demo shoreline world (km coordinates).
+    simulation/core/structures.py assesses its exposure each frame."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(min_length=1, max_length=64)
+    type: str = Field(pattern="^(" + "|".join(STRUCTURE_TYPES) + ")$")
+    name: str = Field(default="", max_length=80)
+    x_km: float = Field(ge=0, le=DEMO_WORLD_KM)
+    y_km: float = Field(ge=0, le=DEMO_WORLD_KM)
+    enabled: bool = True
+
+
+class _StructuresBlock(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    structures: list[StructureConfig] | None = Field(default=None, max_length=MAX_STRUCTURES)
+
+
+_WINDOW_KEYS = {"start_time", "duration_hours"}
+_STRUCTURE_KEYS = {"structures"}
+_PROPAGATION_KEYS = set(PropagationConfig.model_fields)
+_COMMON_KEYS = _WINDOW_KEYS | _PROPAGATION_KEYS | _STRUCTURE_KEYS
 
 
 def validate_scenario_config(disaster_type: DisasterType, raw: dict[str, Any] | None) -> dict[str, Any]:
@@ -103,13 +155,23 @@ def validate_scenario_config(disaster_type: DisasterType, raw: dict[str, Any] | 
     if not isinstance(raw, dict):
         raise ValueError("scenario_config must be a JSON object")
 
-    common_raw = {k: v for k, v in raw.items() if k in _COMMON_KEYS}
+    window_raw = {k: v for k, v in raw.items() if k in _WINDOW_KEYS}
+    propagation_raw = {k: v for k, v in raw.items() if k in _PROPAGATION_KEYS}
+    structures_raw = {k: v for k, v in raw.items() if k in _STRUCTURE_KEYS}
     specific_raw = {k: v for k, v in raw.items() if k not in _COMMON_KEYS}
 
     try:
-        common = _CommonWindow(**common_raw)
+        common = _CommonWindow(**window_raw)
     except ValidationError as exc:
         raise ValueError(f"Invalid scenario_config time window: {exc.errors()}") from exc
+    try:
+        propagation = PropagationConfig(**propagation_raw)
+    except ValidationError as exc:
+        raise ValueError(f"Invalid scenario_config propagation parameters: {exc.errors()}") from exc
+    try:
+        structures = _StructuresBlock(**structures_raw)
+    except ValidationError as exc:
+        raise ValueError(f"Invalid scenario_config structures: {exc.errors()}") from exc
 
     schema_cls = DISASTER_CONFIG_SCHEMAS.get(disaster_type)
     if schema_cls is not None:
@@ -121,11 +183,17 @@ def validate_scenario_config(disaster_type: DisasterType, raw: dict[str, Any] | 
     else:
         specific_dict = specific_raw
 
-    return {**common.model_dump(exclude_none=True, mode="json"), **specific_dict}
+    return {
+        **common.model_dump(exclude_none=True, mode="json"),
+        **propagation.model_dump(exclude_none=True),
+        **structures.model_dump(exclude_none=True),
+        **specific_dict,
+    }
 
 
 def is_config_populated(disaster_type: DisasterType, config: dict[str, Any]) -> bool:
-    """Whether validated config has enough disaster-specific content to
-    reasonably mark a scenario 'ready' rather than 'draft'."""
-    specific_keys = set(config) - _COMMON_KEYS
-    return len(specific_keys) > 0
+    """Whether validated config has enough content to reasonably mark a
+    scenario 'ready' rather than 'draft' — any propagation parameter or any
+    disaster-specific field counts; the bare time window alone does not."""
+    populated_keys = set(config) - _WINDOW_KEYS
+    return len(populated_keys) > 0

@@ -240,6 +240,61 @@ Frontend tests, Python tests, Playwright E2E testing
 
 **Consequences:** Every Python domain (backend, simulation, agents, rag) that touches the database depends on `sqlalchemy`, `alembic`, `geoalchemy2`, `psycopg` (added to the shared root `requirements.txt`, see ADR-002). A local PostgreSQL+PostGIS instance (via `infrastructure/docker-compose.yml`, or any equivalent) is now a development prerequisite for `backend/tests/db/*`, which skip cleanly (not silently substituted with SQLite) when it isn't reachable. See `docs/development/database.md` for full detail, including two documented GeoAlchemy2/Alembic interaction gotchas (duplicate spatial index creation, orphaned Postgres ENUM types on downgrade) and how they're handled.
 
+### ADR-004: Firebase Authentication with server-side PyJWT verification
+
+Decision: Firebase Authentication (Google + email/password + password reset) on the frontend via the
+Firebase JS SDK; the FastAPI backend verifies Firebase ID tokens itself with `PyJWT[crypto]` against
+Google's published x509 certs (`backend/app/core/auth.py`) and needs only `FIREBASE_PROJECT_ID`.
+Reason: user isolation has to be enforced server-side (every scenario/run row carries the verified
+`owner_uid`), and verifying RS256 tokens against Google's certs needs no service account and no
+`firebase-admin` (which drags the google-cloud dependency tree in for one function). No Firebase MCP
+server was available in the build environment; the SDK path is the supported one regardless.
+Alternatives: `firebase-admin` (heavier, needs credentials for anything beyond verification); a
+self-hosted auth (out of scope); trusting a client-sent uid (rejected — trivially spoofable).
+Consequences: `scenarios.owner_uid` is NOT NULL (migration `5b2f9c1d7e10`; existing scenario data was
+wiped first via `scripts/wipe_scenario_data.py`). A scenario owned by another user reads as 404, never 403.
+An explicit, env-gated local-development bypass exists on both sides (`AUTH_DEV_BYPASS_UID` /
+`VITE_AUTH_DEV_BYPASS`) and is ignored in production builds.
+
+### ADR-005: One synthetic shoreline world + a client-side propagation mirror
+
+Decision: every disaster type runs in the same synthetic 300 km "demo shoreline world" (ocean west of an
+analytic shoreline curve, land east — `shared/constants/demo_world.json`, `simulation/core/propagation.py`)
+with a common propagation parameter block (origin, heading, speed, intensity, spread radius, dispersion)
+inside `scenario_config`. The frontend carries a line-for-line TypeScript mirror
+(`frontend/src/propagation/`) of the world and of the four demo models' formulas, pinned by fixtures the
+Python side generates (`scripts/generate_propagation_fixtures.py` → `shared/fixtures/propagation_cases.json`
+→ `mirror.test.ts`).
+Reason: real-time interaction (drag the origin, move a slider, see the hazard trajectory change on the
+same frame) cannot round-trip through HTTP per frame, and creating a `SimulationRun` per slider tick would
+be absurd. The mirror gives instant feedback; the Python engine stays the authoritative record — "Record
+run" executes the same formulas server-side and the console can replay that recorded timeline read-only.
+Real-world lat/lon, Natural Earth coastlines, Esri imagery and infrastructure exposure were dropped from
+the console: they conflicted with the product decision to have no real-world place names or coordinates.
+Alternatives: server round-trips (too slow, DB spam); WebSocket streaming of a live server simulation
+(deferred by CLAUDE.md §26's synchronous-execution decision); dropping the backend models (would break
+the SIMULATE → VISUALIZE record and the determinism guarantee).
+Consequences: `simulation/` and `frontend/src/propagation/` must change together — the fixture test is the
+tripwire. The geospatial endpoints (`/hazard-footprints`, `/exposure`, `/impact`) still exist but report
+`partial`/zero exposure for demo-world runs (no real geometry), which their tests now assert.
+
+### ADR-006: Read-only LangGraph AI layer with a deterministic local provider
+
+Decision: the AI intelligence layer (`agents/`) is a LangGraph state graph of three agents plus a
+synthesis/safety join, reading simulation and geospatial data only through a six-method read-only
+Protocol the backend implements over its existing owner-scoped services, and writing only its own
+`ai_requests` audit table. Every claim must cite evidence produced by the Context Collector; the validator
+strips anything else. An `LLMProvider` abstraction ships with a deterministic offline provider (default) and
+an Anthropic SDK provider.
+Reason: CLAUDE.md §5/§12/§13 — the AI interprets, it never invents water levels, arrival times or damage;
+explainability requires an evidence chain; development and CI must not need paid API credits.
+Alternatives: free-form LLM chat over raw JSON (rejected — ungrounded numbers), agents with write access
+to recommendations tables (deferred — every output is human-gated first), a single-agent prompt (rejected —
+the parallel analyst/advisor split keeps impact facts and operational advice separately auditable).
+Consequences: synchronous execution per request (same prototype choice as simulation); no RAG yet
+(`EvidenceRetriever` stub → `NOT_CONFIGURED`); UI only gains an additive brief panel. See
+docs/agents/ai-layer.md.
+
 ## 14. Data Sources
 
 All external environmental/geospatial data providers are **PLANNED / TO BE DECIDED**. No data provider is selected or assumed at this stage.
@@ -289,7 +344,7 @@ Alternatives:
 Consequences:
 ```
 
-See ADR-001, ADR-002, and ADR-003 (Section 13) for the decisions recorded so far. Future major decisions (LLM provider, deployment infrastructure, additional disaster model integrations, large-scientific-data storage format) must be recorded here before being silently adopted.
+See ADR-001 through ADR-006 (Section 13) for the decisions recorded so far. Future major decisions (LLM provider, deployment infrastructure, additional disaster model integrations, large-scientific-data storage format) must be recorded here before being silently adopted.
 
 ## 18. Repository Architecture
 
@@ -554,3 +609,326 @@ a second Python definition of the same shape was avoided (§22).
 directly via a `@shared/*` alias (`frontend/vite.config.ts` + `tsconfig.json`), with Vite's dev-server
 `fs.allow` extended to permit reading outside `frontend/`'s own root — the first time frontend code actually
 consumes `shared/` rather than just mirroring it by hand.
+
+## 27. Simulation Engine
+
+The deterministic, disaster-agnostic time-based simulation engine — full detail in
+docs/development/simulation.md.
+
+```
+ScenarioVersion.scenario_config
+        ↓
+SimulationRun (backend/app/api/routes/simulation_runs.py — thin)
+        ↓
+SimulationService (backend/app/services/simulation_service.py — orchestration only)
+        ↓
+SimulationEngine (simulation/core/engine.py — standalone package, no FastAPI/SQLAlchemy dependency)
+        ↓
+DisasterModel (simulation/models/<type>/model.py — flood, tsunami, cyclone, oil_spill, search_rescue)
+        ↓
+TimelineFrame × N (simulation/core/state.py)
+        ↓
+SimulationArtifact (JSON file in simulation/outputs/ + PostgreSQL metadata row)
+```
+
+`simulation/` is a sibling top-level domain to `backend/` (§18/§21), not a backend-owned package, and this
+monorepo has no per-domain packaging step (ADR-002) — so `backend/app/main.py` and `backend/tests/
+conftest.py` each insert the repo root onto `sys.path` before any import that could reach `simulation.*`.
+This is the one place that bootstrap lives; see docs/development/simulation.md for why.
+
+**Model registry, not an if/elif chain:** `simulation/core/registry.py`'s `MODEL_REGISTRY` maps a
+`disaster_type` string to a `DisasterModel` subclass. `flash_flood`/`coastal_flood` reuse `FloodModel`,
+`storm_surge` reuses `CycloneModel`, `chemical_pollution` reuses `OilSpillModel` — the same reuse pattern
+`backend/app/schemas/scenario_config.py`'s `DISASTER_CONFIG_SCHEMAS` already uses for config validation.
+
+**Every model is a SIMPLIFIED DEMONSTRATION MODEL** (`flood-demo-v1`, `tsunami-demo-v1`,
+`cyclone-demo-v1`, `oil-spill-demo-v1`, `search-rescue-demo-v1`) — illustrative physics only, never claimed
+as scientifically validated (CLAUDE.md §12 predecessor rule / §26 this file). `DisasterModel.describe()`
+returns a model card (`type`, `purpose`, `scientific_validation`, `assumptions`) persisted into every
+completed run's `SimulationArtifact.extra_metadata`.
+
+**Determinism:** same `disaster_type` + `scenario_config` + `timestep_config` + `seed` always produces the
+same `TimelineFrame` sequence — required for replay/comparison (§7/§11) and auditability. No model uses
+uncontrolled randomness; the engine hands every model a seeded `random.Random`, and the seed used is
+recorded in `SimulationRun.timestep_config["seed"]` on completion.
+
+**Lifecycle:** `PENDING` (Prompt 6, unchanged) → `RUNNING` → `COMPLETED`/`FAILED`, driven by `POST
+/simulation-runs/{run_id}/execute`. A run executes at most once — re-running means creating a new
+`SimulationRun` against the same (or a different) `ScenarioVersion`, never resetting an existing run's
+status. Execution is currently synchronous — a documented Prompt 7 §26 prototype choice, not an oversight;
+introducing a job queue (Celery/Redis) is a future, explicitly-instructed change, not a default.
+
+**Storage:** per §14a, PostgreSQL never holds full timestep data — `SimulationService` writes one JSON file
+per run to `simulation/outputs/{run_id}.json` (gitignored) and a `SimulationArtifact` row pointing at it.
+This is the prototype storage strategy Prompt 7 explicitly sanctions; a future phase can replace the file
+format (NetCDF/Zarr/object storage) without changing the `SimulationRun`/`SimulationArtifact` schema or the
+timeline API shape.
+
+**API:** `GET /simulation-runs/{run_id}` (detail), `POST /simulation-runs/{run_id}/execute` (run, returns
+the same detail shape), `GET /simulation-runs/{run_id}/timeline` (all frames — empty before execution).
+Distinct from `POST /scenarios/{id}/runs` (Prompt 6, creates `PENDING` metadata only) — creation and
+execution stay separate endpoints, per Prompt 7 §26.
+
+**Not yet built** (later phases, per Prompt 7's explicit hard stop): 3D visualization consuming these
+frames (Prompt 8), WebSocket streaming of frames as they're produced (Prompt 9), a risk engine reading
+`SimulationState.hazard_state`/`environmental_state` (Prompt 10), AI agents/RAG interpreting this output
+(Prompts 11-12).
+
+## 28. AAA 3D Command Center & Landing
+
+The first visually complete AQUASHIELD experience — full detail in docs/development/command-center.md.
+
+```
+Landing ("/")  ->  Explore gateway ("/explore")  ->  Command Center ("/command-center", lazy-loaded)
+                                                            |
+                                                            v
+                                      Scenario -> SimulationRun -> Simulation API (Prompt 7)
+                                                            |
+                                                            v
+                                      TimelineFrame -> simulationVisualAdapter -> SceneRoot
+                                                            |
+                                                            v
+                                      disasters/registry.ts -> one visualizer per disaster family
+```
+
+`react-router-dom` was added here — the router ADR-001 (§13) deferred until routing was actually needed.
+`frontend/src/three/` is now a real scene graph (`AquaCanvas`/`SceneRoot`/`CameraController`/
+`LightingSystem`/`EnvironmentSystem`, a custom water shader, procedural terrain, instanced particles) built
+on the bootstrap-phase Three.js/R3F/Drei foundation (§24), and `frontend/src/animations/` is now a real
+Anime.js v4 utility layer (presets/transitions/scroll/stagger/cleanup) built on the bootstrap-phase
+integration proof.
+
+**The seam that matters:** `three/adapters/simulationVisualAdapter.ts` translates a real Prompt 7
+`SimulationState` into a `SimulationVisualState` — disaster visualizers never read `hazard_state` directly,
+and the mapping (e.g. `wave_height_m` → visual intensity) is documented as a rendering convenience, never
+an invented physical formula (CLAUDE.md §5/§27). `disasters/registry.ts` mirrors
+`simulation/core/registry.py`'s model registry pattern client-side, including the same disaster-type reuse
+decisions (`flash_flood`/`coastal_flood` → flood, `storm_surge` → cyclone, `chemical_pollution` → oil
+spill).
+
+**Shared contract addition:** `SimulationRunDetail`, `SimulationArtifactOut`, `TimelineResponse` were added
+to `shared/types/index.ts` (§22) — mirroring `backend/app/schemas/simulation.py` — since the command center
+is their first frontend consumer. Nothing existing was changed, only added to.
+
+**Explicitly not implemented in this phase** (see docs/development/command-center.md for the full
+IMPLEMENTED/VERIFIED/SIMPLIFIED/PLANNED/NOT IMPLEMENTED breakdown): timeline playback/scrubbing/WebSocket
+streaming (Prompt 9), risk/vulnerability analysis (Prompt 10), AI agents/RAG/response planning
+(Prompts 11-13), and — notably — automated WebGL scene-render testing and live browser visual verification,
+both blocked by environment limitations documented there rather than skipped silently.
+
+### 28a. Prompt 8.1 — Visual correction
+
+A visual-only correction pass (`feature/visual-correction`), not a re-architecture: the landing page's
+stacked-section scroll (`ScrollSequence`/`LandingBeatSection`) was replaced with `CinematicScroll` — one
+sticky viewport whose six scenes crossfade continuously off a single scroll-progress value
+(`sceneProgress.ts`, pure and unit-tested) instead of six independently-animated cards. In the command
+center, `AquaCanvas`'s camera pose, `Landmass`'s scale/relief/color ramp/position, the water shader's
+fresnel/specular terms, and `EnvironmentSystem`'s atmosphere (added drei's procedural `Sky`) were all
+corrected against a specific reported symptom (documented per-symptom in
+docs/development/command-center.md's "Prompt 8.1 — Visual correction" table) — the scene graph's shape
+(`SceneRoot`'s composition, the disaster registry/adapter seam) is unchanged. No shared contract, routing,
+or backend change.
+
+### 28b. Prompt 9 — Timeline Playback Engine
+
+`feature/timeline-playback` extends `useCommandCenterSession`'s existing single-frame selector
+(`frames`/`frameIndex`/`setFrameIndex`/`currentFrame`) into full client-side playback — `isPlaying`,
+`playbackSpeed`, `play()`, `pause()`, `togglePlay()`, `setPlaybackSpeed()` — driven by a `setInterval` that
+advances `frameIndex` over the `TimelineFrame[]` already fetched from Prompt 7's timeline endpoint. No
+backend, WebSocket, or shared-contract change: this is 100% client-side pacing over data the app already
+has. The interval's pacing (600ms/1x, scaled by the speed multiplier) is a documented UI convenience, not a
+physical or simulated timing value — `TimelineFrame` carries no duration/fps field to derive one from.
+Playback stops (never loops) at the last frame, and is force-paused whenever the active scenario/run changes
+or the timeline reloads/empties, so a stale interval can never advance a `frameIndex` belonging to a
+different run. A new `PlaybackControls` component (Play/Pause, a 0.5x–4x speed selector, the existing scrub
+slider) integrates into `SimulationStatusPanel`'s existing frame area — no second slider, no new 3D/animation
+system; the scene keeps reacting through the existing `toVisualState`/registry seam one frame at a time.
+Full detail, including the interval/auto-pause state machine and its test coverage
+(`useCommandCenterSession.test.ts` with Vitest fake timers), in docs/development/command-center.md's
+"Prompt 9 — Timeline Playback Engine" section.
+
+### 28c. Prompt 9.1 — Complete Disaster Catalog
+
+A completion pass, not new architecture: all 9 `DisasterType` values were already validated
+(`DISASTER_CONFIG_SCHEMAS`), already resolved to a real simulation model (`MODEL_REGISTRY`), already
+selectable end to end in the Scenario Builder (`disasterFieldSpecs.ts`/`ScenarioForm.tsx`), and already
+resolved to a visualizer (`three/disasters/registry.ts`) — Prompt 6/7/8's own parallel-registry pattern
+(CLAUDE.md §25) already covered the full catalog. What was actually missing was *discoverability* and
+*polish*: the Command Center's scenario selector only lists `status="ready"` scenarios, and the seed data
+had only 2-3 of the 9 types in that state — fixed with an idempotent `_ensure_scenario` helper in
+`backend/app/db/seed.py` (name-keyed lookup, safe to re-run, backfills exactly the missing types rather than
+a destructive full reseed) plus a "New scenario" link (`ScenarioContextPanel.tsx` → `/scenarios`) so users
+aren't limited to whatever happens to be seeded. A new read-only `GET /disaster-types` endpoint
+(`backend/app/core/disaster_catalog.py` → `app/schemas/disaster_catalog.py` → `shared/types/index.ts`'s
+`DisasterCatalogEntry`) is additive discovery/documentation metadata only — it introspects the *existing*
+`DISASTER_CONFIG_SCHEMAS`/`MODEL_REGISTRY` rather than becoming a second source of truth, and does not
+replace `disasterFieldSpecs.ts` as the Scenario Builder form's live data source (CLAUDE.md §25's
+hand-kept-in-sync parallel-registry decision stands). The Scenario Builder's form components
+(`ScenarioForm.tsx`, `FormField.tsx`, `DisasterParameterFields.tsx`) were restyled onto the Prompt 8 design
+tokens/`components/ui` primitives, replacing raw Tailwind slate/sky classes that predated that system. Full
+detail — including the fact-checked parameter-consumption honesty table (which exposed fields each of the 5
+underlying models actually reads vs. accepts-but-ignores) — in docs/development/scenarios.md.
+
+### 28d. Prompt 10.1 — Connect and Visualize Geospatial Impact Data
+
+A corrective integration pass, not new architecture: Prompt 10 built real PostGIS-backed geospatial
+infrastructure (`geographic_datasets`/`geographic_features`, an ingested Natural Earth coastline dataset,
+hazard-footprint/exposure/impact analysis, and their REST endpoints) that a diagnostic audit found the
+Command Center never actually displayed — not because the backend was broken, but because
+`useCommandCenterSession` auto-selected `runList[0]` (the newest `SimulationRun` by `created_at`,
+regardless of status), which could pick a freshly-created `PENDING` run over an older `COMPLETED` run that
+already had real hazard/exposure/impact data sitting in the database.
+
+Fixed with a documented, testable priority rule rather than a one-line reorder:
+`backend/app/services/run_selection.py`'s pure `select_default_run_id` picks the latest `COMPLETED` run
+that actually has `frame_count > 0` (verified via `SimulationArtifact.extra_metadata`, never assumed from
+status alone), falling back to the latest `RUNNING`, then latest `PENDING`, and never auto-selecting
+`FAILED`/`CANCELLED` (those remain reachable only through the new `RunSelector.tsx`'s explicit choice).
+`ScenarioService.get_default_run` applies it; `GET /scenarios/{id}/runs/default` exposes it;
+`SimulationRunOut`/`SimulationRun` (shared contract) gained a `frame_count` field so the run list and the
+default-run lookup both carry real counts with no extra per-run round trip.
+
+Once run selection was fixed, `useDataLayers`'s existing hazard-footprint/exposure fetches (already keyed
+correctly on `frameIndex`) started working as designed; this phase added the one piece that was actually
+missing — a per-frame `getImpact(runId, frameIndex)` fetch and a dedicated `ImpactPanel.tsx` — plus a new
+`GeographicContextPanel.tsx` (real scenario coordinates, coastline provenance derived from the live
+`GET /geographic-features/nearby` response, an honest "Synthetic demo assets" infrastructure label, and
+explicit Elevation/Terrain limitations). `three/core/SceneRoot.tsx` now carries a comment explaining why
+two hazard-visual systems deliberately coexist: the per-disaster-type `Visualizer` (registry-resolved,
+stylized) and `HazardFootprintLayer` (real Polygon/Point geometry from `GET .../hazard-footprints`) — the
+former is kept as the earlier prompts' "read clearly" visual language, the latter is what this phase's
+Data Layers/Impact panels actually reason about. No DEM/elevation/rasterio was introduced — terrain stays
+procedural, labeled as such everywhere it's shown. Full detail: docs/geospatial/impact-visualization.md.
+
+### 28e. Prompt 11 — Console redesign, real satellite basemap, water rewrite
+
+A visual/structural correction pass across the frontend. Three problems were addressed, each with a
+different kind of fix.
+
+**1. Layout was structurally broken, not just unstyled.** The Command Center's panels were absolutely
+positioned overlays inside the 3D viewport. Below a very wide window the left stack overflowed its own
+container and collided with the simulation panel, and the Data Layers buttons wrapped outside their card.
+`CommandCenterPage.tsx` is now an explicit three-column grid — a fixed-width left rail, the viewport, a
+fixed-width right rail — where each rail is an independently scrolling column with `min-h-0`. A long panel
+now scrolls inside its own rail and cannot overlap anything. Below `xl` the grid collapses to one column
+with a fixed-height viewport. Panels moved to a `flush` `CommandPanel` variant (no radius, no side borders)
+so a rail reads as one instrument stack rather than a pile of floating cards.
+
+Two panels were split out so neither column has to hold two unrelated questions at once:
+`HazardMetricsPanel.tsx` (what the current frame reports — the adapter's own label, timestep, radius, and
+the backend footprint's intensity/geometry) and the existing `ImpactPanel` (what that means for assets).
+`ViewportChrome.tsx` adds non-interactive corner annotation over the canvas: per-disaster colour keys, the
+exposure key, the real view extent, and data provenance. It is `pointer-events-none` as a whole so it can
+never intercept an orbit drag.
+
+**2. Design language.** Tokens were rebuilt around a flat emergency-operations console: IBM Plex Sans/Mono
+(tabular numerics on every readout), a 3-step neutral elevation scale, 3-4px radii, and hairline rules.
+`--shadow-glow-accent` was deleted rather than re-tuned — a coloured halo around a border is now a banned
+effect, and `LiquidMetalButton` was rebuilt as an unblurred machined rim instead of a blurred conic glow.
+A single inline SVG icon set (`components/ui/icons.tsx`, one grid, one stroke width) replaced ad-hoc glyphs
+and the one emoji that had reached the UI. New primitives: `Toggle` (a real `role="switch"`, which is what
+the Data Layers controls always were semantically), `MetricTile`, `SeverityBadge`, `LegendBar`.
+
+**3. The 3D world.** Three independent changes, in order of visual weight:
+
+- **Scene scale (`SCENE_UNITS_PER_KM` 0.12 → 1.1).** This was the root cause of "the disaster is a speck".
+  The old scale made the visible world ~2,300 km across, so a 20 km hazard footprint projected to 2.4 units
+  inside a 280-unit terrain plate. The plate is now 320 units ≈ 291 km — a regional view — and that same
+  footprint projects to 22 units. `geoProjection.ts` owns the constant, the plate size, and the derived
+  `SCENE_WORLD_SPAN_KM` so terrain and basemap cannot disagree about how much ground is on screen.
+- **Automatic framing (`CameraController`).** The camera previously sat at a fixed world position regardless
+  of where the hazard was. It now slews its orbit target onto the focal point and pulls to a distance that
+  fits the hazard radius at the current FOV. `SceneRoot` derives both (hazard centre when the model reports
+  one, else the scenario origin) — composition is decided in exactly one place, never by a visualizer. Any
+  manual orbit input cancels the slew permanently; `prefers-reduced-motion` applies it as an instant cut.
+- **Water (`shaders/water.ts`).** Rewritten from stacked sine displacement to six Gerstner components with
+  analytic normals, plus a real water shading model (Schlick fresnel over a sky-gradient reflection,
+  depth-tinted body colour, wrap lighting, forward scatter through crests, tight specular + noise-broken
+  glitter, steepness-driven foam, distance fade to the horizon). The plane went from 64 to 320 segments,
+  because Gerstner displacement is per-vertex and the old grid could not represent a crest. ACES tone
+  mapping was enabled on the canvas — the specular terms deliberately exceed 1.0 and were previously
+  clipping to flat white.
+
+**New: a real satellite basemap (`three/terrain/satelliteBasemap.ts`).** Esri World Imagery XYZ tiles
+(public, key-free, CORS-enabled) are stitched into one canvas covering exactly the terrain plate's ground
+footprint, centred on the scenario's real coordinates, and used as the plate's texture. This is the one
+place in `three/` that renders genuinely real-world data rather than synthetic geometry, and the boundary is
+drawn carefully:
+
+- Imagery is **not** elevation. The plate's *shape* stays procedural; no DEM is ingested, and
+  `GeographicContextPanel` still reports elevation as unavailable, because that remains true.
+- A land/water mask is derived from the imagery by a documented colour heuristic (open water is darker and
+  bluer) purely so the animated water surface meets the coastline visible in the picture instead of
+  contradicting it. It is a rendering convenience, is never analysed, and is never displayed as a
+  measurement. Exposure/hazard-footprint/impact remain server-side PostGIS results.
+- Failure is a first-class path: offline, blocked, CORS-refused or a partially-loaded grid all resolve to
+  `status: "unavailable"` and the plate falls back to the previous procedural vertex-colour terrain. The
+  real status is surfaced in the UI (Geographic Context "Satellite" row, viewport provenance line) — the app
+  never claims imagery it doesn't have. Attribution is a licence obligation and is always rendered.
+
+No Google Maps/SerpAPI dependency was introduced: that route needs a paid key and returns place *data*, not
+basemap tiles, so it could not have produced this view. No new npm dependency was added for any of the above.
+
+**Honesty corrections.** The `/explore` gateway had acquired fabricated telemetry — a fixed
+"CHENNAI_SECTOR_01" identifier, a hardcoded lat/lon, a "60_FPS_ACTV" readout, a "3D SENSOR GRID READY"
+status, and a claim of "hydrodynamic storm surge modeling". None of it was real. It was replaced with a
+statement of what the console actually contains (CLAUDE.md §12/§26/§27). The header's ANALYZE/RESPOND/REPORT
+modes are rendered as explicitly unavailable (`aria-disabled`, muted, "planned" tooltip) rather than as live
+tabs that would do nothing.
+
+## 29. Authenticated Interactive Console (Prompt 12)
+
+The console was rebuilt around three decisions: Firebase Authentication with per-user data isolation
+(ADR-004), one synthetic shoreline world with a client-side propagation mirror (ADR-005), and in-situ
+scenario creation (the standalone `/scenarios` builder route is gone; `/scenarios` redirects).
+
+```
+Landing ("/")  ->  Sign-in gateway ("/explore", Firebase)  ->  warp  ->  Command Center ("/command-center")
+                                                                              |
+      New test (name + generic preset)  ->  POST /scenarios (owner_uid = verified uid)
+                                                                              |
+      Inline HUD sliders / draggable origin pin  ->  PropagationParams (live)  ->  autosave as a new
+                                                                                    ScenarioVersion
+                                                                              |
+      LIVE PREVIEW: frontend/src/propagation (mirror) -> HazardSnapshot per frame -> three/hazard/hazardChannel
+                                                                              |
+      Record run: POST /scenarios/{id}/runs + /execute  ->  simulation/ (authoritative)  ->  REPLAY (read-only)
+```
+
+Frontend structure: `features/auth/` (provider, guard, token getter), `api/client.ts` (the one HTTP
+client, attaches the bearer token), `features/command-center/` (session hook, playback clock, HUD
+components, presets), `propagation/` (the mirror), `three/world/demoWorld.ts` (km ↔ scene + GLSL twin of
+the shoreline/terrain functions), `three/hazard/hazardChannel.ts` (visualizer → water-shader uniforms at
+frame rate, no React state), `three/markers/OriginPin.tsx` (drag on the y=0 plane, clamped to water).
+
+Watertight shoreline: the water fragment shader evaluates the same `terrainHeightKm` the terrain mesh was
+built from and discards itself wherever land is above the surface; swell amplitude is damped to zero over
+the last 25 km. A coastal flood / tsunami run-up extends the surface inland by the model's inundation
+reach, riding on that same terrain function.
+
+**Structures (Prompt 13).** `scenario_config.structures` (validated `StructureConfig`s in world km) are
+rendered by `three/structures/` and assessed every frame by `simulation/core/structures.py` (Python, fills
+`infrastructure_impacts`) and its mirror `frontend/src/propagation/structures.ts` (live preview) — the same
+fixture tripwire as the propagation mirror. Exposure is an illustrative 0-1 band per hazard kind (tsunami
+run-up sector, cyclone wind field, oil at the coast, flood inundation stretch), never a damage model.
+
+Backend: `app/core/auth.py`, `app/api/routes/auth.py` (`GET /auth/me`), owner scoping through
+`ScenarioRepository.get/list` → `ScenarioService(owner_uid)` → `SimulationService(owner_uid)` →
+`ImpactService(owner_uid)`; `PropagationConfig` in `app/schemas/scenario_config.py`; the four demo models
+rewritten on `simulation/core/propagation.py` (`*-demo-v2` identifiers). `search_rescue` keeps its v1
+model (no shoreline visual, not offered as a preset).
+
+## 30. AI Intelligence Layer (Prompt 14)
+
+```
+POST /ai/analyze ──► AIAnalysisService ──► run_analysis(GraphDeps)
+                         │                      │
+                         │   START → context_collector → { impact_analyst ‖ tactical_advisor } → synthesis_safety → END
+                         │                      │
+                         │   Agent → ToolRunner → BackendAnalysisDataAccess → Scenario/Simulation/Footprint/Exposure services → repositories → PostGIS/DB (READ)
+                         └──► ai_requests row (status, provider, model, prompt/agent versions, tools called, execution_ms, CommandBrief)   (the only WRITE)
+```
+
+Detail and guardrails: docs/agents/ai-layer.md. Contracts: `agents/schemas/*.py` (Python source of truth),
+`shared/types/index.ts` (`CommandBrief`, `AIRequestOut`, …).
+
