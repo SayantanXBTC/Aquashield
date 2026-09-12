@@ -22,9 +22,10 @@ from app.api.routes.health import router as health_router
 from app.api.routes.infrastructure_assets import router as infrastructure_assets_router
 from app.api.routes.scenarios import router as scenarios_router
 from app.api.routes.simulation_runs import router as simulation_runs_router
+from app.api.websocket.ai_events import router as ai_events_router
 from app.api.websocket.connectivity import router as websocket_router
 from app.config.settings import settings
-from app.services.ai_analysis_service import AIProviderConfigurationError, AIRequestNotFoundError
+from app.services.ai_analysis_service import AIAnalysisStaleError, AIProviderConfigurationError, AIRequestNotFoundError
 from app.services.scenario_service import ScenarioNotFoundError, ScenarioValidationError
 from app.services.simulation_service import (
     SimulationConfigurationError,
@@ -90,6 +91,13 @@ def handle_ai_request_not_found(request: Request, exc: AIRequestNotFoundError) -
     return JSONResponse(status_code=404, content={"detail": str(exc)})
 
 
+@app.exception_handler(AIAnalysisStaleError)
+def handle_ai_analysis_stale(request: Request, exc: AIAnalysisStaleError) -> JSONResponse:
+    # 409, not 400: the request was well-formed, the world moved on. The
+    # client discards the answer it was waiting for and re-requests.
+    return JSONResponse(status_code=409, content={"detail": str(exc), "code": "AI_ANALYSIS_STALE"})
+
+
 @app.exception_handler(AIProviderConfigurationError)
 def handle_ai_provider_configuration(request: Request, exc: AIProviderConfigurationError) -> JSONResponse:
     return JSONResponse(status_code=503, content={"detail": str(exc)})
@@ -98,6 +106,7 @@ def handle_ai_provider_configuration(request: Request, exc: AIProviderConfigurat
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(websocket_router)
+app.include_router(ai_events_router)
 app.include_router(scenarios_router)
 app.include_router(simulation_runs_router)
 app.include_router(disaster_types_router)

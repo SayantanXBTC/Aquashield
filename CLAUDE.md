@@ -619,7 +619,8 @@ Full detail (verification results, pinned-version constraints): architecture.md 
 | Rasterio | PLANNED |
 | Simulation Engine — `simulation/core` + 5 demo disaster models + execution API | BOOTSTRAPPED (Prompt 7 — deterministic, synchronous, JSON artifact only; see docs/development/simulation.md) |
 | AAA 3D Command Center + cinematic landing | BOOTSTRAPPED (Prompt 8 — landing/explore/command-center routing, full Three.js scene graph, real Prompt 7 integration; see docs/development/command-center.md) |
-| AI — LangGraph 3-agent analysis layer (`agents/`) | BOOTSTRAPPED (Prompt 14 — read-only, evidence-gated, local deterministic provider by default; see docs/agents/ai-layer.md) |
+| AI — LangGraph 9-node analysis layer (`agents/`) | BOOTSTRAPPED (Prompt 14, extended Prompt 15 — read-only, evidence-gated, local deterministic provider by default; see docs/agents/ai-layer.md) |
+| AI — frame-synchronised command-center integration (`/ws/ai`, Agent HUD, Intelligence panel) | BOOTSTRAPPED (Prompt 15 — throttled/debounced, stale-guarded; architecture.md §30a) |
 | Auth — Firebase Authentication + PyJWT verification | BOOTSTRAPPED (Prompt 12 — per-user scenario isolation via `scenarios.owner_uid`; operator supplies the Firebase project config; see docs/development/setup.md) |
 | Demo shoreline world + client-side propagation mirror | BOOTSTRAPPED (Prompt 12 — `simulation/core/propagation.py` ↔ `frontend/src/propagation/`, fixture-pinned; architecture.md ADR-005) |
 
@@ -727,6 +728,19 @@ Full detail: docs/agents/ai-layer.md. Architecture: architecture.md ADR-006, §3
   a system prompt.
 - The local deterministic provider must keep passing the same graph/validator as the Anthropic provider —
   tests run offline against it. Bump `PROMPT_VERSION` when any prompt changes.
+- Adding an agent means: a node module under `agents/agents/<domain>/`, a closed output schema in
+  `agents/schemas/outputs.py`, a state field, an entry in `AGENT_VERSIONS`/`AGENT_LABELS`/`AGENT_ORDER`, a
+  deterministic generator in `agents/llm/local_rules.py`, an edge in `agents/graph/workflow/graph.py`, and the
+  matching chip in `frontend/src/features/command-center/ai/agentRoster.ts`. Never an if/elif inside a node.
+- The AI never runs per frame. All pacing lives in `frontend/src/features/command-center/ai/analysisScheduler.ts`
+  (playback throttle `AI_UPDATE_INTERVAL_MS`, scrub debounce `AI_SCRUB_DEBOUNCE_MS`, immediate on
+  pause/complete/manual). Don't call `aiApi.analyzeFrame` from a component directly, and don't put an analysis
+  call inside `useFrame` or a per-frame effect.
+- A brief is cached by `(scenario_version_id, simulation_run_id, frame_index)` and discarded when the scope
+  changes. A late response for a scope the operator has left is dropped silently — never painted over the
+  frame on screen. The server enforces the same rule with `409 AI_ANALYSIS_STALE`.
+- `/ws/ai` events are a progress view only (best effort, in-process, per verified uid). Never make the
+  Command Brief depend on them, and never put prompt text, keys or chain-of-thought in an event.
 
 ## 27. AAA 3D Command Center & Landing Rules
 

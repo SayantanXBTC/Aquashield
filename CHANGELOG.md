@@ -1,5 +1,52 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-12 — Frame-synchronised multi-agent analysis in the command center (Prompt 15)
+
+**Added/Changed:**
+- `agents/`: graph expanded from 3 to 9 nodes — Context Collector → (Hazard ‖ Damage ‖ Risk) →
+  (Precaution ‖ Response) → Resource → Safety Validator → Command Synthesizer. Conditional routing skips the
+  analysis tiers when no analysable frame exists; a failing agent is recorded `FAILED` + `AGENT_FAILED`
+  limitation and the graph continues. New closed schemas (`HazardAssessment`, `DamageAssessment`,
+  `RiskAssessment`, `PrecautionSet`, `ResponsePlan`, `ResourceAssessment`), `AgentRun` records, and
+  `CommandBrief.precautions` / `resource_status` / `agent_runs`. `GraphDeps.emit` streams milestones.
+  `PROMPT_VERSION` bumped to `2026-09-12.2`.
+- Backend: `POST /ai/analyze-frame` (scenario_version_id + request_type), `409 AI_ANALYSIS_STALE` guard,
+  per-owner in-process `AIEventBus`, `/ws/ai` milestone socket (token query param, same verifier),
+  migration `9a1f63c05d72` adding `ai_requests.scenario_version_id` and `ai_requests.request_type`.
+- Frontend: `ai/analysisScheduler.ts` (playback throttle 5 s, scrub debounce 600 ms, immediate on
+  pause/complete/manual, frame cache, stale/superseded discard), `ai/useAIOrchestrator.ts`,
+  `ai/useAIEvents.ts`, `ai/agentRoster.ts`, `components/AgentExecutionHud.tsx`,
+  `components/IntelligencePanel.tsx`, mounted in the command center's right rail.
+  `components/CommandBriefPanel.tsx` removed (superseded).
+- Shared contracts: `AIAgentRun`, `AIAgentExecutionStatus`, `AIRequestType`, `AIEvent`, extended
+  `CommandBrief` / `AIRequestOut`.
+- Tests: agents 22 (was 17), backend 162 passing against PostgreSQL/PostGIS (new stale, frame-isolation,
+  agent-run and WebSocket tests; new `tests/test_ai_events.py`), frontend 45 (new scheduler and panel suites).
+
+**Why:**
+- Prompt 15 — the operator needs the agents working while the timeline plays, without a graph run per frame
+  (UI stalls, LLM cost) and without ever seeing an answer about a frame or configuration they have left.
+- Splitting the two analysts into six specialised agents makes each output independently validatable and lets
+  one agent fail without losing the brief.
+
+**Files/Modules:**
+- `agents/agents/{hazard,vulnerability,tactical,resource,command}/*`, `agents/graph/workflow/graph.py`,
+  `agents/schemas/{outputs,brief,state}.py`, `agents/llm/local_rules.py`, `agents/prompts/versions.py`
+- `backend/app/services/{ai_events,ai_analysis_service}.py`, `backend/app/api/websocket/ai_events.py`,
+  `backend/app/api/routes/ai.py`, `backend/app/schemas/ai.py`, `backend/app/db/models/ai_request.py`,
+  `backend/alembic/versions/9a1f63c05d72_ai_request_frame_sync.py`
+- `frontend/src/features/command-center/ai/*`, `.../components/{AgentExecutionHud,IntelligencePanel}.tsx`,
+  `.../CommandCenterPage.tsx`, `shared/types/index.ts`
+- `architecture.md` §30/§30a, `docs/agents/ai-layer.md`, `CLAUDE.md` §23/§26a
+
+**Future Context:**
+- `AIEventBus` is in-process: a multi-worker deployment needs a real broker before `/ws/ai` is reliable.
+- The Resource Agent is a live seam, not a stub to delete: flip `resource_agent.has_resource_inventory` when a
+  verified inventory data source exists, and it starts reporting instead of `RESOURCE_DATA_UNAVAILABLE`.
+- `EvidenceRetriever` still returns `NOT_CONFIGURED` — RAG remains out of scope.
+- Execution is still synchronous; the scheduler is what keeps that acceptable. If a hosted provider makes a
+  run slow enough to block a worker, move execution to a job queue rather than loosening the throttle.
+
 ### 2026-09-12 — Read-only multi-agent AI intelligence layer (Prompt 14)
 
 **Added/Changed:**

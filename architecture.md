@@ -918,17 +918,50 @@ Backend: `app/core/auth.py`, `app/api/routes/auth.py` (`GET /auth/me`), owner sc
 rewritten on `simulation/core/propagation.py` (`*-demo-v2` identifiers). `search_rescue` keeps its v1
 model (no shoreline visual, not offered as a preset).
 
-## 30. AI Intelligence Layer (Prompt 14)
+## 30. AI Intelligence Layer (Prompt 14, extended in Prompt 15)
 
 ```
-POST /ai/analyze ──► AIAnalysisService ──► run_analysis(GraphDeps)
+POST /ai/analyze-frame ──► AIAnalysisService ──► run_analysis(GraphDeps)
                          │                      │
-                         │   START → context_collector → { impact_analyst ‖ tactical_advisor } → synthesis_safety → END
+                         │   START → context_collector
+                         │              ├─(conditional: no analysable frame → safety_validator)
+                         │              └─► { hazard_agent ‖ damage_agent ‖ risk_agent }
+                         │                        └─► { precaution_agent ‖ response_agent }
+                         │                                  └─► resource_agent → safety_validator → command_synthesizer → END
                          │                      │
                          │   Agent → ToolRunner → BackendAnalysisDataAccess → Scenario/Simulation/Footprint/Exposure services → repositories → PostGIS/DB (READ)
+                         ├──► AIEventBus (per-owner, in-process) ──► /ws/ai ──► Agent Execution HUD
                          └──► ai_requests row (status, provider, model, prompt/agent versions, tools called, execution_ms, CommandBrief)   (the only WRITE)
 ```
 
 Detail and guardrails: docs/agents/ai-layer.md. Contracts: `agents/schemas/*.py` (Python source of truth),
-`shared/types/index.ts` (`CommandBrief`, `AIRequestOut`, …).
+`shared/types/index.ts` (`CommandBrief`, `AIRequestOut`, `AIEvent`, …).
+
+### 30a. Frame-synchronised analysis (Prompt 15)
+
+The deterministic layer updates every frame; the agent graph must not. Three mechanisms keep the two in step
+without freezing the UI or spending a graph run per frame:
+
+| Concern | Where it lives | Rule |
+|---|---|---|
+| Pacing | `frontend/src/features/command-center/ai/analysisScheduler.ts` | playback: ≤ 1 analysis per `AI_UPDATE_INTERVAL_MS` (5 s); scrub: debounced `AI_SCRUB_DEBOUNCE_MS` (600 ms); pause / run-complete / manual: immediate |
+| Caching | same file | key `(scenario_version_id, simulation_run_id, frame_index)`; the whole cache is dropped when the scope (scenario + version + run) changes |
+| Staleness | scheduler (client) + `AIAnalysisService` (server) | a response whose scope changed, or which a newer frame's request has superseded, is discarded; a request naming a version the run was not produced from is refused `409 AI_ANALYSIS_STALE` |
+
+Execution stays synchronous (§27's prototype choice). Liveness comes from `AIEventBus` — an in-process,
+per-owner, best-effort fan-out of milestones (`AI_ANALYSIS_STARTED`, `AGENT_STARTED`, `AGENT_COMPLETED`,
+`AI_ANALYSIS_COMPLETED`, `AI_ANALYSIS_FAILED`, `AI_ANALYSIS_STALE`) to `/ws/ai`. Events are a progress view
+only: the Command Brief always arrives over HTTP, so a dropped socket costs liveness and nothing else. One
+uvicorn worker is assumed; a multi-worker deployment needs a real broker (open follow-up).
+
+Fail-safe partial runs: a non-critical agent that raises is recorded `FAILED` with an `AGENT_FAILED`
+`DataLimitation`; the graph continues and the brief loses only that agent's section. Conditional routing skips
+the analysis tiers entirely when the Context Collector finds no analysable frame, so an empty frame costs no
+LLM call.
+
+UI mount points (`frontend/src/features/command-center/`): `CommandCenterPage.tsx` right rail →
+`components/AgentExecutionHud.tsx` (chip per graph node) and `components/IntelligencePanel.tsx` (hazard,
+potentially-exposed table, priorities, precautions, actions, limitations & audit). Both are HUD panels in the
+existing mission-control layout — no chatbot surface. The pre-Prompt-15 `CommandBriefPanel` is superseded and
+removed.
 

@@ -635,6 +635,17 @@ export interface AIRecommendedAction {
   evidence_ids: string[];
 }
 
+/** One graph node's execution record — what the Agent Execution HUD shows. */
+export type AIAgentExecutionStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "UNAVAILABLE" | "SKIPPED";
+
+export interface AIAgentRun {
+  agent: string;
+  label: string;
+  status: AIAgentExecutionStatus;
+  summary?: string | null;
+  duration_ms: number;
+}
+
 export interface CommandBrief {
   scenario_id: string;
   simulation_run_id: string;
@@ -645,7 +656,13 @@ export interface CommandBrief {
   hazard_progression: AIGroundedStatement[];
   key_exposures: AIExposureFinding[];
   priorities: AIPriority[];
+  /** Protective measures proposed before impact (Precaution Agent). */
+  precautions: AIRecommendedAction[];
+  /** Targeted actions per exposed subject (Tactical Response Agent). */
   recommended_actions: AIRecommendedAction[];
+  /** Always RESOURCE_DATA_UNAVAILABLE until a verified inventory exists. */
+  resource_status: string;
+  agent_runs: AIAgentRun[];
   evidence_references: AIEvidenceRef[];
   data_limitations: AIDataLimitation[];
   uncertainties: string[];
@@ -654,10 +671,16 @@ export interface CommandBrief {
   disclaimer: string;
 }
 
+/** What triggered an analysis — recorded so throttling stays auditable. */
+export type AIRequestType = "playback" | "scrub" | "paused" | "complete" | "manual";
+
 export interface AIAnalyzeRequest {
   scenario_id: string;
   simulation_run_id: string;
   frame_index: number;
+  /** The configuration version on screen; a mismatch is refused as stale (409). */
+  scenario_version_id?: string | null;
+  request_type?: AIRequestType | null;
   user_question?: string | null;
 }
 
@@ -665,7 +688,9 @@ export interface AIRequestOut {
   id: string;
   scenario_id: string;
   simulation_run_id: string;
+  scenario_version_id?: string | null;
   frame_index: number;
+  request_type?: AIRequestType | null;
   user_question?: string | null;
   status: AIRequestStatus;
   provider?: string | null;
@@ -691,5 +716,37 @@ export interface AIRequestResultOut {
   id: string;
   status: AIRequestStatus;
   result: CommandBrief | null;
+  error?: string | null;
+}
+
+// --- AI milestone events (`/ws/ai`) -----------------------------------------
+// A live view of the analysis graph while the synchronous /ai/analyze-frame
+// call is in flight. Events are best effort: the Command Brief always comes
+// back over HTTP, so a client that misses events still renders correctly.
+
+export type AIEventType =
+  | "AI_EVENTS_READY"
+  | "heartbeat"
+  | "AI_ANALYSIS_STARTED"
+  | "AGENT_STARTED"
+  | "AGENT_COMPLETED"
+  | "AI_ANALYSIS_COMPLETED"
+  | "AI_ANALYSIS_FAILED"
+  | "AI_ANALYSIS_STALE";
+
+export interface AIEvent {
+  type: AIEventType;
+  request_id?: string;
+  scenario_id?: string;
+  simulation_run_id?: string;
+  scenario_version_id?: string;
+  frame_index?: number;
+  agent_name?: string;
+  label?: string;
+  status?: AIAgentExecutionStatus;
+  summary?: string | null;
+  duration_ms?: number;
+  execution_ms?: number | null;
+  command_brief?: CommandBrief | null;
   error?: string | null;
 }

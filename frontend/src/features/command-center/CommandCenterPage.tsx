@@ -10,9 +10,11 @@ import { PlaybackBar } from "./components/PlaybackBar";
 import { RunsPanel } from "./components/RunsPanel";
 import { ScenarioTray } from "./components/ScenarioTray";
 import { StructuresPanel } from "./components/StructuresPanel";
-import { CommandBriefPanel } from "./components/CommandBriefPanel";
+import { AgentExecutionHud } from "./components/AgentExecutionHud";
+import { IntelligencePanel } from "./components/IntelligencePanel";
 import { TelemetryPanel } from "./components/TelemetryPanel";
 import { TopBar } from "./components/TopBar";
+import { useAIOrchestrator } from "./ai/useAIOrchestrator";
 import { useScenarioSession } from "./hooks/useScenarioSession";
 import { usePlaybackClock } from "./playback/usePlaybackClock";
 
@@ -28,6 +30,15 @@ const RECORDED_TIMESTEP_MINUTES = 15;
 export function CommandCenterPage() {
   const clock = usePlaybackClock();
   const session = useScenarioSession(clock);
+  // The AI layer follows the playhead on its own throttle/debounce — the
+  // deterministic readouts below keep updating every frame regardless.
+  const ai = useAIOrchestrator({
+    scenarioId: session.selectedScenarioId,
+    runs: session.runs,
+    replayRunId: session.replayRunId,
+    clock,
+    recordedTimestepMinutes: RECORDED_TIMESTEP_MINUTES,
+  });
   const location = useLocation();
   const reducedMotion = usePrefersReducedMotion();
   const [entrance] = useState(() => (location.state as { entrance?: string } | null)?.entrance === "warp" && !reducedMotion);
@@ -169,12 +180,22 @@ export function CommandCenterPage() {
               onReplay={session.setReplayRunId}
               onExitReplay={session.exitReplay}
             />
-            <CommandBriefPanel
-              scenarioId={session.selectedScenarioId}
-              runs={session.runs}
-              replayRunId={session.replayRunId}
-              clock={clock}
-              recordedTimestepMinutes={RECORDED_TIMESTEP_MINUTES}
+            <AgentExecutionHud
+              agents={ai.agents}
+              status={ai.status}
+              trigger={ai.lastTrigger}
+              frameIndex={ai.targetRun ? ai.frameIndex : null}
+              error={ai.error}
+              onAnalyseNow={ai.analyseNow}
+              disabled={!ai.targetRun}
+            />
+            <IntelligencePanel
+              brief={ai.brief}
+              structures={session.structures}
+              frameIndex={ai.frameIndex}
+              briefIsBehind={ai.briefIsBehind}
+              status={ai.status}
+              provider={ai.provider}
             />
             {session.scenarioStatus === "error" && session.scenarioError ? (
               <p role="alert" className="text-status-critical pointer-events-auto rounded-[8px] border border-status-critical/40 bg-[rgba(9,14,20,0.8)] px-3 py-2 text-[11px] backdrop-blur-xl">

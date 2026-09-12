@@ -12,10 +12,23 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from agents.schemas.brief import AgentExecutionStatus, CommandBrief
+from agents.schemas.brief import AgentExecutionStatus, AgentRun, CommandBrief
 from agents.schemas.context import ContextPayload
 from agents.schemas.evidence import DataLimitation
-from agents.schemas.outputs import ImpactAnalysis, TacticalPlan
+from agents.schemas.outputs import (
+    DamageAssessment,
+    ExposureFinding,
+    GroundedStatement,
+    HazardAssessment,
+    ImpactAnalysis,
+    PrecautionSet,
+    Priority,
+    RecommendedAction,
+    ResourceAssessment,
+    ResponsePlan,
+    RiskAssessment,
+    TacticalPlan,
+)
 
 
 class ToolCallRecord(BaseModel):
@@ -38,11 +51,33 @@ class AquaShieldAgentState(BaseModel):
     # --- Agent 1 ---
     context: ContextPayload | None = None
 
-    # --- Agent 2 / Agent 3 (parallel) ---
+    # --- Tier 1 (parallel): hazard / damage / risk ---
+    hazard_assessment: HazardAssessment | None = None
+    damage_assessment: DamageAssessment | None = None
+    risk_assessment: RiskAssessment | None = None
+
+    # --- Tier 2 (parallel): precaution / response ---
+    precaution_set: PrecautionSet | None = None
+    response_plan: ResponsePlan | None = None
+
+    # --- Tier 3: resource (only if a verified inventory exists) ---
+    resource_assessment: ResourceAssessment | None = None
+
+    # --- Safety Validator output: only evidence-grounded findings survive ---
+    validated_progression: list[GroundedStatement] = Field(default_factory=list)
+    validated_exposures: list[ExposureFinding] = Field(default_factory=list)
+    validated_priorities: list[Priority] = Field(default_factory=list)
+    validated_precautions: list[RecommendedAction] = Field(default_factory=list)
+    validated_actions: list[RecommendedAction] = Field(default_factory=list)
+    hazard_trend: str = "unknown"
+    validation_notes: list[str] = Field(default_factory=list)
+
+    # --- Legacy composite views (kept so existing callers/tests still read
+    # the pre-Prompt-15 shapes; assembled by the Safety Validator) ---
     impact_analysis: ImpactAnalysis | None = None
     tactical_plan: TacticalPlan | None = None
 
-    # --- Join ---
+    # --- Command Synthesizer ---
     command_brief: CommandBrief | None = None
 
     # --- audit (append-merged across branches) ---
@@ -51,5 +86,6 @@ class AquaShieldAgentState(BaseModel):
     limitations: Annotated[list[DataLimitation], operator.add] = Field(default_factory=list)
     agent_versions: Annotated[dict[str, str], operator.or_] = Field(default_factory=dict)
     errors: Annotated[list[str], operator.add] = Field(default_factory=list)
+    agent_runs: Annotated[list[AgentRun], operator.add] = Field(default_factory=list)
 
     status: AgentExecutionStatus = "PENDING"

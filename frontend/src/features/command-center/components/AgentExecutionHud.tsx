@@ -1,0 +1,100 @@
+import { Cpu } from "lucide-react";
+import { cn } from "@/lib/utils";
+import type { AIAgentExecutionStatus, AIAgentRun, AIRequestType } from "../types";
+import { HudPanel } from "./HudPanel";
+
+interface AgentExecutionHudProps {
+  agents: AIAgentRun[];
+  /** What the orchestrator is doing right now. */
+  status: "idle" | "waiting" | "running" | "ready" | "error";
+  trigger: AIRequestType | null;
+  frameIndex: number | null;
+  error: string | null;
+  onAnalyseNow: () => void;
+  disabled: boolean;
+}
+
+const DOT: Record<AIAgentExecutionStatus, string> = {
+  PENDING: "bg-white/25",
+  RUNNING: "bg-accent-strong animate-pulse",
+  COMPLETED: "bg-status-ok",
+  FAILED: "bg-status-critical",
+  UNAVAILABLE: "bg-severity-moderate",
+  SKIPPED: "bg-white/15",
+};
+
+const STATUS_LABEL: Record<AgentExecutionHudProps["status"], string> = {
+  idle: "No recorded run",
+  waiting: "Queued",
+  running: "Analysing",
+  ready: "Complete",
+  error: "Failed",
+};
+
+const TRIGGER_LABEL: Record<AIRequestType, string> = {
+  playback: "playback",
+  scrub: "timeline scrub",
+  paused: "paused",
+  complete: "run complete",
+  manual: "manual",
+};
+
+/**
+ * The Agent Execution HUD — one chip per node of the analysis graph, in the
+ * order the graph runs them.
+ *
+ * Statuses are reported by the backend (live `/ws/ai` milestones, then the
+ * brief's own `agent_runs`); nothing here infers progress. An agent the
+ * graph's conditional routing skipped reads SKIPPED, and the Resource Agent
+ * reads UNAVAILABLE because no verified resource inventory exists — neither
+ * is dressed up as success.
+ */
+export function AgentExecutionHud({ agents, status, trigger, frameIndex, error, onAnalyseNow, disabled }: AgentExecutionHudProps) {
+  return (
+    <HudPanel
+      id="ai-agents"
+      title="Agent pipeline"
+      icon={<Cpu className="h-3.5 w-3.5" />}
+      aside={
+        <span className={cn("font-mono text-[10px]", status === "error" ? "text-status-critical" : status === "running" ? "text-accent-strong" : "text-ink-faint")}>
+          {STATUS_LABEL[status]}
+        </span>
+      }
+      bodyClassName="flex flex-col gap-2"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-ink-faint text-[10px]">
+          {frameIndex === null ? "Frame —" : `Frame ${frameIndex}`}
+          {trigger ? ` · ${TRIGGER_LABEL[trigger]}` : ""}
+        </span>
+        <button
+          type="button"
+          onClick={onAnalyseNow}
+          disabled={disabled}
+          className="text-ink-soft hover:text-ink cursor-pointer rounded-[4px] border border-white/[0.08] px-2 py-0.5 text-[10px] tracking-[0.1em] uppercase disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Analyse now
+        </button>
+      </div>
+
+      <ul className="flex flex-col gap-1">
+        {agents.map((agent) => (
+          <li key={agent.agent} className="flex items-center gap-2" title={agent.summary ?? undefined}>
+            <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", DOT[agent.status])} aria-hidden />
+            <span className="text-ink-soft min-w-0 flex-1 truncate text-[11px]">{agent.label}</span>
+            <span className="text-ink-faint shrink-0 font-mono text-[9px] tracking-[0.08em] uppercase">{agent.status}</span>
+            <span className="text-ink-faint w-12 shrink-0 text-right font-mono text-[9px]">
+              {agent.duration_ms > 0 ? `${agent.duration_ms.toFixed(0)} ms` : "—"}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {error ? (
+        <p role="alert" className="text-status-critical text-[11px]">
+          {error}
+        </p>
+      ) : null}
+    </HudPanel>
+  );
+}
