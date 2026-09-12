@@ -22,9 +22,12 @@ xarray==2026.7.0
 shapely==2.1.2
 geopandas==1.1.4
 
-# --- agents (LangGraph) — INSTALLED, NOT IMPLEMENTED ---
+# --- agents (LangGraph multi-agent analysis layer, agents/) ---
 langgraph==1.2.11
 langchain-core==1.6.2
+# Official Claude SDK — used only when AI_PROVIDER=anthropic (agents/llm/provider.py);
+# the default local deterministic provider needs no network or key.
+anthropic==1.5.0
 
 # --- rag (ChromaDB) — INSTALLED, NOT IMPLEMENTED ---
 chromadb==1.5.9

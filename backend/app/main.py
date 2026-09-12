@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.routes.ai import router as ai_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.disaster_types import router as disaster_types_router
 from app.api.routes.geographic_features import router as geographic_features_router
@@ -23,6 +24,7 @@ from app.api.routes.scenarios import router as scenarios_router
 from app.api.routes.simulation_runs import router as simulation_runs_router
 from app.api.websocket.connectivity import router as websocket_router
 from app.config.settings import settings
+from app.services.ai_analysis_service import AIProviderConfigurationError, AIRequestNotFoundError
 from app.services.scenario_service import ScenarioNotFoundError, ScenarioValidationError
 from app.services.simulation_service import (
     SimulationConfigurationError,
@@ -83,6 +85,16 @@ def handle_simulation_execution_failed(request: Request, exc: SimulationExecutio
     return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 
+@app.exception_handler(AIRequestNotFoundError)
+def handle_ai_request_not_found(request: Request, exc: AIRequestNotFoundError) -> JSONResponse:
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+
+@app.exception_handler(AIProviderConfigurationError)
+def handle_ai_provider_configuration(request: Request, exc: AIProviderConfigurationError) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(websocket_router)
@@ -91,3 +103,4 @@ app.include_router(simulation_runs_router)
 app.include_router(disaster_types_router)
 app.include_router(infrastructure_assets_router)
 app.include_router(geographic_features_router)
+app.include_router(ai_router)

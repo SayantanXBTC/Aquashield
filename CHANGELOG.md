@@ -1,5 +1,33 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-12 — Read-only multi-agent AI intelligence layer (Prompt 14)
+
+**Added/Changed:**
+- `agents/` implemented: LangGraph 3-agent graph (Context Collector → Impact Analyst ‖ Tactical Advisor →
+  Synthesis & Safety), Pydantic `AquaShieldAgentState` and `CommandBrief`, evidence registry, prompt-injection
+  sanitizer, `SafetyValidator` (unknown-evidence / ungrounded-number / destruction-wording stripping), human-
+  gated actions with `RESOURCE_DATA_UNAVAILABLE`, `EvidenceRetriever` stub returning `NOT_CONFIGURED`.
+- `LLMProvider` abstraction: `LocalDeterministicProvider` (default, offline) and `AnthropicProvider`
+  (official SDK, `messages.parse` structured outputs). `anthropic==1.5.0` added to requirements.
+- Backend: `ai_requests` audit table (migration `7c4e2a91b3d5`), `AIRequestRepository`,
+  `BackendAnalysisDataAccess` (read-only adapter over existing services), `AIAnalysisService`, routes
+  `POST /ai/analyze`, `GET /ai/requests/{id}`, `/status`, `/result`. Settings `AI_PROVIDER`, `AI_MODEL`,
+  `ANTHROPIC_API_KEY`.
+- Frontend: TypeScript mirrors in `shared/types`, `aiApi.ts`, one additive collapsed "AI command brief" HUD
+  panel. No other UI change.
+- Tests: 17 agents tests, 6 backend AI API tests; `scripts/ai_e2e_demo.py`.
+
+**Why:** Prompt 14 — AI interprets deterministic simulation output; it never predicts physics, never writes
+simulation/geospatial tables, never acts autonomously.
+
+**Files/Modules:** `agents/**`, `backend/app/{db/models/ai_request.py,repositories/ai_request_repository.py,
+services/ai_data_access.py,services/ai_analysis_service.py,schemas/ai.py,api/routes/ai.py}`,
+`backend/alembic/versions/7c4e2a91b3d5_ai_requests.py`, `shared/types/index.ts`,
+`frontend/src/features/command-center/{api/aiApi.ts,components/CommandBriefPanel.tsx}`, `docs/agents/ai-layer.md`.
+
+**Future Context:** adding an evidence kind = extend `EvidenceKind` + the collector; adding a tool = extend the
+`AnalysisDataAccess` Protocol + adapter (read-only only). Real RAG plugs into `EvidenceRetriever`.
+
 ### 2026-09-12 — Structures layer, premium water/terrain pass, dropdown fix (Prompt 13)
 
 **Added/Changed:**

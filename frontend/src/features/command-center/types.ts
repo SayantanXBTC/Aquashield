@@ -1,6 +1,15 @@
 // Re-exported from the cross-domain shared contracts (architecture.md §22) —
 // this feature never redefines these shapes locally.
 export type {
+  AIAnalyzeRequest,
+  AIDataLimitation,
+  AIPriorityLevel,
+  AIRecommendedAction,
+  AIRequestOut,
+  AIRequestResultOut,
+  AIRequestStatus,
+  AIRequestStatusOut,
+  CommandBrief,
   DisasterType,
   HazardPhase,
   Page,

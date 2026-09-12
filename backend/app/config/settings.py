@@ -52,6 +52,15 @@ class Settings(BaseSettings):
     # Never set this in any deployed environment.
     auth_dev_bypass_uid: str | None = Field(default=None, validation_alias="AUTH_DEV_BYPASS_UID")
 
+    # --- AI layer (agents/) ---
+    # "local" runs the full LangGraph with the deterministic rule provider —
+    # no network, no credits. "anthropic" uses the Claude API through the
+    # official SDK; the key is read from ANTHROPIC_API_KEY (or an `ant auth`
+    # profile) and is never persisted or logged.
+    ai_provider: str = Field(default="local", validation_alias="AI_PROVIDER")
+    ai_model: str = Field(default="claude-opus-5", validation_alias="AI_MODEL")
+    anthropic_api_key: str | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
+
     # --- Simulation artifacts ---
     # Where SimulationService writes prototype JSON timeline artifacts.
     # Defaults to the gitignored simulation/outputs/ directory (architecture.md

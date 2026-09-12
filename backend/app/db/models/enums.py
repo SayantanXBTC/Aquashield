@@ -141,6 +141,13 @@ class GeospatialDataCoverage(str, enum.Enum):
     GLOBAL = "global"
 
 
+class AIRequestStatus(str, enum.Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class EventType(str, enum.Enum):
     SCENARIO_CREATED = "scenario_created"
     SCENARIO_MODIFIED = "scenario_modified"

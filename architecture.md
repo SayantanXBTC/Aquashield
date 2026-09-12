@@ -278,6 +278,23 @@ Consequences: `simulation/` and `frontend/src/propagation/` must change together
 tripwire. The geospatial endpoints (`/hazard-footprints`, `/exposure`, `/impact`) still exist but report
 `partial`/zero exposure for demo-world runs (no real geometry), which their tests now assert.
 
+### ADR-006: Read-only LangGraph AI layer with a deterministic local provider
+
+Decision: the AI intelligence layer (`agents/`) is a LangGraph state graph of three agents plus a
+synthesis/safety join, reading simulation and geospatial data only through a six-method read-only
+Protocol the backend implements over its existing owner-scoped services, and writing only its own
+`ai_requests` audit table. Every claim must cite evidence produced by the Context Collector; the validator
+strips anything else. An `LLMProvider` abstraction ships with a deterministic offline provider (default) and
+an Anthropic SDK provider.
+Reason: CLAUDE.md §5/§12/§13 — the AI interprets, it never invents water levels, arrival times or damage;
+explainability requires an evidence chain; development and CI must not need paid API credits.
+Alternatives: free-form LLM chat over raw JSON (rejected — ungrounded numbers), agents with write access
+to recommendations tables (deferred — every output is human-gated first), a single-agent prompt (rejected —
+the parallel analyst/advisor split keeps impact facts and operational advice separately auditable).
+Consequences: synchronous execution per request (same prototype choice as simulation); no RAG yet
+(`EvidenceRetriever` stub → `NOT_CONFIGURED`); UI only gains an additive brief panel. See
+docs/agents/ai-layer.md.
+
 ## 14. Data Sources
 
 All external environmental/geospatial data providers are **PLANNED / TO BE DECIDED**. No data provider is selected or assumed at this stage.
@@ -327,7 +344,7 @@ Alternatives:
 Consequences:
 ```
 
-See ADR-001 through ADR-005 (Section 13) for the decisions recorded so far. Future major decisions (LLM provider, deployment infrastructure, additional disaster model integrations, large-scientific-data storage format) must be recorded here before being silently adopted.
+See ADR-001 through ADR-006 (Section 13) for the decisions recorded so far. Future major decisions (LLM provider, deployment infrastructure, additional disaster model integrations, large-scientific-data storage format) must be recorded here before being silently adopted.
 
 ## 18. Repository Architecture
 
@@ -900,3 +917,18 @@ Backend: `app/core/auth.py`, `app/api/routes/auth.py` (`GET /auth/me`), owner sc
 `ImpactService(owner_uid)`; `PropagationConfig` in `app/schemas/scenario_config.py`; the four demo models
 rewritten on `simulation/core/propagation.py` (`*-demo-v2` identifiers). `search_rescue` keeps its v1
 model (no shoreline visual, not offered as a preset).
+
+## 30. AI Intelligence Layer (Prompt 14)
+
+```
+POST /ai/analyze ──► AIAnalysisService ──► run_analysis(GraphDeps)
+                         │                      │
+                         │   START → context_collector → { impact_analyst ‖ tactical_advisor } → synthesis_safety → END
+                         │                      │
+                         │   Agent → ToolRunner → BackendAnalysisDataAccess → Scenario/Simulation/Footprint/Exposure services → repositories → PostGIS/DB (READ)
+                         └──► ai_requests row (status, provider, model, prompt/agent versions, tools called, execution_ms, CommandBrief)   (the only WRITE)
+```
+
+Detail and guardrails: docs/agents/ai-layer.md. Contracts: `agents/schemas/*.py` (Python source of truth),
+`shared/types/index.ts` (`CommandBrief`, `AIRequestOut`, …).
+
