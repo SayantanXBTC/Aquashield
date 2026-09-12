@@ -1,9 +1,29 @@
 """AI layer endpoints end to end: real scenario -> real recorded run ->
 LangGraph analysis (local deterministic provider) -> persisted brief."""
 
+import pytest
+
 from tests.conftest import requires_postgres
 
 pytestmark = requires_postgres
+
+
+@pytest.fixture()
+def rag_not_configured():
+    """Pins RAG_PROVIDER=none for tests asserting the pre-Prompt-16 default
+    posture, independent of what a developer's own backend/.env sets for
+    their running dev server (see tests/api/test_rag.py's `not_configured`)."""
+
+    from app.config.settings import settings
+    from app.services.rag_retrieval_service import reset_retriever_cache
+
+    original_provider = settings.rag_provider
+    settings.rag_provider = "none"
+    reset_retriever_cache()
+    yield
+    settings.rag_provider = original_provider
+    reset_retriever_cache()
+
 
 STRUCTURES = [
     {"id": "port", "type": "port", "name": "Harbour", "x_km": 192.0, "y_km": 150.0, "enabled": True},
@@ -26,7 +46,7 @@ def _recorded_run(client, *, disaster_type="tsunami"):
     return scenario, executed.json()
 
 
-def test_analyze_returns_grounded_brief_and_audit_trail(client):
+def test_analyze_returns_grounded_brief_and_audit_trail(client, rag_not_configured):
     scenario, run = _recorded_run(client)
     response = client.post("/ai/analyze", json={"scenario_id": scenario["id"], "simulation_run_id": run["id"], "frame_index": 4, "user_question": "Which structures are exposed?"})
     assert response.status_code == 201, response.text

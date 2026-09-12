@@ -1,4 +1,4 @@
-import { BookOpen, Radar, ShieldAlert } from "lucide-react";
+import { AlertTriangle, BookOpen, Radar, ShieldAlert } from "lucide-react";
 import { EmptyState } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import type { AIEvidenceItem, AIPriorityLevel, AIRecommendedAction, CommandBrief, StructureConfig } from "../types";
@@ -126,7 +126,7 @@ export function IntelligencePanel({ brief, structures, frameIndex, briefIsBehind
           ) : null}
 
           {/* The whole picture in one row. */}
-          <dl className="grid grid-cols-3 gap-1.5 rounded-[6px] border border-white/[0.06] bg-white/[0.03] p-2">
+          <dl className="grid grid-cols-4 gap-1.5 rounded-[6px] border border-white/[0.06] bg-white/[0.03] p-2">
             <div>
               <dt className="text-ink-faint text-[9px] tracking-[0.12em] uppercase">Exposed</dt>
               <dd className="text-ink font-mono text-sm">{exposures.length}</dd>
@@ -139,7 +139,31 @@ export function IntelligencePanel({ brief, structures, frameIndex, briefIsBehind
               <dt className="text-ink-faint text-[9px] tracking-[0.12em] uppercase">Actions</dt>
               <dd className="text-ink font-mono text-sm">{actions.length}</dd>
             </div>
+            <div>
+              <dt className="text-ink-faint text-[9px] tracking-[0.12em] uppercase">Warnings</dt>
+              <dd className={cn("font-mono text-sm", brief.data_limitations.length ? "text-severity-moderate" : "text-ink-faint")}>
+                {brief.data_limitations.length}
+              </dd>
+            </div>
           </dl>
+
+          {brief.data_limitations.length ? (
+            <ul className="flex flex-col gap-1">
+              {brief.data_limitations.slice(0, MAX_ROWS).map((limitation, index) => (
+                <li
+                  key={index}
+                  className="border-severity-moderate/40 bg-severity-moderate/10 flex items-start gap-1.5 rounded-[4px] border px-1.5 py-1 text-[11px]"
+                >
+                  <AlertTriangle className="text-severity-moderate mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span className="text-ink min-w-0 flex-1">
+                    <span className="text-severity-moderate font-mono text-[9px] uppercase">{limitation.code}</span> · {limitation.subject}:{" "}
+                    {limitation.detail}
+                  </span>
+                </li>
+              ))}
+              <Overflow total={brief.data_limitations.length} />
+            </ul>
+          ) : null}
 
           <p className="text-ink-soft line-clamp-3 text-[11px] leading-relaxed">{brief.current_hazard}</p>
 
@@ -259,16 +283,6 @@ export function IntelligencePanel({ brief, structures, frameIndex, briefIsBehind
                       {action.action}
                       {action.prerequisites.length ? ` · Prerequisites: ${action.prerequisites.join("; ")}` : ""}
                       {action.risks.length ? ` · Risks: ${action.risks.join("; ")}` : ""} · Resources: {action.resources}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-
-              {brief.data_limitations.length ? (
-                <ul className="flex flex-col gap-0.5">
-                  {brief.data_limitations.map((limitation, index) => (
-                    <li key={index} className="text-ink-faint text-[10px]">
-                      <span className="font-mono">{limitation.code}</span> · {limitation.subject}: {limitation.detail}
                     </li>
                   ))}
                 </ul>

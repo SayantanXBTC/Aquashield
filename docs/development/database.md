@@ -104,6 +104,19 @@ python -m app.db.seed
 
 `backend/tests/db/` covers: DB config (`test_connection.py`), that the DB is actually at the Alembic head revision and the migration history has a single head (`test_migrations.py`), Scenario/ScenarioVersion/SimulationRun creation and the RiskAssessment/ResponseRecommendation relationships (`test_models.py`), PostGIS geometry storage and an `ST_DWithin` spatial query (`test_spatial.py`), and the seed script (`test_seed.py`).
 
+**Run the suite against a second, disposable database**, not whatever `DATABASE_URL` your dev server uses — several tests assert an empty table (e.g. `rag_sources` before anything is ingested, per-user scenario isolation), and once real dev/demo data exists (real RAG sources ingested via `python -m rag ingest`, scenarios you created by hand) those assertions legitimately stop holding against a shared database. `conftest.py`'s `TEST_DATABASE_URL` env var (falls back to `DATABASE_URL` if unset) exists exactly for this — it is read from the real shell environment, not from `backend/.env`:
+
+```bash
+createdb aquashield_test
+psql aquashield_test -c 'CREATE EXTENSION postgis;'
+DATABASE_URL=postgresql+psycopg://aquashield:@localhost:5433/aquashield_test .venv/bin/alembic upgrade head
+DATABASE_URL=postgresql+psycopg://aquashield:@localhost:5433/aquashield_test .venv/bin/python -m app.db.seed
+DATABASE_URL=postgresql+psycopg://aquashield:@localhost:5433/aquashield_test .venv/bin/python -m app.services.geospatial.ingest_natural_earth
+export TEST_DATABASE_URL=postgresql+psycopg://aquashield:@localhost:5433/aquashield_test
+```
+
+A handful of tests assert a specific `RAG_PROVIDER`/`AI_PROVIDER` default posture regardless of database isolation — those pin the setting themselves for their own duration via a save/restore fixture (`tests/api/test_rag.py`'s `not_configured`, `tests/api/test_ai_analysis.py`'s `rag_not_configured`) rather than relying on the ambient `backend/.env` having no override, since a developer's own dev `.env` is expected to diverge from the code's defaults once RAG is actually switched on for local use (CLAUDE.md §26b).
+
 ## Security
 
 - No secrets in git. `.env`, `backend/.env` are gitignored; only `.env.example`/`backend/.env.example` (placeholders) are committed.
