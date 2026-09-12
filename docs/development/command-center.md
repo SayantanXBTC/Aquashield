@@ -288,10 +288,12 @@ three/
 ├── core/          AquaCanvas, SceneRoot, CameraController, LightingSystem, EnvironmentSystem, PerformanceMonitor
 ├── water/         WaterSurface + a custom vertex/fragment shader (shaders/water.ts)
 ├── terrain/       Landmass — procedurally displaced coastline patch
+├── vegetation/    ForestLayer + placement, tree geometry, sway/hazard shader
 ├── markers/       LocationMarker — scenario/hazard beacon + pulse ring
 ├── overlays/      SceneLabel — the one screen-space (drei Html) label style
 ├── particles/     InstancedDrift — GPU-instanced particle cluster (oil spill, search & rescue)
 ├── adapters/      simulationVisualAdapter.ts — the Prompt 7 <-> Three.js seam
+├── structures/    StructureLayer, StructureModel, procedural models, collapse.ts
 ├── disasters/     registry.ts + one visualizer per disaster family
 └── utils/         geoProjection.ts, colorRamp.ts
 ```
@@ -330,6 +332,64 @@ relief, an added higher-frequency noise octave for visible ridging), a color ram
 range in vegetation/rock tones with only a thin waterline "shelf" tone blending toward the water's own
 shallow color (`#0d3a44`) instead of a hard sand cutoff, and repositioned to `[38, -0.4, 22]` — a coastal
 accent near, not under, the scenario's own `LocationMarker` (which stays at the origin).
+
+### Vegetation (`three/vegetation/`)
+
+The land plate carries a forest of roughly 4,000 trees in three species — conifer, broadleaf and a palm
+fringe behind the beach.
+
+| File | Owns |
+|---|---|
+| `worldNoise.ts` | JS twin of the terrain material's fbm noise |
+| `forestPlacement.ts` | Where trees grow — pure, deterministic, testable without a GPU |
+| `treeGeometry.ts` | The merged trunk/canopy geometry per species |
+| `forestMaterial.ts` | Wind sway + the hazard's effect on the canopy, and the shared uniform block |
+| `ForestLayer.tsx` | Six `InstancedMesh` draw calls for the whole forest, and the per-frame uniforms |
+
+**Placement follows the paint.** The terrain material paints forest where `tfbm(km * 0.11 + 4.2)` is high;
+`worldNoise.ts` re-implements that noise so trees grow in the same patches, thin on the dunes, and stay off
+bare rock, steep faces and the beach. Every tree is seated on the same `terrainHeightKm` the land mesh is
+built from. Slope is measured in the shader's own units (`1 - normal.y`), not as a raw gradient.
+
+> The JS/GLSL twin is a **close** match, not a bit-exact one — the shader runs in 32-bit floats. That is
+> cosmetic; nothing downstream reads tree positions.
+
+**Why that twin is fragile enough to have its own test.** The GLSL hash fracts only the *final* product; an
+earlier JS twin also fract'ed the intermediate, which pulled the noise mean from ~0.5 to ~0.25. Because the
+forest mask keys off `smoothstep(0.5, 0.74)`, that is indistinguishable from "this world has no forest" — it
+produced 93 trees across 300 km and looked like a deliberate design choice. `forestPlacement.test.ts` asserts
+the noise distribution, so the next such drift fails a test instead of quietly emptying the world.
+
+**Animation is GPU-side.** Sway and the inundated-canopy response are vertex-shader work driven by one
+module-level uniform block (`forestUniforms`, the same pattern as `hazardChannel`); the per-frame CPU cost is
+writing a handful of uniforms. A cyclone's wind field raises the sway amplitude; a tsunami or flood lays the
+canopy over and desaturates it inside the hazard's current inland reach. Trees are cleared within
+`STRUCTURE_CLEARING_KM` of a placed structure — a cleared tree is scaled to zero, so instance counts and
+buffers stay stable while a structure is dragged.
+
+### Structures: seating and structural response
+
+**Seating.** `footprintGround` (`three/structures/support.ts`) samples `terrainHeightKm` on two rings around
+the footprint and returns the highest ground under it plus the relief across it. The model sits at the high
+point and a foundation cylinder reaches down past the low point, so a structure neither floats on its
+downhill corner nor buries its uphill one on the sloping plate.
+
+**Structural response.** As the exposure band rises, a model leans, then comes apart piece by piece and
+settles into a debris field. `three/structures/collapse.ts` owns it, and three properties are deliberate:
+
+1. **Nothing computed there is read by anything else.** The output is a rotation and a position. Exposure
+   comes from `propagation/structures.ts` and is never modified.
+2. **It is a pure function of the current exposure** — no accumulation. Scrub the timeline back and the
+   structure stands up again, because that frame is one the hazard had not reached. A structure that stayed
+   down would assert a permanent outcome the simulation never produced.
+3. **Only the `severe` band collapses.** The thresholds are imported from `propagation/structures.ts`, so
+   the picture and the reported status cannot disagree: lean from `at_risk`, failure inside `severe`, and an
+   oil slick never knocks anything down.
+
+This is an **illustration of the exposure band, not a damage model** — AQUASHIELD has none. The
+`StructuresPanel` says so in the UI, next to the statuses, so the picture is never the only thing telling the
+operator what it means (CLAUDE.md §25). `collapse.test.ts` asserts the thresholds, the reversibility and the
+oil-spill exemption.
 
 ### Disaster visualizers
 
@@ -512,6 +572,24 @@ changes"). Rather than force a fragile workaround, scene-graph correctness is ve
 actually varies (`toVisualState` + `getDisasterVisualizer`, both pure functions, both fully tested) and
 `CommandCenterPage`'s data flow is tested with the viewport stubbed out. **Actual WebGL rendering was not
 exercised by an automated test in this environment** — see "Manual verification."
+
+#### Compiling shaders headlessly (one-off technique)
+
+A custom shader that fails to compile shows up as a black or untextured viewport, and `tsc`, ESLint and
+Vitest all pass regardless. Headless Chrome with SwiftShader does give a real WebGL context, which is enough
+to prove the GLSL compiles:
+
+```
+npm run dev &
+# a throwaway page that builds the materials and renders one frame,
+# writing the result into document.title / the DOM
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new \
+  --use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader \
+  --virtual-time-budget=9000 --dump-dom http://localhost:5173/<page>.html
+```
+
+Used to verify the forest and terrain materials compile (3 programs, no errors) when the vegetation layer
+landed. It is a manual technique, not a committed test — the harness page is deleted afterwards.
 
 ## Manual verification (2026-09-12)
 

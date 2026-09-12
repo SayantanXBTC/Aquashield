@@ -619,6 +619,7 @@ Full detail (verification results, pinned-version constraints): architecture.md 
 | Rasterio | PLANNED |
 | Simulation Engine — `simulation/core` + 5 demo disaster models + execution API | BOOTSTRAPPED (Prompt 7 — deterministic, synchronous, JSON artifact only; see docs/development/simulation.md) |
 | AAA 3D Command Center + cinematic landing | BOOTSTRAPPED (Prompt 8 — landing/explore/command-center routing, full Three.js scene graph, real Prompt 7 integration; see docs/development/command-center.md) |
+| World scenery — instanced forest + ground-fitted structures + illustrative structural response | BOOTSTRAPPED (`three/vegetation/`, `three/structures/collapse.ts`; see docs/development/command-center.md) |
 | AI — LangGraph 9-node analysis layer (`agents/`) | BOOTSTRAPPED (Prompt 14, extended Prompt 15 — read-only, evidence-gated, local deterministic provider by default; see docs/agents/ai-layer.md) |
 | AI — frame-synchronised command-center integration (`/ws/ai`, Agent HUD, Intelligence panel) | BOOTSTRAPPED (Prompt 15 — throttled/debounced, stale-guarded; architecture.md §30a) |
 | Auth — Firebase Authentication + PyJWT verification | BOOTSTRAPPED (Prompt 12 — per-user scenario isolation via `scenarios.owner_uid`; operator supplies the Firebase project config; see docs/development/setup.md) |
@@ -770,6 +771,17 @@ Full detail: docs/development/command-center.md. Architecture: architecture.md �
 - No fabricated numbers anywhere in the UI: a missing/not-yet-loaded value renders `DataReadout`'s `—`
   placeholder or an explicit `EmptyState`/`ErrorState`, never an invented statistic, percentage, or count
   (this applies to loading-screen "progress" too — indeterminate only, unless a real measured value exists).
+- The forest (`frontend/src/three/vegetation/`) grows where the terrain shader paints forest. `worldNoise.ts`
+  is a JS twin of `terrainMaterial.ts`'s fbm — change one and change the other, and keep slope in the
+  shader's units (`1 - normal.y`), not a raw gradient. `forestPlacement.test.ts` is the tripwire; placement
+  stays pure and GPU-free so it keeps being testable.
+- A structure's collapse (`frontend/src/three/structures/collapse.ts`) is an ILLUSTRATION OF THE EXPOSURE
+  BAND, never a damage model. It must stay a pure function of the current exposure (so scrubbing the timeline
+  back stands the structure up), must take its thresholds from `propagation/structures.ts` rather than its
+  own numbers, and must never feed a value back into simulation, exposure or the AI layer. Any UI that shows
+  it also states that it is illustrative — see `StructuresPanel`.
+- Place a structure with `footprintGround` (`three/structures/support.ts`), never a single centre height
+  sample: the plate is not flat and a centre sample leaves a building floating on its downhill corner.
 - The command center and Three.js scene are lazy-loaded (`React.lazy`/`Suspense` in `App.tsx`) — don't
   import `three`/`@react-three/*` or the command-center feature from a module that's part of the initial
   bundle (the landing page). Verify with `npm run build`'s chunk output, not by assumption.
