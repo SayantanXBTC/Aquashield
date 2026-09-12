@@ -43,7 +43,7 @@ from agents.schemas.outputs import (
     SituationNarrative,
     TacticalPlan,
 )
-from agents.tools.retrieval.evidence_retriever import EvidenceRetriever
+from agents.tools.retrieval.evidence_retriever import ClaimMapping, EvidenceItem, EvidencePack
 
 AGENT_NAME = "synthesis_safety"
 TASK = "situation_narrative"
@@ -96,6 +96,28 @@ class SafetyValidator:
         self.known = {e.id: e for e in context.evidence}
         self.notes: list[str] = []
         self._all_tokens, self._all_numeric = _evidence_number_tokens(context.evidence)
+        # Every EvidenceItem actually resolved from a citation somewhere in
+        # this brief — deduped by id, in first-seen order.
+        self.resolved_citations: dict[str, EvidenceItem] = {}
+
+    def validate_citations(self, citation_ids: list[str], pack: EvidencePack | None, *, label: str) -> list[str]:
+        """Keeps only ids that literally exist in `pack.items` — an agent
+        (local or hosted) can claim any string; only what the retriever
+        actually returned can become a citation. Anything else is dropped
+        and recorded, exactly like an unknown simulation evidence id."""
+
+        if not citation_ids:
+            return []
+        by_id = {item.evidence_id: item for item in (pack.items if pack else [])}
+        kept: list[str] = []
+        for cid in citation_ids:
+            item = by_id.get(cid)
+            if item is None:
+                self.notes.append(f"stripped citation on {label}: {cid!r} is not in the retrieved evidence pack")
+                continue
+            kept.append(cid)
+            self.resolved_citations.setdefault(cid, item)
+        return kept
 
     def _cited(self, ids: list[str]) -> list[EvidenceRef] | None:
         if not ids:
@@ -135,15 +157,20 @@ class SafetyValidator:
         exposures = [x for x in analysis.exposures if self.check_text(x.statement, x.evidence_ids, label=f"exposure finding '{x.subject}'")]
         return statements, exposures, analysis.hazard_progression.trend
 
-    def validate_actions(self, actions: list[RecommendedAction], *, kind: str) -> list[RecommendedAction]:
+    def validate_actions(self, actions: list[RecommendedAction], *, kind: str, pack: EvidencePack | None = None) -> list[RecommendedAction]:
         """Same gate as validate_plan's action pass, for the Prompt 15
-        Precaution and Response agents' separate lists."""
+        Precaution and Response agents' separate lists. `citations` are
+        validated independently of `evidence_ids`: a precaution can have
+        neither, either, or both, but a citation naming an id outside
+        `pack.items` is dropped, never rendered."""
 
         kept: list[RecommendedAction] = []
         for a in actions:
-            if not self.check_text(" ".join([a.action, *a.prerequisites, *a.risks]), a.evidence_ids, label=f"{kind} '{a.action[:40]}'"):
+            label = f"{kind} '{a.action[:40]}'"
+            if not self.check_text(" ".join([a.action, *a.prerequisites, *a.risks]), a.evidence_ids, label=label):
                 continue
-            kept.append(a.model_copy(update={"requires_human_approval": True, "resources": RESOURCE_DATA_UNAVAILABLE}))
+            citations = self.validate_citations(a.citations, pack, label=label)
+            kept.append(a.model_copy(update={"requires_human_approval": True, "resources": RESOURCE_DATA_UNAVAILABLE, "citations": citations}))
         return kept
 
     def validate_priorities(self, priorities: list[Priority]) -> list[Priority]:
@@ -162,66 +189,14 @@ class SafetyValidator:
         return priorities, actions
 
 
-def synthesize(
-    *,
-    provider: LLMProvider,
-    context: ContextPayload,
-    impact: ImpactAnalysis | None,
-    plan: TacticalPlan | None,
-    retriever: EvidenceRetriever,
-    extra_uncertainties: list[str],
-    extra_limitations: list[DataLimitation],
-) -> CommandBrief:
-    validator = SafetyValidator(context)
-    progression, exposures, trend = validator.validate_impact(impact)
-    priorities, actions = validator.validate_plan(plan)
-
-    limitations = list(context.limitations) + list(extra_limitations)
-    retrieval = retriever.retrieve(disaster_type=context.disaster_type, query=context.operator_question or context.disaster_type)
-    if retrieval.status != "ok":
-        limitations.append(DataLimitation(code=retrieval.status, subject="regulatory_evidence", detail=retrieval.note or "Evidence retriever not configured."))
-
-    validated: dict[str, Any] = {
-        "trend": trend,
-        "hazard_progression": [s.model_dump() for s in progression],
-        "key_exposures": [x.model_dump() for x in exposures],
-        "priorities": [p.model_dump() for p in priorities],
-        "actions": [a.model_dump() for a in actions],
-    }
-    narrative_payload = {"context": context.model_dump(mode="json"), "validated": validated}
-    try:
-        narrative = provider.generate(task=TASK, system=SYNTHESIS_SYSTEM, payload=narrative_payload, output_model=SituationNarrative)
-        if not (validator.narrative_grounded(narrative.situation) and validator.narrative_grounded(narrative.current_hazard)):
-            validator.notes.append("narrative from provider contained ungrounded numbers or forbidden certainty; replaced with deterministic narrative")
-            narrative = SituationNarrative.model_validate(local_rules.situation_narrative(narrative_payload))
-    except LLMProviderError as exc:
-        validator.notes.append(f"narrative provider failed ({exc}); deterministic narrative used")
-        narrative = SituationNarrative.model_validate(local_rules.situation_narrative(narrative_payload))
-
-    uncertainties = list(dict.fromkeys([*(impact.uncertainties if impact else []), *(plan.uncertainties if plan else []), *extra_uncertainties]))
-
-    return CommandBrief(
-        scenario_id=context.scenario_id,
-        simulation_run_id=context.simulation_run_id,
-        frame_index=context.frame_index,
-        generated_at=datetime.now(timezone.utc),
-        situation=narrative.situation,
-        current_hazard=narrative.current_hazard,
-        hazard_progression=progression,
-        key_exposures=exposures,
-        priorities=priorities,
-        recommended_actions=actions,
-        evidence_references=list(context.evidence),
-        data_limitations=limitations,
-        uncertainties=uncertainties,
-        validation_notes=validator.notes,
-    )
 
 
-# --- Prompt 15: the Safety Validator and the Command Synthesizer are now two
+# --- Prompt 15: the Safety Validator and the Command Synthesizer are two
 # separate graph nodes. `validate_findings` is the validator; `build_command_
-# brief` is the synthesizer. `synthesize` above is kept as the single-call
-# composite the pre-Prompt-15 two-agent graph used.
+# brief` is the synthesizer. The single-call `synthesize()` the pre-Prompt-15
+# two-agent graph used has no callers left (agents/graph/workflow/graph.py
+# calls the two split functions) and was removed rather than kept alongside
+# a second, unmaintained EvidenceRetriever call site.
 
 VALIDATOR_AGENT_NAME = "safety_validator"
 SYNTHESIZER_AGENT_NAME = "command_synthesizer"
@@ -239,6 +214,15 @@ class ValidatedFindings:
     actions: list[RecommendedAction] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     uncertainties: list[str] = field(default_factory=list)
+    limitations: list[DataLimitation] = field(default_factory=list)
+    evidence_citations: list[EvidenceItem] = field(default_factory=list)
+    claim_mappings: list[ClaimMapping] = field(default_factory=list)
+
+
+def _claim(text: str, claim_type: str, evidence_ids: list[str], citations: list[str]) -> ClaimMapping:
+    supported = [*evidence_ids, *citations]
+    status = "SUPPORTED" if supported else "UNSUPPORTED"
+    return ClaimMapping(claim_text=text[:600], claim_type=claim_type, supported_by=supported, validation_status=status)  # type: ignore[arg-type]
 
 
 def validate_findings(
@@ -249,6 +233,7 @@ def validate_findings(
     risk: RiskAssessment | None,
     precautions: PrecautionSet | None,
     response: ResponsePlan | None,
+    evidence_packs: dict[str, EvidencePack] | None = None,
 ) -> ValidatedFindings:
     """Runs every Tier 1/Tier 2 output through the same evidence gate: unknown
     evidence ids, ungrounded numbers and destruction/casualty wording are
@@ -276,17 +261,29 @@ def validate_findings(
     else:
         ranked = validator.validate_priorities(risk.priorities)
 
+    packs = evidence_packs or {}
+    precaution_pack = packs.get("precaution")
+    response_pack = packs.get("response")
+
     kept_precautions: list[RecommendedAction] = []
     if precautions is None:
         validator.notes.append("precautions unavailable (agent did not complete)")
     else:
-        kept_precautions = validator.validate_actions(precautions.precautions, kind="precaution")
+        kept_precautions = validator.validate_actions(precautions.precautions, kind="precaution", pack=precaution_pack)
 
     kept_actions: list[RecommendedAction] = []
     if response is None:
         validator.notes.append("response plan unavailable (agent did not complete)")
     else:
-        kept_actions = validator.validate_actions(response.actions, kind="action")
+        kept_actions = validator.validate_actions(response.actions, kind="action", pack=response_pack)
+
+    # A pack that wasn't SUPPORTED becomes an explicit limitation, exactly
+    # like the pre-RAG NOT_CONFIGURED retriever result did — never silently
+    # absent, so an operator can tell "no guidance found" from "not asked".
+    limitations: list[DataLimitation] = []
+    for role, pack in packs.items():
+        if pack.evidence_status != "SUPPORTED":
+            limitations.append(DataLimitation(code=pack.limitation_code or pack.evidence_status, subject=f"regulatory_evidence:{role}", detail=pack.note or f"No authoritative evidence for the {role} role."))
 
     uncertainties = list(
         dict.fromkeys(
@@ -299,6 +296,13 @@ def validate_findings(
             ]
         )
     )
+
+    claim_mappings = [
+        *(_claim(s.statement, "OBSERVED", s.evidence_ids, []) for s in progression),
+        *(_claim(x.statement, "CALCULATED", x.evidence_ids, []) for x in exposures),
+        *(_claim(a.action, "EVIDENCE_GROUNDED" if a.citations else "RECOMMENDED", a.evidence_ids, a.citations) for a in [*kept_precautions, *kept_actions]),
+    ]
+
     return ValidatedFindings(
         trend=trend,
         progression=progression,
@@ -308,6 +312,9 @@ def validate_findings(
         actions=kept_actions,
         notes=validator.notes,
         uncertainties=uncertainties,
+        limitations=limitations,
+        evidence_citations=list(validator.resolved_citations.values()),
+        claim_mappings=claim_mappings,
     )
 
 
@@ -316,7 +323,6 @@ def build_command_brief(
     provider: LLMProvider,
     context: ContextPayload,
     findings: ValidatedFindings,
-    retriever: EvidenceRetriever,
     resource: ResourceAssessment | None,
     agent_runs: list[AgentRun],
     extra_uncertainties: list[str],
@@ -324,13 +330,15 @@ def build_command_brief(
 ) -> CommandBrief:
     """Command Synthesizer — writes the narrative over ALREADY-VALIDATED
     findings and assembles the brief. The narrative is re-checked against the
-    full evidence set; if it fails, the deterministic narrative replaces it."""
+    full evidence set; if it fails, the deterministic narrative replaces it.
+
+    Regulatory/authoritative retrieval already happened earlier in the graph
+    (the evidence_retrieval node, role-scoped for Precaution/Response) —
+    `findings.limitations` already carries a DataLimitation for any pack
+    that wasn't SUPPORTED, so this node does not call the retriever again."""
 
     notes = list(findings.notes)
-    limitations = list(context.limitations) + list(extra_limitations)
-    retrieval = retriever.retrieve(disaster_type=context.disaster_type, query=context.operator_question or context.disaster_type)
-    if retrieval.status != "ok":
-        limitations.append(DataLimitation(code=retrieval.status, subject="regulatory_evidence", detail=retrieval.note or "Evidence retriever not configured."))
+    limitations = list(context.limitations) + list(extra_limitations) + list(findings.limitations)
 
     validator = SafetyValidator(context)
     validated: dict[str, Any] = {
@@ -366,6 +374,8 @@ def build_command_brief(
         resource_status=resource.status if resource else RESOURCE_DATA_UNAVAILABLE,
         agent_runs=agent_runs,
         evidence_references=list(context.evidence),
+        evidence_citations=findings.evidence_citations,
+        claim_mappings=findings.claim_mappings,
         data_limitations=limitations,
         uncertainties=list(dict.fromkeys([*findings.uncertainties, *extra_uncertainties])),
         validation_notes=notes,

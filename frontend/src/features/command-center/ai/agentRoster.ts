@@ -13,6 +13,7 @@ export const AGENT_ROSTER: { agent: string; label: string }[] = [
   { agent: "hazard_agent", label: "Hazard Analyst" },
   { agent: "damage_agent", label: "Damage / Impact Analyst" },
   { agent: "risk_agent", label: "Risk / Vulnerability Analyst" },
+  { agent: "evidence_retrieval", label: "Evidence Retrieval" },
   { agent: "precaution_agent", label: "Precaution Agent" },
   { agent: "response_agent", label: "Tactical Response Agent" },
   { agent: "resource_agent", label: "Resource Agent" },
@@ -29,6 +30,7 @@ export const AGENT_ROSTER: { agent: string; label: string }[] = [
 export const AGENT_STAGES: { id: string; label: string; parallel: boolean; agents: string[] }[] = [
   { id: "collect", label: "Collect", parallel: false, agents: ["context_collector"] },
   { id: "analyse", label: "Analyse", parallel: true, agents: ["hazard_agent", "damage_agent", "risk_agent"] },
+  { id: "evidence", label: "Retrieve evidence", parallel: false, agents: ["evidence_retrieval"] },
   { id: "advise", label: "Advise", parallel: true, agents: ["precaution_agent", "response_agent"] },
   { id: "resource", label: "Resource", parallel: false, agents: ["resource_agent"] },
   { id: "assure", label: "Validate & synthesise", parallel: false, agents: ["safety_validator", "command_synthesizer"] },

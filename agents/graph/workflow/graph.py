@@ -1,4 +1,4 @@
-"""The AQUASHIELD analysis graph (Prompt 15).
+"""The AQUASHIELD analysis graph (Prompt 15, extended in Prompt 16 with RAG).
 
     START
       |
@@ -8,6 +8,9 @@
       +--> hazard_agent  --+
       +--> damage_agent  --+                (Tier 1, one superstep)
       +--> risk_agent    --+
+                           |
+                           v
+                  evidence_retrieval        (role-scoped RAG: precaution + response)
                            |
               +------------+------------+
               v                         v
@@ -27,16 +30,26 @@ set of unconditional edges, so the agents in a tier execute in the same
 superstep; a join node with several incoming edges runs once every branch
 has written its state.
 
-Two properties the rest of the system depends on:
+Three properties the rest of the system depends on:
 
 * **Conditional routing.** When the Context Collector finds no analysable
-  frame (run not completed, frame out of range), the analysis tiers are
-  skipped entirely and the graph routes straight to the validator — the
-  brief still builds, stating the limitation, and no LLM call is billed for
-  a frame with nothing in it.
+  frame (run not completed, frame out of range), the analysis tiers —
+  including evidence_retrieval — are skipped entirely and the graph routes
+  straight to the validator — the brief still builds, stating the
+  limitation, and no LLM call and no retrieval is billed for a frame with
+  nothing in it.
 * **Fail-safe partial runs.** A non-critical agent that raises is recorded
   as FAILED with a DataLimitation; the graph continues and the Command Brief
-  loses only that agent's section.
+  loses only that agent's section. A retrieval that returns
+  INSUFFICIENT_EVIDENCE or UNAVAILABLE is not a failure in this sense — it
+  becomes a DataLimitation on the brief (agents/agents/command/synthesis.py
+  `validate_findings`), and Tier 2 still runs without citations.
+* **Retrieved text is evidence, never an instruction.** `evidence_retrieval`
+  hands each Tier 2 agent an `EvidencePack` of authoritative-source
+  excerpts; the Safety Validator drops any `citations` id that doesn't
+  literally appear in the pack it was actually given, so neither a
+  compromised source nor a hallucinating agent can smuggle in a citation
+  (agents/tools/retrieval/evidence_retriever.py, rag/README.md).
 
 Dependencies (data access, LLM provider, evidence retriever, event sink) are
 injected via `GraphDeps`, so the same graph runs against the backend's
@@ -65,7 +78,16 @@ from agents.schemas.evidence import DataLimitation
 from agents.schemas.outputs import ImpactAnalysis, TacticalPlan
 from agents.schemas.state import AquaShieldAgentState, ToolCallRecord
 from agents.tools.data_access import AnalysisDataAccess
-from agents.tools.retrieval.evidence_retriever import EvidenceRetriever, NotConfiguredEvidenceRetriever
+from agents.tools.retrieval.evidence_retriever import EvidencePack, EvidenceRetriever, NotConfiguredEvidenceRetriever
+from rag.schemas.models import RetrievalQuery
+
+
+# RAG milestone event names (backend/app/services/ai_events.py fans these out
+# on the same per-owner bus as AGENT_STARTED/AGENT_COMPLETED — a live view
+# only; the Command Brief itself always carries the final evidence_packs).
+RAG_RETRIEVAL_STARTED = "RAG_RETRIEVAL_STARTED"
+RAG_RETRIEVAL_COMPLETED = "RAG_RETRIEVAL_COMPLETED"
+AGENT_EVIDENCE_ATTACHED = "AGENT_EVIDENCE_ATTACHED"
 
 
 class EventSink(Protocol):
@@ -193,6 +215,66 @@ def _tier1_findings(state: AquaShieldAgentState) -> dict[str, Any]:
     }
 
 
+# --- Evidence retrieval: role-scoped RAG between Tier 1 and Tier 2 ---
+
+RAG_ROLES: tuple[str, ...] = ("precaution", "response")
+
+
+def _hazard_summary(state: AquaShieldAgentState) -> str:
+    if state.hazard_assessment is None:
+        return ""
+    trend = state.hazard_assessment.hazard_progression.trend
+    statements = state.hazard_assessment.hazard_progression.statements
+    text = statements[0].statement if statements else ""
+    return f"{trend} {text}"[:400]
+
+
+def _impacted_asset_types(context) -> list[str]:  # noqa: ANN001 — ContextPayload, kept loose to avoid an import cycle at module load
+    types = {s.get("structure_type") for s in context.structures if s.get("structure_type")}
+    types |= {a.get("asset_type") for a in context.asset_exposures if a.get("asset_type")}
+    return sorted(t for t in types if t)
+
+
+def _build_retrieval_query(role: str, state: AquaShieldAgentState) -> RetrievalQuery:
+    context = state.context
+    assert context is not None  # only called when a route reaches this node
+    return RetrievalQuery(
+        role=role,  # type: ignore[arg-type]
+        disaster_type=context.disaster_type,
+        hazard_summary=_hazard_summary(state),
+        impacted_asset_types=_impacted_asset_types(context),
+        operator_question=context.operator_question,
+    )
+
+
+def _evidence_retrieval_node(deps: GraphDeps):
+    def node(state: AquaShieldAgentState) -> dict[str, Any]:
+        agent = "evidence_retrieval"
+        started = _started(deps, agent, state)
+        versions = {agent: AGENT_VERSIONS[agent]}
+        packs: dict[str, EvidencePack] = {}
+        for role in RAG_ROLES:
+            query = _build_retrieval_query(role, state)
+            deps.emit(RAG_RETRIEVAL_STARTED, {"role": role, "query": query.model_dump(mode="json"), "frame_index": state.frame_index})
+            pack = deps.retriever.retrieve(query)
+            packs[role] = pack
+            deps.emit(
+                RAG_RETRIEVAL_COMPLETED,
+                {"role": role, "evidence_status": pack.evidence_status, "item_count": len(pack.items), "frame_index": state.frame_index},
+            )
+            if pack.items:
+                deps.emit(
+                    AGENT_EVIDENCE_ATTACHED,
+                    {"role": role, "evidence_ids": [i.evidence_id for i in pack.items], "frame_index": state.frame_index},
+                )
+        supported = sum(1 for p in packs.values() if p.evidence_status == "SUPPORTED")
+        summary = f"{supported}/{len(RAG_ROLES)} role(s) supported ({sum(len(p.items) for p in packs.values())} item(s))"
+        record = _completed(deps, _run_record(agent, "COMPLETED", summary, started))
+        return {"evidence_packs": packs, "agent_versions": versions, "agent_runs": [record]}
+
+    return node
+
+
 # --- Tier 3: resources ------------------------------------------------------
 
 
@@ -235,6 +317,7 @@ def _safety_validator_node(deps: GraphDeps):
             risk=state.risk_assessment,
             precautions=state.precaution_set,
             response=state.response_plan,
+            evidence_packs=state.evidence_packs,
         )
         stripped = sum(1 for n in findings.notes if n.startswith("stripped"))
         summary = f"{len(findings.progression)} statement(s), {len(findings.exposures)} exposure(s), {len(findings.priorities)} priority(ies), {len(findings.precautions) + len(findings.actions)} action(s) kept; {stripped} claim(s) stripped"
@@ -248,6 +331,9 @@ def _safety_validator_node(deps: GraphDeps):
             "hazard_trend": findings.trend,
             "validation_notes": findings.notes,
             "uncertainties": findings.uncertainties,
+            "limitations": findings.limitations,
+            "evidence_citations": findings.evidence_citations,
+            "claim_mappings": findings.claim_mappings,
             # Legacy composite views, so anything still reading the
             # pre-Prompt-15 shapes sees the validated findings.
             "impact_analysis": ImpactAnalysis(
@@ -280,6 +366,8 @@ def _command_synthesizer_node(deps: GraphDeps):
             actions=list(state.validated_actions),
             notes=list(state.validation_notes),
             uncertainties=list(state.uncertainties),
+            evidence_citations=list(state.evidence_citations),
+            claim_mappings=list(state.claim_mappings),
         )
         # The HUD's chip row: every node that ran, plus this one, in graph order.
         runs = sorted(state.agent_runs, key=lambda r: AGENT_ORDER.index(r.agent) if r.agent in AGENT_ORDER else len(AGENT_ORDER))
@@ -287,7 +375,6 @@ def _command_synthesizer_node(deps: GraphDeps):
             provider=deps.provider,
             context=state.context,
             findings=findings,
-            retriever=deps.retriever,
             resource=state.resource_assessment,
             agent_runs=[*runs, AgentRun(agent=agent, label=AGENT_LABELS[agent], status="COMPLETED", summary="Command Brief assembled")],
             extra_uncertainties=[],
@@ -363,7 +450,7 @@ def build_graph(deps: GraphDeps):
             agent="precaution_agent",
             task=precaution_agent.TASK,
             state_field="precaution_set",
-            call=lambda context, state: precaution_agent.advise_precautions(deps.provider, context, _tier1_findings(state)),
+            call=lambda context, state: precaution_agent.advise_precautions(deps.provider, context, _tier1_findings(state), state.evidence_packs.get("precaution")),
             summarize=lambda out: f"{len(out.precautions)} precaution(s)",
         ),
     )
@@ -374,10 +461,11 @@ def build_graph(deps: GraphDeps):
             agent="response_agent",
             task=response_agent.TASK,
             state_field="response_plan",
-            call=lambda context, state: response_agent.plan_response(deps.provider, context, _tier1_findings(state)),
+            call=lambda context, state: response_agent.plan_response(deps.provider, context, _tier1_findings(state), state.evidence_packs.get("response")),
             summarize=lambda out: f"{len(out.actions)} targeted action(s)",
         ),
     )
+    graph.add_node("evidence_retrieval", _evidence_retrieval_node(deps))
     graph.add_node("resource_agent", _resource_node(deps))
     graph.add_node("safety_validator", _safety_validator_node(deps))
     graph.add_node("command_synthesizer", _command_synthesizer_node(deps))
@@ -385,8 +473,9 @@ def build_graph(deps: GraphDeps):
     graph.add_edge(START, "context_collector")
     graph.add_conditional_edges("context_collector", _route_after_context, [*TIER_1, "safety_validator"])
     for tier1 in TIER_1:
-        graph.add_edge(tier1, "precaution_agent")
-        graph.add_edge(tier1, "response_agent")
+        graph.add_edge(tier1, "evidence_retrieval")
+    graph.add_edge("evidence_retrieval", "precaution_agent")
+    graph.add_edge("evidence_retrieval", "response_agent")
     graph.add_edge("precaution_agent", "resource_agent")
     graph.add_edge("response_agent", "resource_agent")
     graph.add_edge("resource_agent", "safety_validator")

@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { byStage, idleRoster, rosterFromBrief } from "../ai/agentRoster";
-import type { AIExposureFinding, CommandBrief, StructureConfig } from "../types";
+import type { AIEvidenceItem, AIExposureFinding, CommandBrief, StructureConfig } from "../types";
 import { AgentExecutionHud } from "./AgentExecutionHud";
 import { IntelligencePanel } from "./IntelligencePanel";
 
@@ -18,7 +18,21 @@ function exposure(): AIExposureFinding {
   };
 }
 
-function brief(frameIndex: number, exposures: AIExposureFinding[]): CommandBrief {
+function citation(): AIEvidenceItem {
+  return {
+    evidence_id: "RAG-test-fixture-tsunami-preparedness-0",
+    source_id: "test-fixture-tsunami-preparedness",
+    authority: "TEST_FIXTURE",
+    title: "TEST_FIXTURE Tsunami Preparedness Guidance",
+    trust_level: "TIER_1",
+    section: "Evacuation",
+    page: null,
+    relevance_score: 0.62,
+    text_snippet: "Evacuate on foot where possible.",
+  };
+}
+
+function brief(frameIndex: number, exposures: AIExposureFinding[], options: { cited?: boolean } = {}): CommandBrief {
   return {
     scenario_id: "scn",
     simulation_run_id: "3f6b1c22-0000-0000-0000-000000000000",
@@ -38,6 +52,7 @@ function brief(frameIndex: number, exposures: AIExposureFinding[]): CommandBrief
       resources: "RESOURCE_DATA_UNAVAILABLE",
       requires_human_approval: true as const,
       evidence_ids: ["E4"],
+      citations: options.cited ? [citation().evidence_id] : [],
     })),
     resource_status: "RESOURCE_DATA_UNAVAILABLE",
     agent_runs: [
@@ -47,6 +62,8 @@ function brief(frameIndex: number, exposures: AIExposureFinding[]): CommandBrief
       { agent: "resource_agent", label: "Resource Agent", status: "UNAVAILABLE", summary: "no inventory", duration_ms: 0 },
     ],
     evidence_references: [],
+    evidence_citations: options.cited ? [citation()] : [],
+    claim_mappings: [],
     data_limitations: [{ code: "NOT_CONFIGURED", subject: "regulatory_evidence", detail: "Evidence retriever not configured." }],
     uncertainties: [],
     human_review_required: true,
@@ -102,6 +119,23 @@ describe("IntelligencePanel", () => {
     expect(screen.getByText(/Showing frame 2; playhead is at frame 7/)).toBeInTheDocument();
   });
 
+  it("shows a citation badge when an action cites real authoritative evidence", () => {
+    render(<IntelligencePanel brief={brief(2, [exposure()], { cited: true })} structures={STRUCTURES} frameIndex={2} briefIsBehind={false} status="ready" provider="local" />);
+    expect(screen.getByTitle(/TEST_FIXTURE — TEST_FIXTURE Tsunami Preparedness Guidance \(Evacuation\)/)).toBeInTheDocument();
+  });
+
+  it("never shows a citation badge when nothing was actually cited", () => {
+    render(<IntelligencePanel brief={brief(2, [exposure()])} structures={STRUCTURES} frameIndex={2} briefIsBehind={false} status="ready" provider="local" />);
+    expect(screen.queryByTitle(/TEST_FIXTURE/)).not.toBeInTheDocument();
+  });
+
+  it("lists cited sources with trust level and section in the audit block", () => {
+    render(<IntelligencePanel brief={brief(2, [exposure()], { cited: true })} structures={STRUCTURES} frameIndex={2} briefIsBehind={false} status="ready" provider="local" />);
+    expect(screen.getByText("Sources cited")).toBeInTheDocument();
+    expect(screen.getByText(/TIER_1/)).toBeInTheDocument();
+    expect(screen.getByText(/Evacuation/)).toBeInTheDocument();
+  });
+
   it("falls back to the subject id when a subject is not a placed structure", () => {
     render(<IntelligencePanel brief={brief(2, [{ ...exposure(), subject_ref: "asset-99" }])} structures={STRUCTURES} frameIndex={2} briefIsBehind={false} status="ready" provider="local" />);
     // Never an invented coordinate: the row shows the id it does have.
@@ -135,7 +169,7 @@ describe("AgentExecutionHud", () => {
 
   it("groups the chips by the graph's supersteps so the parallel branches read as parallel", () => {
     const stages = byStage(idleRoster());
-    expect(stages.map((s) => s.id)).toEqual(["collect", "analyse", "advise", "resource", "assure"]);
+    expect(stages.map((s) => s.id)).toEqual(["collect", "analyse", "evidence", "advise", "resource", "assure"]);
     expect(stages.find((s) => s.id === "analyse")?.runs.map((r) => r.agent)).toEqual(["hazard_agent", "damage_agent", "risk_agent"]);
     expect(stages.filter((s) => s.parallel).map((s) => s.id)).toEqual(["analyse", "advise"]);
 
@@ -152,7 +186,7 @@ describe("AgentExecutionHud", () => {
 
   it("starts every agent pending and disables manual analysis with no recorded run", () => {
     render(<AgentExecutionHud agents={idleRoster()} status="idle" trigger={null} frameIndex={null} error={null} onAnalyseNow={() => {}} disabled />);
-    expect(screen.getAllByText("PENDING")).toHaveLength(9);
+    expect(screen.getAllByText("PENDING")).toHaveLength(10);
     expect(screen.getByText("Frame —")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /analyse now/i })).toBeDisabled();
     expect(screen.getByText("No recorded run")).toBeInTheDocument();

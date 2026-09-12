@@ -16,8 +16,9 @@ def test_graph_topology_matches_spec(fake_data):
     assert ("__start__", "context_collector") in edges
     for agent in tier1:
         assert ("context_collector", agent) in edges
-        assert (agent, "precaution_agent") in edges
-        assert (agent, "response_agent") in edges
+        assert (agent, "evidence_retrieval") in edges
+    assert ("evidence_retrieval", "precaution_agent") in edges
+    assert ("evidence_retrieval", "response_agent") in edges
     assert ("precaution_agent", "resource_agent") in edges
     assert ("response_agent", "resource_agent") in edges
     assert ("resource_agent", "safety_validator") in edges
@@ -28,8 +29,12 @@ def test_graph_topology_matches_spec(fake_data):
         for b in tier1:
             assert a == b or (a, b) not in edges
     assert ("precaution_agent", "response_agent") not in edges and ("response_agent", "precaution_agent") not in edges
+    # Tier 1 never reaches Tier 2 directly — retrieval always sits between them.
+    for a in tier1:
+        assert (a, "precaution_agent") not in edges and (a, "response_agent") not in edges
     # Conditional routing: the validator is reachable straight from the
-    # collector when there is no frame to analyse.
+    # collector when there is no frame to analyse (evidence_retrieval is
+    # skipped too — no LLM call, no retrieval, for an empty frame).
     assert ("context_collector", "safety_validator") in edges
 
 

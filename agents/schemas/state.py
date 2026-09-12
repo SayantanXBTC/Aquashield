@@ -13,6 +13,7 @@ from typing import Annotated
 from pydantic import BaseModel, Field
 
 from agents.schemas.brief import AgentExecutionStatus, AgentRun, CommandBrief
+from agents.tools.retrieval.evidence_retriever import ClaimMapping, EvidenceItem, EvidencePack
 from agents.schemas.context import ContextPayload
 from agents.schemas.evidence import DataLimitation
 from agents.schemas.outputs import (
@@ -56,6 +57,11 @@ class AquaShieldAgentState(BaseModel):
     damage_assessment: DamageAssessment | None = None
     risk_assessment: RiskAssessment | None = None
 
+    # --- Retrieval: role-scoped authoritative evidence for Tier 2 ---
+    # Written once by the evidence_retrieval node (no reducer needed — it is
+    # not a parallel branch); keyed "precaution" / "response".
+    evidence_packs: dict[str, EvidencePack] = Field(default_factory=dict)
+
     # --- Tier 2 (parallel): precaution / response ---
     precaution_set: PrecautionSet | None = None
     response_plan: ResponsePlan | None = None
@@ -71,6 +77,8 @@ class AquaShieldAgentState(BaseModel):
     validated_actions: list[RecommendedAction] = Field(default_factory=list)
     hazard_trend: str = "unknown"
     validation_notes: list[str] = Field(default_factory=list)
+    evidence_citations: list[EvidenceItem] = Field(default_factory=list)
+    claim_mappings: list[ClaimMapping] = Field(default_factory=list)
 
     # --- Legacy composite views (kept so existing callers/tests still read
     # the pre-Prompt-15 shapes; assembled by the Safety Validator) ---

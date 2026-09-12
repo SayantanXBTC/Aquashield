@@ -148,6 +148,16 @@ class AIRequestStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+class RagTrustLevel(str, enum.Enum):
+    """Matches rag.schemas.models.TrustLevel exactly — the Postgres registry
+    and the retrieval-time Pydantic contract must never drift apart."""
+
+    TIER_1 = "TIER_1"
+    TIER_2 = "TIER_2"
+    TIER_3 = "TIER_3"
+    TIER_4 = "TIER_4"
+
+
 class EventType(str, enum.Enum):
     SCENARIO_CREATED = "scenario_created"
     SCENARIO_MODIFIED = "scenario_modified"

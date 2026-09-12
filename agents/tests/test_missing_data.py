@@ -45,4 +45,7 @@ def test_tool_failure_becomes_limitation_and_audit_entry():
 
 def test_rag_stub_reports_not_configured():
     brief = _run(FakeDataAccess()).state.command_brief
-    assert any(l.code == NOT_CONFIGURED and l.subject == "regulatory_evidence" for l in brief.data_limitations)
+    # One NOT_CONFIGURED limitation per Tier 2 role (precaution, response) —
+    # the default NotConfiguredEvidenceRetriever, same posture as before RAG.
+    rag_limitations = [l for l in brief.data_limitations if l.code == NOT_CONFIGURED and l.subject.startswith("regulatory_evidence:")]
+    assert {l.subject for l in rag_limitations} == {"regulatory_evidence:precaution", "regulatory_evidence:response"}

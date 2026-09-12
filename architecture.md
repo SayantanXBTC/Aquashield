@@ -118,22 +118,25 @@ The graph is a starting shape and can evolve. Agents read structured simulation 
 ## 10. RAG Architecture
 
 ```
-Documents
+Documents (rag/sources/ — real authoritative sources only; rag/tests/fixtures/ for TEST_FIXTURE material)
   ↓
-Parser
+Parser (rag/parsing/ — md frontmatter, txt/pdf + sidecar .meta.json)
   ↓
-Chunker
+Chunker (rag/chunking/ — 500-1000 "tokens", section/page-aware, never spans a section change)
   ↓
-Embedding
+Embedding (rag/embeddings/ — DeterministicHashEmbedding by default, no network/credits)
   ↓
-ChromaDB
+ChromaDB (rag/vectorstore/ — one `aquashield_evidence` collection, cosine distance)
   ↓
-Retriever
+Hybrid Retriever (rag/retrieval/ — role-scoped query + disaster-type metadata filter + relevance threshold)
   ↓
-Regulatory/Knowledge Agent
+evidence_retrieval graph node (agents/graph/workflow/graph.py) → Precaution / Response agents
 ```
 
-The knowledge base is organized by disaster category (flood, cyclone, tsunami, oil spill, pollution, search & rescue, general disaster-management SOPs) so retrieval can be scoped by active scenario type, not just free-text similarity.
+Implemented (Prompt 16): §30b, docs/rag/pipeline.md. The knowledge base is organized by disaster category
+(flood, cyclone, tsunami, oil_spill, pollution, search_rescue, environmental, general — matching
+`rag/sources/`'s folder taxonomy) so retrieval is scoped by the active scenario's disaster type, plus
+"general" cross-cutting guidance, never just free-text similarity across every source.
 
 ## 11. Closed-Loop Scenario System
 
@@ -291,9 +294,33 @@ explainability requires an evidence chain; development and CI must not need paid
 Alternatives: free-form LLM chat over raw JSON (rejected — ungrounded numbers), agents with write access
 to recommendations tables (deferred — every output is human-gated first), a single-agent prompt (rejected —
 the parallel analyst/advisor split keeps impact facts and operational advice separately auditable).
-Consequences: synchronous execution per request (same prototype choice as simulation); no RAG yet
-(`EvidenceRetriever` stub → `NOT_CONFIGURED`); UI only gains an additive brief panel. See
-docs/agents/ai-layer.md.
+Consequences: synchronous execution per request (same prototype choice as simulation); UI only gains an
+additive brief panel. RAG was deliberately deferred at this decision point and landed later as its own
+package (§30b, ADR-008) behind the same `EvidenceRetriever` Protocol this ADR defines — `NOT_CONFIGURED` is
+still the default (`RAG_PROVIDER=none`) until an operator ingests real sources. See docs/agents/ai-layer.md.
+
+### ADR-008: Standalone `rag/` package with a deterministic local embedding provider, wired in as one graph node
+
+Decision: `rag/` (parser → chunker → embedder → ChromaDB → hybrid retriever) is standalone, on the same
+architectural footing as `simulation/` and `agents/` — no FastAPI/SQLAlchemy import anywhere in it. The
+analysis graph gains one node, `evidence_retrieval`, between Tier 1 and Tier 2, producing a role-scoped
+`EvidencePack` for the Precaution and Response agents each. `EmbeddingProvider` mirrors `LLMProvider`'s shape
+(ADR-006): `DeterministicHashEmbedding` — a bag-of-hashed-words vector, no network, no credits — is the
+default and what every test runs against; a hosted embeddings API is a documented gap, not an invented
+integration (Anthropic has no embeddings endpoint). The Postgres source registry (`rag_sources`,
+`rag_ingestion_log`) is bridged by one backend service (`RagIngestionService`), the same pattern
+`ai_data_access.py`/`simulation_service.py` already establish.
+Reason: CLAUDE.md §11/§26b — the knowledge base must be disaster-aware, never fabricate a citation, and the
+existing domain-isolation and offline-by-default conventions (ADR-002, ADR-006) should not be broken to add
+it.
+Alternatives: embedding RAG logic inside `agents/` (rejected — rag/README.md's stated boundary, and it would
+give the AI layer an implicit second data-access path outside `AnalysisDataAccess`); a hosted embeddings API
+as the only provider (rejected — blocks offline development and CI on a paid, networked dependency); scoring
+citations by trusting whatever an LLM returns (rejected — `SafetyValidator.validate_citations` re-checks
+every id against the actual `EvidencePack`, the same evidence-gate discipline as simulation facts).
+Consequences: retrieval quality is bounded by the local hash embedding's crude bag-of-words semantics until
+a real embedding model is wired in; `RAG_PROVIDER=none` keeps every existing AI-layer behaviour and test
+unchanged until an operator explicitly opts in and ingests sources. See §30b, docs/rag/pipeline.md.
 
 ## 14. Data Sources
 
@@ -517,8 +544,7 @@ manifests (`frontend/package.json`, root `requirements.txt`) are the source of t
   the React → R3F → Three.js pipeline works; it is not an AQUASHIELD scene.
 - Anime.js — one `useFadeIn` micro-interaction hook proves the import/integration works; no disaster animation.
 - NumPy, SciPy, xarray, Shapely, GeoPandas — import-verified in the venv; no simulation model uses them yet.
-- LangGraph, langchain-core — import-verified; no agent graph exists yet.
-- ChromaDB — import-verified; no ingestion/retrieval pipeline exists yet.
+- LangGraph, langchain-core — BOOTSTRAPPED (Prompt 14/15, §30/§30a): the 10-node analysis graph.
 
 **PLANNED** (not installed):
 
@@ -943,8 +969,9 @@ POST /ai/analyze-frame ──► AIAnalysisService ──► run_analysis(GraphD
                          │   START → context_collector
                          │              ├─(conditional: no analysable frame → safety_validator)
                          │              └─► { hazard_agent ‖ damage_agent ‖ risk_agent }
-                         │                        └─► { precaution_agent ‖ response_agent }
-                         │                                  └─► resource_agent → safety_validator → command_synthesizer → END
+                         │                        └─► evidence_retrieval ──► rag/ (role-scoped EvidencePack, READ)
+                         │                                  └─► { precaution_agent ‖ response_agent }
+                         │                                            └─► resource_agent → safety_validator → command_synthesizer → END
                          │                      │
                          │   Agent → ToolRunner → BackendAnalysisDataAccess → Scenario/Simulation/Footprint/Exposure services → repositories → PostGIS/DB (READ)
                          ├──► AIEventBus (per-owner, in-process) ──► /ws/ai ──► Agent Execution HUD
@@ -985,4 +1012,38 @@ layout — no chatbot surface. The pre-Prompt-15 `CommandBriefPanel` is supersed
 `HudPanel` carries `shrink-0`: the rails are flex columns, so without it a rail with several panels squashes
 each one and clips its body mid-line (which reads as panels overlapping). Panels keep their natural height and
 the rail scrolls.
+
+### 30b. RAG evidence layer (Prompt 16)
+
+`rag/` is a standalone package (parser → chunker → embedder → ChromaDB → hybrid retriever), the same
+isolation discipline as `simulation/` and `agents/`. The graph gains one node, `evidence_retrieval`, between
+Tier 1 and Tier 2 (§30's diagram): it builds a role-scoped `RetrievalQuery` for `precaution` and `response`
+(architecture.md §10's role phrasing) and calls the injected `EvidenceRetriever` — `NotConfiguredEvidenceRetriever`
+(default, `RAG_PROVIDER=none`) or `HybridRetriever` (`RAG_PROVIDER=chroma`) over the real `aquashield_evidence`
+collection.
+
+**Citations are never trusted, only verified.** A Precaution/Response action may put a retrieved
+`EvidenceItem.evidence_id` in its `citations`; `SafetyValidator.validate_citations`
+(agents/agents/command/synthesis.py) keeps only ids that literally exist in the `EvidencePack` that node was
+actually given — a hallucinated or injected id is dropped and recorded in `validation_notes`, exactly like an
+unknown simulation evidence id. Retrieved `text_snippet` content is treated as quoted data throughout, never
+as an instruction (`RAG_GUARDRAILS`, agents/prompts/versions.py) — the same untrusted-input discipline as the
+sanitized `operator_question`.
+
+**Registry split**, mirroring `SimulationArtifact` (§14a): ChromaDB holds chunks and embeddings;
+`rag_sources`/`rag_ingestion_log` (Postgres, `backend/app/db/models/rag_source.py`) hold metadata, checksum
+and an append-only ingestion audit. `RagIngestionService` (`backend/app/services/`) is the idempotency
+boundary — a source whose checksum is unchanged is a `skipped` log row, not a re-embed.
+
+**Endpoints:** `POST /rag/retrieve` (auth required — exercises the retriever directly), `GET /rag/sources`,
+`GET /rag/sources/{source_id}`, `GET /rag/health` (unauthenticated, like `/disaster-types` — the source
+registry is shared knowledge, not user data). **Events:** `RAG_RETRIEVAL_STARTED`, `RAG_RETRIEVAL_COMPLETED`,
+`AGENT_EVIDENCE_ATTACHED` ride the existing `/ws/ai` bus (§30a) — no second socket.
+
+**CLI:** `python -m rag ingest|validate|list-sources` (`rag/__main__.py`) — argparse subcommands, not
+`python -m rag.ingest`, because `list-sources` is not a valid Python module identifier; documented deviation
+from the literal request. It is the one file in `rag/` allowed to import `backend.app`, bridging the two
+domains exactly as `backend/app/main.py` bridges the other direction for `simulation.*`.
+
+Detail: docs/rag/pipeline.md. See ADR-008.
 

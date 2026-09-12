@@ -20,6 +20,7 @@ from app.api.routes.disaster_types import router as disaster_types_router
 from app.api.routes.geographic_features import router as geographic_features_router
 from app.api.routes.health import router as health_router
 from app.api.routes.infrastructure_assets import router as infrastructure_assets_router
+from app.api.routes.rag import router as rag_router
 from app.api.routes.scenarios import router as scenarios_router
 from app.api.routes.simulation_runs import router as simulation_runs_router
 from app.api.websocket.ai_events import router as ai_events_router
@@ -113,3 +114,4 @@ app.include_router(disaster_types_router)
 app.include_router(infrastructure_assets_router)
 app.include_router(geographic_features_router)
 app.include_router(ai_router)
+app.include_router(rag_router)

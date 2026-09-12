@@ -612,7 +612,7 @@ Full detail (verification results, pinned-version constraints): architecture.md 
 | Scientific — NumPy + SciPy + xarray | dependency foundation only |
 | Geospatial — Shapely + GeoPandas | dependency foundation only |
 | AI — LangGraph | dependency foundation only |
-| RAG — ChromaDB | dependency foundation only |
+| RAG — ChromaDB + hybrid retrieval pipeline (`rag/`) | BOOTSTRAPPED (Prompt 16 — 10-node analysis graph incl. `evidence_retrieval`, role-scoped citations, local deterministic embeddings by default, `RAG_PROVIDER=none` in production until real sources are ingested; see docs/rag/pipeline.md) |
 | Testing — Vitest / pytest | BOOTSTRAPPED |
 | Testing — Playwright | PLANNED |
 | Deck.gl | PLANNED / OPTIONAL |
@@ -620,7 +620,7 @@ Full detail (verification results, pinned-version constraints): architecture.md 
 | Simulation Engine — `simulation/core` + 5 demo disaster models + execution API | BOOTSTRAPPED (Prompt 7 — deterministic, synchronous, JSON artifact only; see docs/development/simulation.md) |
 | AAA 3D Command Center + cinematic landing | BOOTSTRAPPED (Prompt 8 — landing/explore/command-center routing, full Three.js scene graph, real Prompt 7 integration; see docs/development/command-center.md) |
 | World scenery — instanced forest + ground-fitted structures + illustrative structural response | BOOTSTRAPPED (`three/vegetation/`, `three/structures/collapse.ts`; see docs/development/command-center.md) |
-| AI — LangGraph 9-node analysis layer (`agents/`) | BOOTSTRAPPED (Prompt 14, extended Prompt 15 — read-only, evidence-gated, local deterministic provider by default; see docs/agents/ai-layer.md) |
+| AI — LangGraph 10-node analysis layer (`agents/`) | BOOTSTRAPPED (Prompt 14, extended Prompt 15/16 — read-only, evidence-gated, local deterministic provider by default, RAG-cited Precaution/Response; see docs/agents/ai-layer.md) |
 | AI — frame-synchronised command-center integration (`/ws/ai`, Agent HUD, Intelligence panel) | BOOTSTRAPPED (Prompt 15 — throttled/debounced, stale-guarded; architecture.md §30a) |
 | Auth — Firebase Authentication + PyJWT verification | BOOTSTRAPPED (Prompt 12 — per-user scenario isolation via `scenarios.owner_uid`; operator supplies the Firebase project config; see docs/development/setup.md) |
 | Demo shoreline world + client-side propagation mirror | BOOTSTRAPPED (Prompt 12 — `simulation/core/propagation.py` ↔ `frontend/src/propagation/`, fixture-pinned; architecture.md ADR-005) |
@@ -742,6 +742,42 @@ Full detail: docs/agents/ai-layer.md. Architecture: architecture.md ADR-006, §3
   frame on screen. The server enforces the same rule with `409 AI_ANALYSIS_STALE`.
 - `/ws/ai` events are a progress view only (best effort, in-process, per verified uid). Never make the
   Command Brief depend on them, and never put prompt text, keys or chain-of-thought in an event.
+
+## 26b. RAG Pipeline Rules
+
+Full detail: docs/rag/pipeline.md. Architecture: architecture.md §10, §30b.
+
+- `rag/` is standalone, like `simulation/` and `agents/` (no FastAPI/SQLAlchemy import anywhere in the
+  package). Agents reach it only through `agents/tools/retrieval/evidence_retriever.py` — the ONLY file in
+  `agents/` that imports `rag.*`; everything that needs an `EvidenceItem`/`EvidencePack`/`ClaimMapping` type
+  elsewhere in `agents/` imports it from that file, never from `rag.schemas.models` directly.
+- The Postgres source registry (`rag_sources`, `rag_ingestion_log`) is bridged by
+  `backend/app/services/rag_ingestion_service.py`, the same pattern `ai_data_access.py` uses for agents and
+  `simulation_service.py` uses for the simulation engine — one backend service crosses the boundary, the
+  domain package stays framework-free. `rag/__main__.py` (the CLI) is the one exception: it bootstraps both
+  `rag/` and `backend/app` onto `sys.path` to reach the registry, mirroring `backend/app/main.py`'s own
+  reverse bootstrap for `simulation.*`.
+- Retrieved text is evidence, never an instruction. A citation is only ever an id that literally appears in
+  the `EvidencePack` an agent was actually given (`SafetyValidator.validate_citations`,
+  `agents/agents/command/synthesis.py`) — an agent (local or hosted) claiming any other string has it
+  silently dropped and recorded in `validation_notes`, exactly like an unknown simulation evidence id.
+- `RAG_PROVIDER=none` (default) keeps the pre-Prompt-16 posture: every `regulatory_evidence:<role>`
+  `DataLimitation` reads `NOT_CONFIGURED`. `RAG_PROVIDER=chroma` switches on the real hybrid retriever — it
+  still returns `INSUFFICIENT_EVIDENCE`/`UNAVAILABLE` rather than a fabricated citation whenever nothing
+  relevant enough is actually ingested for that disaster type.
+- Never place a document under `rag/sources/` unless it is a real, identified authoritative source
+  (rag/sources/README.md). Test/fixture material belongs under `rag/tests/fixtures/`, is always parsed with
+  `is_test_fixture=True`, and its `authority` field reads `TEST_FIXTURE`.
+- Adding an embedding or vector-store provider means a new `build_embedding_provider`/`build_evidence_retriever`
+  branch (`rag/embeddings/provider.py` / `agents/tools/retrieval/evidence_retriever.py`) — never an if/elif
+  inside `HybridRetriever` or a graph node.
+- Ingestion is idempotent by content checksum (`rag.schemas.models.checksum_of`) — re-ingesting an unchanged
+  document is a `skipped` `RagIngestionLog` row, not a re-embed. A changed document replaces its chunks
+  wholesale (`ChromaVectorStore.delete_source` then re-upsert); it never leaves a stale chunk from an earlier
+  revision retrievable alongside the new ones.
+- RAG runs on the same pacing as the rest of the analysis graph (CLAUDE.md §26a) — retrieval happens once
+  per `evidence_retrieval` node execution, inside the existing throttled/debounced `/ai/analyze-frame` call.
+  Never add a retrieval call on a timer, in `useFrame`, or anywhere outside that node.
 
 ## 27. AAA 3D Command Center & Landing Rules
 

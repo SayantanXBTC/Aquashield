@@ -114,11 +114,26 @@ def impact_analysis(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _tactical(payload: dict[str, Any]) -> dict[str, Any]:
+def _top_citation(evidence: dict[str, Any] | None) -> list[str]:
+    """Deterministic citation rule: when the role's retrieval actually
+    supported something, cite the single most relevant item. Never invents
+    an id — it can only ever be one already present in `evidence.items`, and
+    the Safety Validator re-checks that independently."""
+
+    if not evidence or evidence.get("evidence_status") != "SUPPORTED":
+        return []
+    items = evidence.get("items") or []
+    if not items:
+        return []
+    return [items[0]["evidence_id"]]
+
+
+def _tactical(payload: dict[str, Any], *, evidence: dict[str, Any] | None = None) -> dict[str, Any]:
     cur = payload.get("current_frame") or {}
     hz = cur.get("hazard_state", {}) if cur else {}
     e_cur = _frame_evidence(payload, "current_frame")
     disaster = payload.get("disaster_type", "hazard")
+    citation = _top_citation(evidence)
 
     priorities: list[dict[str, Any]] = []
     actions: list[dict[str, Any]] = []
@@ -134,6 +149,7 @@ def _tactical(payload: dict[str, Any]) -> dict[str, Any]:
                 "resources": RESOURCE_DATA_UNAVAILABLE,
                 "requires_human_approval": True,
                 "evidence_ids": evidence_ids,
+                "citations": list(citation),
             }
         )
 
@@ -220,12 +236,12 @@ def risk_assessment(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def precaution_set(payload: dict[str, Any]) -> dict[str, Any]:
-    plan = _tactical(payload.get("context", {}))
+    plan = _tactical(payload.get("context", {}), evidence=payload.get("evidence"))
     return {"precautions": plan["precautions"], "uncertainties": []}
 
 
 def response_plan(payload: dict[str, Any]) -> dict[str, Any]:
-    plan = _tactical(payload.get("context", {}))
+    plan = _tactical(payload.get("context", {}), evidence=payload.get("evidence"))
     return {"actions": plan["actions"], "uncertainties": []}
 
 

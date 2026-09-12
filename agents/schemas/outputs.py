@@ -57,7 +57,12 @@ class RecommendedAction(BaseModel):
     risks: list[str] = Field(default_factory=list)
     resources: str = Field(default=RESOURCE_DATA_UNAVAILABLE)
     requires_human_approval: Literal[True] = True
-    evidence_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list, description="Simulation evidence ids (E1, E2, ...) from the Context Collector.")
+    citations: list[str] = Field(
+        default_factory=list,
+        description="Authoritative-source evidence ids (RAG-...) from the role's EvidencePack. Never invented — "
+        "the Safety Validator drops any id that isn't in the pack it was actually given.",
+    )
 
     @field_validator("resources")
     @classmethod
