@@ -156,9 +156,13 @@ real broker.
 | Orchestration hook (pacing, cache, live chips) | `features/command-center/ai/useAIOrchestrator.ts` |
 | Event socket | `features/command-center/ai/useAIEvents.ts` |
 | Chip roster (mirrors `AGENT_LABELS`) | `features/command-center/ai/agentRoster.ts` |
-| Agent Execution HUD | `features/command-center/components/AgentExecutionHud.tsx` |
-| Structured intelligence panel | `features/command-center/components/IntelligencePanel.tsx` |
-| Mount | `features/command-center/CommandCenterPage.tsx` (right rail) |
+| Agent Execution HUD | `features/command-center/components/AgentExecutionHud.tsx` (left rail) |
+| Structured intelligence panel | `features/command-center/components/IntelligencePanel.tsx` (right rail) |
+| Mount | `features/command-center/CommandCenterPage.tsx` |
+
+The HUD groups its chips with `AGENT_STAGES` / `byStage` (`ai/agentRoster.ts`), which mirror the graph's
+supersteps, so the branches that execute in tandem are drawn as one stage marked `‖ in tandem` rather than a
+flat queue. Statuses still come only from the backend.
 
 No chatbot surface, no sparkle icons: both are ordinary HUD panels using the existing design tokens.
 `CommandBriefPanel.tsx` (Prompt 14) is superseded and removed.

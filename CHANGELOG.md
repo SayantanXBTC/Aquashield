@@ -1,5 +1,30 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-12 — HUD rail layout fix + agent pipeline grouped by superstep
+
+**Added/Changed:**
+- `HudPanel` gains `shrink-0`. The HUD rails are flex columns, so every panel was being squashed to fit and
+  its body clipped mid-line — telemetry readouts cut in half, the agent list showing only its first rows —
+  which read as panels overlapping. Panels now keep their natural height and the rail scrolls.
+- `AgentExecutionHud` groups its chips by the graph's supersteps (`AGENT_STAGES` / `byStage`), marking the
+  Analyse and Advise stages `‖ in tandem`, so the parallel branches are legible as parallel.
+- `AgentExecutionHud` moved to the left rail (tests, parameters, pipeline); the right rail keeps telemetry,
+  structures, recorded runs and intelligence. Balances the two rails so neither scrolls far.
+- `IntelligencePanel` inner scroll capped at 38vh (was 46vh).
+
+**Why:**
+- The clipping was a pre-existing flex bug that only became obvious once the rail carried five panels.
+- "Working in tandem" is a property of the graph; the HUD now shows it structurally instead of relying on
+  timings that the local deterministic provider finishes in single-digit milliseconds.
+
+**Files/Modules:**
+- `frontend/src/features/command-center/components/{HudPanel,AgentExecutionHud,IntelligencePanel}.tsx`,
+  `.../ai/agentRoster.ts`, `.../CommandCenterPage.tsx`
+
+**Future Context:**
+- `shrink-0` on `HudPanel` is load-bearing for every rail, not just the AI panels — don't remove it to "fix"
+  a tall panel; cap that panel's own body instead.
+
 ### 2026-09-12 — Frame-synchronised multi-agent analysis in the command center (Prompt 15)
 
 **Added/Changed:**

@@ -20,6 +20,31 @@ export const AGENT_ROSTER: { agent: string; label: string }[] = [
   { agent: "command_synthesizer", label: "Command Synthesizer" },
 ];
 
+/**
+ * The graph's supersteps, in order — the HUD groups the chips by these so the
+ * branches that run in tandem read as one stage rather than a flat list.
+ * Mirrors the edges in `agents/graph/workflow/graph.py`; `parallel` is true
+ * where the graph fans out into a single superstep.
+ */
+export const AGENT_STAGES: { id: string; label: string; parallel: boolean; agents: string[] }[] = [
+  { id: "collect", label: "Collect", parallel: false, agents: ["context_collector"] },
+  { id: "analyse", label: "Analyse", parallel: true, agents: ["hazard_agent", "damage_agent", "risk_agent"] },
+  { id: "advise", label: "Advise", parallel: true, agents: ["precaution_agent", "response_agent"] },
+  { id: "resource", label: "Resource", parallel: false, agents: ["resource_agent"] },
+  { id: "assure", label: "Validate & synthesise", parallel: false, agents: ["safety_validator", "command_synthesizer"] },
+];
+
+/** Groups a chip row into the graph's supersteps, dropping empty stages. */
+export function byStage(runs: AIAgentRun[]): { id: string; label: string; parallel: boolean; runs: AIAgentRun[] }[] {
+  const byAgent = new Map(runs.map((r) => [r.agent, r]));
+  return AGENT_STAGES.map((stage) => ({
+    id: stage.id,
+    label: stage.label,
+    parallel: stage.parallel,
+    runs: stage.agents.map((agent) => byAgent.get(agent)).filter((run): run is AIAgentRun => run !== undefined),
+  })).filter((stage) => stage.runs.length > 0);
+}
+
 export function idleRoster(status: AIAgentExecutionStatus = "PENDING"): AIAgentRun[] {
   return AGENT_ROSTER.map(({ agent, label }) => ({ agent, label, status, summary: null, duration_ms: 0 }));
 }

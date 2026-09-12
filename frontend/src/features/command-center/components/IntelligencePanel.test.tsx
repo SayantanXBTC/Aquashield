@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { idleRoster, rosterFromBrief } from "../ai/agentRoster";
+import { byStage, idleRoster, rosterFromBrief } from "../ai/agentRoster";
 import type { AIExposureFinding, CommandBrief, StructureConfig } from "../types";
 import { AgentExecutionHud } from "./AgentExecutionHud";
 import { IntelligencePanel } from "./IntelligencePanel";
@@ -113,6 +113,23 @@ describe("AgentExecutionHud", () => {
     expect(screen.getByText("UNAVAILABLE")).toBeInTheDocument();
     expect(screen.getAllByText("SKIPPED").length).toBeGreaterThan(0);
     expect(screen.getByText(/Frame 2 · timeline scrub/)).toBeInTheDocument();
+  });
+
+  it("groups the chips by the graph's supersteps so the parallel branches read as parallel", () => {
+    const stages = byStage(idleRoster());
+    expect(stages.map((s) => s.id)).toEqual(["collect", "analyse", "advise", "resource", "assure"]);
+    expect(stages.find((s) => s.id === "analyse")?.runs.map((r) => r.agent)).toEqual(["hazard_agent", "damage_agent", "risk_agent"]);
+    expect(stages.filter((s) => s.parallel).map((s) => s.id)).toEqual(["analyse", "advise"]);
+
+    render(<AgentExecutionHud agents={idleRoster()} status="waiting" trigger="playback" frameIndex={0} error={null} onAnalyseNow={() => {}} disabled={false} />);
+    expect(screen.getByText("Analyse")).toBeInTheDocument();
+    expect(screen.getByText("Advise")).toBeInTheDocument();
+    expect(screen.getAllByText("‖ in tandem")).toHaveLength(2);
+  });
+
+  it("drops a stage whose agents the graph never reported", () => {
+    const stages = byStage([{ agent: "context_collector", label: "Context Collector", status: "COMPLETED", summary: null, duration_ms: 1 }]);
+    expect(stages.map((s) => s.id)).toEqual(["collect"]);
   });
 
   it("starts every agent pending and disables manual analysis with no recorded run", () => {

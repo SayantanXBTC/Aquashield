@@ -959,9 +959,13 @@ Fail-safe partial runs: a non-critical agent that raises is recorded `FAILED` wi
 the analysis tiers entirely when the Context Collector finds no analysable frame, so an empty frame costs no
 LLM call.
 
-UI mount points (`frontend/src/features/command-center/`): `CommandCenterPage.tsx` right rail →
-`components/AgentExecutionHud.tsx` (chip per graph node) and `components/IntelligencePanel.tsx` (hazard,
-potentially-exposed table, priorities, precautions, actions, limitations & audit). Both are HUD panels in the
-existing mission-control layout — no chatbot surface. The pre-Prompt-15 `CommandBriefPanel` is superseded and
-removed.
+UI mount points (`frontend/src/features/command-center/`, `CommandCenterPage.tsx`): left rail →
+`components/AgentExecutionHud.tsx` (a chip per graph node, grouped by superstep so the parallel branches read
+as parallel); right rail → `components/IntelligencePanel.tsx` (hazard, potentially-exposed table, priorities,
+precautions, actions, limitations & audit). Both are ordinary HUD panels in the existing mission-control
+layout — no chatbot surface. The pre-Prompt-15 `CommandBriefPanel` is superseded and removed.
+
+`HudPanel` carries `shrink-0`: the rails are flex columns, so without it a rail with several panels squashes
+each one and clips its body mid-line (which reads as panels overlapping). Panels keep their natural height and
+the rail scrolls.
 

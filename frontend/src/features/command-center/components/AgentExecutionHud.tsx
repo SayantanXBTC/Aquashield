@@ -1,5 +1,6 @@
 import { Cpu } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { byStage } from "../ai/agentRoster";
 import type { AIAgentExecutionStatus, AIAgentRun, AIRequestType } from "../types";
 import { HudPanel } from "./HudPanel";
 
@@ -77,18 +78,31 @@ export function AgentExecutionHud({ agents, status, trigger, frameIndex, error, 
         </button>
       </div>
 
-      <ul className="flex flex-col gap-1">
-        {agents.map((agent) => (
-          <li key={agent.agent} className="flex items-center gap-2" title={agent.summary ?? undefined}>
-            <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", DOT[agent.status])} aria-hidden />
-            <span className="text-ink-soft min-w-0 flex-1 truncate text-[11px]">{agent.label}</span>
-            <span className="text-ink-faint shrink-0 font-mono text-[9px] tracking-[0.08em] uppercase">{agent.status}</span>
-            <span className="text-ink-faint w-12 shrink-0 text-right font-mono text-[9px]">
-              {agent.duration_ms > 0 ? `${agent.duration_ms.toFixed(0)} ms` : "—"}
-            </span>
-          </li>
+      {/* Grouped by the graph's supersteps, so the branches that run in the
+          same step read as one stage instead of a flat queue. */}
+      <div className="flex flex-col gap-1.5">
+        {byStage(agents).map((stage) => (
+          <section key={stage.id}>
+            <div className="text-ink-faint mb-0.5 flex items-center gap-1.5 text-[9px] tracking-[0.14em] uppercase">
+              <span>{stage.label}</span>
+              {stage.parallel ? <span className="text-accent-strong font-mono normal-case tracking-normal">‖ in tandem</span> : null}
+              <span className="h-px flex-1 bg-white/[0.06]" aria-hidden />
+            </div>
+            <ul className={cn("flex flex-col gap-1", stage.parallel && "border-l border-white/[0.08] pl-2")}>
+              {stage.runs.map((agent) => (
+                <li key={agent.agent} className="flex items-center gap-2" title={agent.summary ?? undefined}>
+                  <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", DOT[agent.status])} aria-hidden />
+                  <span className="text-ink-soft min-w-0 flex-1 truncate text-[11px]">{agent.label}</span>
+                  <span className="text-ink-faint shrink-0 font-mono text-[9px] tracking-[0.08em] uppercase">{agent.status}</span>
+                  <span className="text-ink-faint w-12 shrink-0 text-right font-mono text-[9px]">
+                    {agent.duration_ms > 0 ? `${agent.duration_ms.toFixed(0)} ms` : "—"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
         ))}
-      </ul>
+      </div>
 
       {error ? (
         <p role="alert" className="text-status-critical text-[11px]">

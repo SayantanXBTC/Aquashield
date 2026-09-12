@@ -45,7 +45,11 @@ export function HudPanel({ id, title, icon, aside, defaultCollapsed = false, cla
     <section
       aria-label={title}
       className={cn(
-        "pointer-events-auto flex min-h-0 flex-col overflow-hidden rounded-[8px] border border-white/[0.07] bg-[rgba(9,14,20,0.66)] shadow-[0_18px_48px_-18px_rgba(0,0,0,0.85)] backdrop-blur-xl",
+        // shrink-0 is load-bearing: the HUD rails are flex columns, so without
+        // it every panel is squashed to fit and its body is clipped mid-line —
+        // which reads as panels overlapping. Panels keep their natural height
+        // and the rail scrolls instead.
+        "pointer-events-auto flex min-h-0 shrink-0 flex-col overflow-hidden rounded-[8px] border border-white/[0.07] bg-[rgba(9,14,20,0.66)] shadow-[0_18px_48px_-18px_rgba(0,0,0,0.85)] backdrop-blur-xl",
         className,
       )}
     >

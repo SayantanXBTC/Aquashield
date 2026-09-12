@@ -115,7 +115,7 @@ export function CommandCenterPage() {
         <TopBar scenario={session.scenario} saveStatus={session.saveStatus} replaying={replaying} />
 
         <div className="relative z-10 flex min-h-0 flex-1 gap-3">
-          <div className={`flex w-[300px] shrink-0 flex-col gap-3 overflow-y-auto ${hudOpen ? "" : "hidden"}`}>
+          <div className={`flex w-[300px] shrink-0 flex-col gap-3 overflow-y-auto pb-1 ${hudOpen ? "" : "hidden"}`}>
             <ScenarioTray
               scenarios={session.scenarios}
               status={session.scenariosStatus}
@@ -136,6 +136,15 @@ export function CommandCenterPage() {
               onCommit={session.commitParams}
               onDurationChange={session.setDurationHours}
             />
+            <AgentExecutionHud
+              agents={ai.agents}
+              status={ai.status}
+              trigger={ai.lastTrigger}
+              frameIndex={ai.targetRun ? ai.frameIndex : null}
+              error={ai.error}
+              onAnalyseNow={ai.analyseNow}
+              disabled={!ai.targetRun}
+            />
           </div>
 
           <div className="flex min-w-0 flex-1 flex-col justify-end">
@@ -154,7 +163,7 @@ export function CommandCenterPage() {
             </div>
           </div>
 
-          <div className={`flex w-[320px] shrink-0 flex-col gap-3 overflow-y-auto ${hudOpen ? "" : "hidden"}`}>
+          <div className={`flex w-[320px] shrink-0 flex-col gap-3 overflow-y-auto pb-1 ${hudOpen ? "" : "hidden"}`}>
             <TelemetryPanel kind={session.kind} clock={clock} getSnapshot={session.getSnapshot} />
             <StructuresPanel
               structures={session.structures}
@@ -179,15 +188,6 @@ export function CommandCenterPage() {
               onRecord={() => void session.recordRun()}
               onReplay={session.setReplayRunId}
               onExitReplay={session.exitReplay}
-            />
-            <AgentExecutionHud
-              agents={ai.agents}
-              status={ai.status}
-              trigger={ai.lastTrigger}
-              frameIndex={ai.targetRun ? ai.frameIndex : null}
-              error={ai.error}
-              onAnalyseNow={ai.analyseNow}
-              disabled={!ai.targetRun}
             />
             <IntelligencePanel
               brief={ai.brief}
