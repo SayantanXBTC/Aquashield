@@ -34,6 +34,10 @@ const STATUS_CLASS: Record<StructureStatus, string> = {
  * each one (a disabled structure is neither drawn nor assessed), rename,
  * remove. Live status per structure from the same snapshot the scene reads
  * (the mirrored exposure rules — src/propagation/structures.ts).
+ *
+ * The panel carries the caveat for the 3D view's structural response: the
+ * models lean and fail as the exposure band rises, and that is an
+ * illustration of the band, never a damage or casualty estimate.
  */
 export function StructuresPanel({ structures, visible, onVisibleChange, selectedId, onSelect, onAdd, onRemove, onToggle, onRename, getSnapshot, locked }: StructuresPanelProps) {
   const [impacts, setImpacts] = useState<Map<string, StructureImpact>>(new Map());
@@ -158,6 +162,13 @@ export function StructuresPanel({ structures, visible, onVisibleChange, selected
           })}
         </ul>
       )}
+      {/* The 3D models lean and come apart as the exposure band rises. That is
+          a rendering of the band, not an outcome — say so where the operator
+          reads the statuses, not only in the code (CLAUDE.md §25). */}
+      <p className="text-ink-faint mt-2 text-[10px] leading-relaxed">
+        Structural response in the 3D view illustrates the exposure band only. AQUASHIELD has no damage model — it is not a
+        prediction of damage, collapse or casualties.
+      </p>
     </HudPanel>
   );
 }

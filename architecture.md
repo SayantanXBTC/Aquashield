@@ -876,6 +876,22 @@ statement of what the console actually contains (CLAUDE.md §12/§26/§27). The 
 modes are rendered as explicitly unavailable (`aria-disabled`, muted, "planned" tooltip) rather than as live
 tabs that would do nothing.
 
+### 28a. World scenery: vegetation and structural response
+
+`three/vegetation/` plants ~4,000 instanced trees on the land plate, placed by a JS twin of the noise the
+terrain material paints its forest patches with, and animated entirely in the vertex shader (sway, and a
+laid-over desaturated canopy inside a hazard's current inland reach). Six draw calls; one module-level
+uniform block, the same pattern as `hazardChannel`.
+
+`three/structures/support.ts`'s `footprintGround` seats a structure on the highest ground under its footprint
+with a foundation reaching past the lowest, so nothing floats or buries on the sloping plate.
+
+`three/structures/collapse.ts` draws the exposure band as structural failure: lean from `at_risk`, pieces
+failing inside `severe`, settling into debris. It is an **illustration of the band, not a damage model** —
+AQUASHIELD has none — it is a pure function of the current exposure (so it reverses when the timeline is
+scrubbed back), it imports its thresholds from `propagation/structures.ts`, and the UI states the caveat
+alongside the statuses (CLAUDE.md §25). Detail: docs/development/command-center.md.
+
 ## 29. Authenticated Interactive Console (Prompt 12)
 
 The console was rebuilt around three decisions: Firebase Authentication with per-user data isolation

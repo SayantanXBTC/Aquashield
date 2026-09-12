@@ -1,5 +1,45 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-12 — World scenery: instanced forest, ground-fitted structures, illustrative structural response
+
+**Added/Changed:**
+- `frontend/src/three/vegetation/` — ~4,000 instanced trees (conifer, broadleaf, palm fringe) over the land
+  plate: `worldNoise.ts` (JS twin of the terrain shader's fbm), `forestPlacement.ts` (pure, deterministic,
+  GPU-free), `treeGeometry.ts`, `forestMaterial.ts` (vertex-shader wind sway + inundated-canopy response,
+  one module-level uniform block), `ForestLayer.tsx` (six draw calls, clearings around placed structures).
+  Mounted in `SceneRoot`.
+- `three/structures/support.ts` — `footprintGround` samples two rings of `terrainHeightKm` so a structure
+  sits on the highest ground under its footprint with a foundation reaching past the lowest, instead of
+  floating on its downhill corner from a single centre sample.
+- `three/structures/collapse.ts` + `models/index.tsx` `FailingPiece` — models lean from `at_risk` and come
+  apart piece by piece inside `severe`, settling into a debris field. Thresholds imported from
+  `propagation/structures.ts`; pure function of the current exposure, so scrubbing the timeline back stands
+  the structure up; oil spills never collapse anything.
+- `StructuresPanel` states the caveat in the UI: the structural response illustrates the exposure band and is
+  not a damage, collapse or casualty estimate.
+- Tests: `forestPlacement.test.ts` (6) and `collapse.test.ts` (5). Frontend suite 45 passing.
+
+**Why:**
+- The land plate read as flat painted colour and the structures floated on the slope; the scene needed real
+  relief cues and structures that meet the ground.
+- Showing the exposure band ON the model is far more legible than four status colours — but AQUASHIELD has no
+  damage model, so it had to be built as an explicitly-labelled illustration that reverses with the timeline
+  (CLAUDE.md §25/§26a), not as a destruction animation.
+
+**Files/Modules:**
+- `frontend/src/three/vegetation/*`, `frontend/src/three/structures/{collapse.ts,support.ts,StructureModel.tsx,models/index.tsx}`,
+  `frontend/src/three/core/SceneRoot.tsx`, `frontend/src/features/command-center/components/StructuresPanel.tsx`
+- `architecture.md` §28a, `docs/development/command-center.md`, `CLAUDE.md` §23/§27
+
+**Future Context:**
+- The JS/GLSL noise twin is the fragile part: the GLSL hash fracts only the FINAL product. An earlier twin
+  also fract'ed the intermediate, dropping the noise mean from ~0.5 to ~0.25 and leaving 93 trees on a 300 km
+  world — which looks like a design choice, not a bug. `forestPlacement.test.ts` guards the distribution.
+- Shaders still have no automated render test. They were verified to compile in headless Chrome with
+  SwiftShader via a throwaway page; the technique is written up in docs/development/command-center.md.
+- Tree scale is exaggerated like everything else in this world (a tree is ~1-2 km tall next to a 3 km town
+  block). Do not "correct" it to real scale — it would be invisible.
+
 ### 2026-09-12 — HUD rail layout fix + agent pipeline grouped by superstep
 
 **Added/Changed:**

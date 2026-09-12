@@ -5,6 +5,7 @@ import { HeadingGuide } from "@/three/markers/HeadingGuide";
 import { OriginPin } from "@/three/markers/OriginPin";
 import { StructureLayer, type StructureLayerProps } from "@/three/structures/StructureLayer";
 import { ShorelineTerrain } from "@/three/terrain/ShorelineTerrain";
+import { ForestLayer } from "@/three/vegetation/ForestLayer";
 import { WaterSurface } from "@/three/water/WaterSurface";
 import { kmToScene, kmToSceneUnits } from "@/three/world/demoWorld";
 import type { HazardKind, HazardSnapshot } from "@/propagation/hazards";
@@ -36,9 +37,9 @@ const MIN_FRAME_RADIUS = 55;
 
 /**
  * The scene graph every AQUASHIELD view shares: atmosphere, lighting, the
- * one shoreline world (water + terrain), the draggable origin pin with its
- * heading guide, and — resolved from the registry by hazard kind — the
- * disaster visualizer. Nothing else in the app constructs a scene graph.
+ * one shoreline world (water + terrain + forest), the draggable origin pin
+ * with its heading guide, and — resolved from the registry by hazard kind —
+ * the disaster visualizer. Nothing else in the app constructs a scene graph.
  *
  * Composition is decided here: the camera frames the segment from the
  * origin to the landfall point (or the origin alone when the heading misses
@@ -93,6 +94,9 @@ export function SceneRoot({
 
       <WaterSurface />
       <ShorelineTerrain />
+      {/* Scenery on the land plate — planted by the same noise the terrain
+          material paints its forest with, cleared around placed structures. */}
+      <ForestLayer structures={structures?.structures} />
 
       <HeadingGuide originKm={originKm} landfallKm={landfallKm} fallbackEndKm={fallbackEndKm} />
       <OriginPin originKm={originKm} onDrag={onOriginDrag} onDragEnd={onOriginDragEnd} disabled={originLocked} />
