@@ -64,20 +64,37 @@ describe("IntelligencePanel", () => {
 
   it("moves a subject from unexposed to potentially exposed as the frame advances", () => {
     const view = render(<IntelligencePanel brief={brief(1, [])} structures={STRUCTURES} frameIndex={1} briefIsBehind={false} status="ready" provider="local" />);
-    expect(screen.getByText(/No subject reports exposure at this frame/i)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing exposed at this frame/i)).toBeInTheDocument();
     expect(screen.queryByText("Harbour")).not.toBeInTheDocument();
 
     view.rerender(<IntelligencePanel brief={brief(2, [exposure()])} structures={STRUCTURES} frameIndex={2} briefIsBehind={false} status="ready" provider="local" />);
-    // Once in the exposure table, once in the ranked priorities.
+    // Once in the exposure list, once in the ranked priorities.
     expect(screen.getAllByText("Harbour")).toHaveLength(2);
-    // Linked to the explicit subject id and its coordinates, and labelled as
-    // exposure — never as damage.
-    expect(screen.getByText("port-1")).toBeInTheDocument();
-    expect(screen.getByText("192.0, 150.0")).toBeInTheDocument();
-    expect(screen.getByText(/reports exposure status impacted — potentially exposed/i)).toBeInTheDocument();
+    // Located on the map by its placed coordinates, and labelled as exposure
+    // — never as damage.
+    expect(screen.getByText("192, 150 km")).toBeInTheDocument();
     expect(screen.getByText(/Potentially exposed · not damage/i)).toBeInTheDocument();
+    expect(screen.getByText(/exposure, not damage · human approval required/i)).toBeInTheDocument();
+    // The full statement is available without occupying a scanning line.
+    expect(screen.getByTitle(/reports exposure status impacted — potentially exposed/i)).toBeInTheDocument();
+  });
+
+  it("summarises at a glance and keeps the detail one click away", () => {
+    render(<IntelligencePanel brief={brief(2, [exposure()])} structures={STRUCTURES} frameIndex={2} briefIsBehind={false} status="ready" provider="local" />);
+    // The three numbers that answer "how bad, where, what now".
+    expect(screen.getByText("Exposed")).toBeInTheDocument();
+    expect(screen.getByText("Top priority")).toBeInTheDocument();
+    expect(screen.getByText("Actions")).toBeInTheDocument();
+    // Evidence ids, run id and the disclaimer live in the audit block.
+    expect(screen.getByText(/Audit · evidence, limitations, full findings/i)).toBeInTheDocument();
     expect(screen.getAllByText("RESOURCE_DATA_UNAVAILABLE").length).toBeGreaterThan(0);
-    expect(screen.getByText(/requires human approval/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/SIMPLIFIED DEMONSTRATION MODEL/i).length).toBeGreaterThan(0);
+  });
+
+  it("says how many findings it held back rather than truncating silently", () => {
+    const many = Array.from({ length: 7 }, (_, i) => ({ ...exposure(), subject: `Subject ${i}`, subject_ref: `id-${i}` }));
+    render(<IntelligencePanel brief={brief(2, many)} structures={STRUCTURES} frameIndex={2} briefIsBehind={false} status="ready" provider="local" />);
+    expect(screen.getAllByText(/\+3 more in the audit below/).length).toBeGreaterThan(0);
   });
 
   it("says which frame the brief describes when the playhead has moved on", () => {
@@ -85,10 +102,11 @@ describe("IntelligencePanel", () => {
     expect(screen.getByText(/Showing frame 2; playhead is at frame 7/)).toBeInTheDocument();
   });
 
-  it("renders a coordinate placeholder for a subject that is not a placed structure", () => {
+  it("falls back to the subject id when a subject is not a placed structure", () => {
     render(<IntelligencePanel brief={brief(2, [{ ...exposure(), subject_ref: "asset-99" }])} structures={STRUCTURES} frameIndex={2} briefIsBehind={false} status="ready" provider="local" />);
-    expect(screen.getByText("asset-99")).toBeInTheDocument();
-    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+    // Never an invented coordinate: the row shows the id it does have.
+    expect(screen.getAllByText("asset-99").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/km$/)).not.toBeInTheDocument();
   });
 });
 

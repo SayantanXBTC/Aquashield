@@ -33,7 +33,7 @@
  */
 import type { Object3D } from "three";
 import type { HazardKind } from "@/propagation/hazards";
-import { EXPOSURE_AT_RISK, EXPOSURE_IMPACTED } from "@/propagation/structures";
+import { EXPOSURE_AT_RISK, EXPOSURE_CLEAR, EXPOSURE_IMPACTED } from "@/propagation/structures";
 import { hash01 } from "./support";
 
 export interface DamageState {
@@ -46,38 +46,72 @@ export interface DamageState {
   stress: number;
   /** Seconds, for shake and settle animation. */
   time: number;
+  /** Which way the hazard is travelling, in the MODEL's local frame
+   * (radians). Pieces topple with the flow rather than in random directions,
+   * so a wave reads as having pushed them over. */
+  flowHeading: number;
 }
 
 export function createDamageState(): DamageState {
-  return { exposure: 0, kind: null, collapse: 0, stress: 0, time: 0 };
+  return { exposure: 0, kind: null, collapse: 0, stress: 0, time: 0, flowHeading: 0 };
 }
 
+/** How much of the failure illustration the `impacted` band is worth. The
+ * remainder belongs to `severe`, so the two bands stay distinguishable at a
+ * glance: `impacted` breaks a structure up, `severe` flattens it. */
+const IMPACTED_SHARE = 0.72;
+
 /**
- * How far into structural failure the drawing goes. Zero until exposure is
- * inside the `severe` band (>= EXPOSURE_IMPACTED), then ramps to full over
- * the rest of the band — so "impacted" never looks like "flattened".
+ * How far into structural failure the drawing goes, mapped onto the exposure
+ * bands `propagation/structures.ts` defines:
+ *
+ *   clear .. at_risk   nothing (lean only, see stressTarget)
+ *   at_risk .. impacted  0 -> IMPACTED_SHARE — pieces begin to fail
+ *   impacted .. 1        IMPACTED_SHARE -> 1 — the structure comes down
+ *
+ * The bands, not a threshold of this module's own invention, are what decide
+ * this — so the model and the reported status can never disagree.
+ *
+ * The ramp inside a band is deliberately front-loaded (`pow(t, 0.65)`).
+ * Real scenarios spend most of their time in the middle of a band: a demo
+ * tsunami peaks around 0.47 exposure and a cyclone around 0.66, both inside
+ * `impacted`. A linear ramp left those looking untouched, which read as "the
+ * hazard passed straight through" rather than "this is deep in the
+ * footprint".
  */
 export function collapseTarget(exposure: number, kind: HazardKind | null): number {
   if (kind === null) return 0;
   // An oil slick coats a structure; it does not knock it down.
   if (kind === "oil_spill") return 0;
-  if (exposure <= EXPOSURE_IMPACTED) return 0;
+  if (exposure <= EXPOSURE_AT_RISK) return 0;
+  if (exposure < EXPOSURE_IMPACTED) {
+    const t = (exposure - EXPOSURE_AT_RISK) / (EXPOSURE_IMPACTED - EXPOSURE_AT_RISK);
+    return IMPACTED_SHARE * Math.pow(t, 0.65);
+  }
   const t = (exposure - EXPOSURE_IMPACTED) / (1 - EXPOSURE_IMPACTED);
-  return Math.max(0, Math.min(1, t));
+  return IMPACTED_SHARE + (1 - IMPACTED_SHARE) * Math.min(1, Math.pow(t, 0.65));
 }
 
-/** Lean/stress below the failure band — visible from `at_risk` up. */
+/** Lean/stress before anything fails — the `at_risk` band. */
 export function stressTarget(exposure: number, kind: HazardKind | null): number {
-  if (kind === null || exposure <= EXPOSURE_AT_RISK) return 0;
-  return Math.max(0, Math.min(1, (exposure - EXPOSURE_AT_RISK) / (EXPOSURE_IMPACTED - EXPOSURE_AT_RISK)));
+  if (kind === null || exposure <= EXPOSURE_CLEAR) return 0;
+  return Math.max(0, Math.min(1, (exposure - EXPOSURE_CLEAR) / (EXPOSURE_AT_RISK - EXPOSURE_CLEAR)));
 }
 
 /** Eases the drawn state toward the current frame's exposure. Reversible by
  * construction: scrubbing back lowers the target and the structure recovers. */
-export function updateDamageState(state: DamageState, exposure: number, kind: HazardKind | null, delta: number, elapsed: number): void {
+export function updateDamageState(
+  state: DamageState,
+  exposure: number,
+  kind: HazardKind | null,
+  delta: number,
+  elapsed: number,
+  flowHeading = 0,
+): void {
   state.exposure = exposure;
   state.kind = kind;
   state.time = elapsed;
+  state.flowHeading = flowHeading;
   const k = Math.min(1, delta * 3.2);
   state.collapse += (collapseTarget(exposure, kind) - state.collapse) * k;
   state.stress += (stressTarget(exposure, kind) - state.stress) * k;
@@ -104,11 +138,13 @@ export function pieceFailure(seed: string, index: number): PieceFailure {
   const b = hash01(seed, index * 17 + 11);
   const c = hash01(seed, index * 43 + 23);
   return {
-    delay: 0.08 + a * 0.55,
+    // Short, overlapping delays: a structure should visibly come apart while
+    // it is in the footprint, not hold rigid until the very end of the ramp.
+    delay: a * 0.32,
     heading: b * Math.PI * 2,
-    topple: 0.55 + c * 0.95,
-    sink: 0.25 + a * 0.4,
-    twist: (b - 0.5) * 0.8,
+    topple: 0.75 + c * 0.95,
+    sink: 0.3 + a * 0.45,
+    twist: (b - 0.5) * 1.1,
   };
 }
 
@@ -120,15 +156,23 @@ export function pieceFailure(seed: string, index: number): PieceFailure {
 export function applyPieceFailure(object: Object3D, failure: PieceFailure, state: DamageState, baseY: number): void {
   const raw = (state.collapse - failure.delay) / Math.max(0.05, 1 - failure.delay);
   const progress = Math.max(0, Math.min(1, raw));
-  // Ease-in: a structure holds, then goes.
-  const fall = progress * progress;
+  // Mildly eased, not quadratic: a square left everything upright until the
+  // very top of the ramp, where exposure rarely reaches.
+  const fall = Math.pow(progress, 1.35);
 
   const windShake = state.kind === "cyclone" ? Math.sin(state.time * 19 + failure.heading) * 0.02 * state.stress : 0;
   const lean = state.stress * 0.05;
 
+  // Topple downstream, with a per-piece spread — pieces knocked over by a
+  // wave or a wind field do not scatter in random directions.
+  const spread = (failure.heading / (Math.PI * 2) - 0.5) * 0.9;
+  const heading = state.flowHeading + spread;
   const angle = fall * failure.topple + lean;
-  object.rotation.x = Math.cos(failure.heading) * angle + windShake;
-  object.rotation.z = Math.sin(failure.heading) * angle + windShake * 0.7;
+  object.rotation.x = Math.cos(heading) * angle + windShake;
+  object.rotation.z = Math.sin(heading) * angle + windShake * 0.7;
   object.rotation.y = fall * failure.twist;
   object.position.y = -fall * failure.sink * Math.max(0.2, baseY);
+  // Crumble: a failing piece loses height as it goes, so a toppled tower
+  // reads as broken rather than as a model that was simply tipped over.
+  object.scale.y = 1 - 0.4 * fall;
 }
