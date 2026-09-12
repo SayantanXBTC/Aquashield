@@ -152,6 +152,67 @@ def test_get_simulation_runs_returns_created_run(client) -> None:
 
 
 @requires_postgres
+def test_get_simulation_runs_includes_frame_count(client) -> None:
+    """Prompt 10.1: a freshly created (pending) run has no artifact yet, so
+    frame_count is null, never fabricated — see
+    SimulationRunOut.frame_count's docstring."""
+    created = client.post("/scenarios", json=FLOOD_PAYLOAD).json()
+    scenario_id = created["id"]
+    run = client.post(f"/scenarios/{scenario_id}/runs").json()
+    assert run["frame_count"] is None
+
+    response = client.get(f"/scenarios/{scenario_id}/runs")
+    listed = next(r for r in response.json() if r["id"] == run["id"])
+    assert listed["frame_count"] is None
+
+
+@requires_postgres
+def test_default_run_is_null_for_a_scenario_with_no_runs(client) -> None:
+    created = client.post("/scenarios", json=FLOOD_PAYLOAD).json()
+    response = client.get(f"/scenarios/{created['id']}/runs/default")
+    assert response.status_code == 200
+    assert response.json() is None
+
+
+@requires_postgres
+def test_default_run_prefers_pending_when_that_is_all_there_is(client) -> None:
+    created = client.post("/scenarios", json=FLOOD_PAYLOAD).json()
+    scenario_id = created["id"]
+    run = client.post(f"/scenarios/{scenario_id}/runs").json()
+
+    response = client.get(f"/scenarios/{scenario_id}/runs/default")
+    assert response.status_code == 200
+    assert response.json()["id"] == run["id"]
+
+
+@requires_postgres
+def test_default_run_prefers_completed_over_a_newer_pending_run(client) -> None:
+    """Reproduces the diagnostic's exact "Geo Test Flood" bug shape: a
+    scenario ends up with an older COMPLETED run (with real frames) and a
+    newer PENDING run — GET /runs/default must return the COMPLETED one,
+    not just the newest run by created_at."""
+    created = client.post("/scenarios", json=FLOOD_PAYLOAD).json()
+    scenario_id = created["id"]
+
+    completed_run = client.post(f"/scenarios/{scenario_id}/runs").json()
+    execute_response = client.post(f"/simulation-runs/{completed_run['id']}/execute")
+    assert execute_response.status_code == 200
+    assert execute_response.json()["status"] == "completed"
+
+    # A second, newer run created (but never executed) after the first.
+    pending_run = client.post(f"/scenarios/{scenario_id}/runs").json()
+    assert pending_run["status"] == "pending"
+
+    response = client.get(f"/scenarios/{scenario_id}/runs/default")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == completed_run["id"]
+    assert body["status"] == "completed"
+    assert body["frame_count"] is not None
+    assert body["frame_count"] > 0
+
+
+@requires_postgres
 def test_create_scenario_rejects_invalid_disaster_type(client) -> None:
     response = client.post("/scenarios", json={**FLOOD_PAYLOAD, "disaster_type": "meteor_strike"})
     assert response.status_code == 422

@@ -71,8 +71,10 @@ def _detail(scenario: Scenario, current_version: ScenarioVersion | None, version
     )
 
 
-def _run_out(run: SimulationRun) -> SimulationRunOut:
-    return SimulationRunOut.model_validate(run)
+def _run_out(run: SimulationRun, frame_count: int | None = None) -> SimulationRunOut:
+    out = SimulationRunOut.model_validate(run)
+    out.frame_count = frame_count
+    return out
 
 
 @router.post("", response_model=ScenarioDetail, status_code=201)
@@ -155,7 +157,10 @@ def create_version(
 def list_runs(
     scenario_id: UUID, service: ScenarioServiceDep, status: SimulationStatus | None = None
 ) -> list[SimulationRunOut]:
-    return [_run_out(r) for r in service.list_simulation_runs(scenario_id, status=status)]
+    return [
+        _run_out(r, service.get_run_frame_count(r.id))
+        for r in service.list_simulation_runs(scenario_id, status=status)
+    ]
 
 
 @router.post("/{scenario_id}/runs", response_model=SimulationRunOut, status_code=201)
@@ -164,4 +169,19 @@ def create_run(
     service: ScenarioServiceDep,
     data: Annotated[SimulationRunCreateRequest, Body(default_factory=SimulationRunCreateRequest)],
 ) -> SimulationRunOut:
-    return _run_out(service.create_simulation_run(scenario_id, data))
+    run = service.create_simulation_run(scenario_id, data)
+    return _run_out(run, service.get_run_frame_count(run.id))
+
+
+@router.get("/{scenario_id}/runs/default", response_model=SimulationRunOut | None)
+def get_default_run(scenario_id: UUID, service: ScenarioServiceDep) -> SimulationRunOut | None:
+    """Prompt 10.1: the "best default" run to auto-select for this scenario
+    (see app/services/scenario_service.py's get_default_run and
+    app/services/run_selection.py for the priority rule) — never just the
+    newest run regardless of status. Returns null (200, not 404) when no run
+    qualifies; the Command Center then leaves nothing auto-selected and the
+    user picks explicitly from the run selector."""
+    run = service.get_default_run(scenario_id)
+    if run is None:
+        return None
+    return _run_out(run, service.get_run_frame_count(run.id))

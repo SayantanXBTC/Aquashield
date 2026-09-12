@@ -148,3 +148,10 @@ class SimulationRunOut(BaseModel):
     error_message: str | None
     created_at: datetime
     message: str = "Simulation run created; simulation engine not yet executed."
+    # Prompt 10.1: None before an artifact exists (pending/running/failed);
+    # 0 means an artifact exists but produced no frames (a COMPLETED run is
+    # never assumed to have usable frames — see
+    # docs/geospatial/impact-visualization.md). Mirrors
+    # SimulationRunDetail.frame_count (app/schemas/simulation.py) so the run
+    # selector can show real frame counts without a second endpoint call.
+    frame_count: int | None = None
