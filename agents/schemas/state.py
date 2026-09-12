@@ -25,7 +25,6 @@ from agents.schemas.outputs import (
     PrecautionSet,
     Priority,
     RecommendedAction,
-    ResourceAssessment,
     ResponsePlan,
     RiskAssessment,
     TacticalPlan,
@@ -65,9 +64,6 @@ class AquaShieldAgentState(BaseModel):
     # --- Tier 2 (parallel): precaution / response ---
     precaution_set: PrecautionSet | None = None
     response_plan: ResponsePlan | None = None
-
-    # --- Tier 3: resource (only if a verified inventory exists) ---
-    resource_assessment: ResourceAssessment | None = None
 
     # --- Safety Validator output: only evidence-grounded findings survive ---
     validated_progression: list[GroundedStatement] = Field(default_factory=list)

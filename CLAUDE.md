@@ -612,7 +612,7 @@ Full detail (verification results, pinned-version constraints): architecture.md 
 | Scientific — NumPy + SciPy + xarray | dependency foundation only |
 | Geospatial — Shapely + GeoPandas | dependency foundation only |
 | AI — LangGraph | dependency foundation only |
-| RAG — ChromaDB + hybrid retrieval pipeline (`rag/`) | BOOTSTRAPPED, live in local dev (Prompt 16 — 10-node analysis graph incl. `evidence_retrieval`, role-scoped citations, local deterministic embeddings by default; 5 real TIER_1 sources ingested — tsunami/flood/cyclone/oil-spill/general — `RAG_PROVIDER=chroma` set in local `backend/.env`; code default stays `none` for a fresh install until an operator ingests sources for their own environment; see docs/rag/pipeline.md) |
+| RAG — ChromaDB + hybrid retrieval pipeline (`rag/`) | BOOTSTRAPPED, live in local dev (Prompt 16 — 9-node analysis graph incl. `evidence_retrieval`, role-scoped citations, local deterministic embeddings by default; 5 real TIER_1 sources ingested — tsunami/flood/cyclone/oil-spill/general — `RAG_PROVIDER=chroma` set in local `backend/.env`; code default stays `none` for a fresh install until an operator ingests sources for their own environment; see docs/rag/pipeline.md) |
 | Testing — Vitest / pytest | BOOTSTRAPPED |
 | Testing — Playwright | PLANNED |
 | Deck.gl | PLANNED / OPTIONAL |
@@ -620,7 +620,7 @@ Full detail (verification results, pinned-version constraints): architecture.md 
 | Simulation Engine — `simulation/core` + 5 demo disaster models + execution API | BOOTSTRAPPED (Prompt 7 — deterministic, synchronous, JSON artifact only; see docs/development/simulation.md) |
 | AAA 3D Command Center + cinematic landing | BOOTSTRAPPED (Prompt 8 — landing/explore/command-center routing, full Three.js scene graph, real Prompt 7 integration; see docs/development/command-center.md) |
 | World scenery — instanced forest + ground-fitted structures + illustrative structural response | BOOTSTRAPPED (`three/vegetation/`, `three/structures/collapse.ts`; see docs/development/command-center.md) |
-| AI — LangGraph 10-node analysis layer (`agents/`) | BOOTSTRAPPED (Prompt 14, extended Prompt 15/16 — read-only, evidence-gated, local deterministic provider by default, RAG-cited Precaution/Response; see docs/agents/ai-layer.md) |
+| AI — LangGraph 9-node analysis layer (`agents/`) | BOOTSTRAPPED (Prompt 14, extended Prompt 15/16 — read-only, evidence-gated, local deterministic provider by default, RAG-cited Precaution/Response; see docs/agents/ai-layer.md) |
 | AI — frame-synchronised command-center integration (`/ws/ai`, Agent HUD, Intelligence panel) | BOOTSTRAPPED (Prompt 15 — throttled/debounced, stale-guarded; architecture.md §30a) |
 | Auth — Firebase Authentication + PyJWT verification | BOOTSTRAPPED (Prompt 12 — per-user scenario isolation via `scenarios.owner_uid`; operator supplies the Firebase project config; see docs/development/setup.md) |
 | Demo shoreline world + client-side propagation mirror | BOOTSTRAPPED (Prompt 12 — `simulation/core/propagation.py` ↔ `frontend/src/propagation/`, fixture-pinned; architecture.md ADR-005) |

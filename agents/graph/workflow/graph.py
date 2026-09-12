@@ -17,8 +17,6 @@
         precaution_agent          response_agent   (Tier 2, one superstep)
               +------------+------------+
                            v
-                     resource_agent       (RESOURCE_DATA_UNAVAILABLE today)
-                           v
                     safety_validator      (evidence gate — strips, never invents)
                            v
                    command_synthesizer    (the Command Brief)
@@ -66,7 +64,6 @@ from langgraph.graph import END, START, StateGraph
 
 from agents.agents.command import synthesis
 from agents.agents.hazard import hazard_agent
-from agents.agents.resource import resource_agent
 from agents.agents.state_evaluator.context_collector import ContextCollector
 from agents.agents.tactical import precaution_agent, response_agent
 from agents.agents.vulnerability import damage_agent, risk_agent
@@ -275,30 +272,6 @@ def _evidence_retrieval_node(deps: GraphDeps):
     return node
 
 
-# --- Tier 3: resources ------------------------------------------------------
-
-
-def _resource_node(deps: GraphDeps):
-    def node(state: AquaShieldAgentState) -> dict[str, Any]:
-        agent = "resource_agent"
-        started = _started(deps, agent, state)
-        versions = {agent: AGENT_VERSIONS[agent]}
-        if state.context is None or not resource_agent.has_resource_inventory(state.context):
-            # No verified inventory exists — the node reports the gap rather
-            # than estimating one (CLAUDE.md §26a).
-            assessment, limitation = resource_agent.assess_resources(state.context) if state.context else (None, DataLimitation(code="RESOURCE_DATA_UNAVAILABLE", subject="resource_inventory", detail=resource_agent.NOTE))
-            record = _completed(deps, _run_record(agent, "UNAVAILABLE", resource_agent.NOTE, started))
-            out: dict[str, Any] = {"limitations": [limitation], "agent_versions": versions, "agent_runs": [record]}
-            if assessment is not None:
-                out["resource_assessment"] = assessment
-            return out
-        assessment, limitation = resource_agent.assess_resources(state.context)
-        record = _completed(deps, _run_record(agent, "COMPLETED", assessment.note, started))
-        return {"resource_assessment": assessment, "limitations": [limitation], "agent_versions": versions, "agent_runs": [record]}
-
-    return node
-
-
 # --- Safety Validator and Command Synthesizer -------------------------------
 
 
@@ -375,7 +348,6 @@ def _command_synthesizer_node(deps: GraphDeps):
             provider=deps.provider,
             context=state.context,
             findings=findings,
-            resource=state.resource_assessment,
             agent_runs=[*runs, AgentRun(agent=agent, label=AGENT_LABELS[agent], status="COMPLETED", summary="Command Brief assembled")],
             extra_uncertainties=[],
             extra_limitations=list(state.limitations),
@@ -466,7 +438,6 @@ def build_graph(deps: GraphDeps):
         ),
     )
     graph.add_node("evidence_retrieval", _evidence_retrieval_node(deps))
-    graph.add_node("resource_agent", _resource_node(deps))
     graph.add_node("safety_validator", _safety_validator_node(deps))
     graph.add_node("command_synthesizer", _command_synthesizer_node(deps))
 
@@ -476,9 +447,8 @@ def build_graph(deps: GraphDeps):
         graph.add_edge(tier1, "evidence_retrieval")
     graph.add_edge("evidence_retrieval", "precaution_agent")
     graph.add_edge("evidence_retrieval", "response_agent")
-    graph.add_edge("precaution_agent", "resource_agent")
-    graph.add_edge("response_agent", "resource_agent")
-    graph.add_edge("resource_agent", "safety_validator")
+    graph.add_edge("precaution_agent", "safety_validator")
+    graph.add_edge("response_agent", "safety_validator")
     graph.add_edge("safety_validator", "command_synthesizer")
     graph.add_edge("command_synthesizer", END)
     return graph.compile()

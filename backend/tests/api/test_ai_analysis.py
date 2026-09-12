@@ -53,7 +53,7 @@ def test_analyze_returns_grounded_brief_and_audit_trail(client, rag_not_configur
     body = response.json()
     assert body["status"] == "completed"
     assert body["provider"] == "local" and body["prompt_version"]
-    assert set(body["agent_versions"]) >= {"context_collector", "hazard_agent", "damage_agent", "risk_agent", "precaution_agent", "response_agent", "resource_agent", "safety_validator", "command_synthesizer"}
+    assert set(body["agent_versions"]) >= {"context_collector", "hazard_agent", "damage_agent", "risk_agent", "precaution_agent", "response_agent", "safety_validator", "command_synthesizer"}
     tools = [t["tool"] for t in body["tools_called"]]
     assert {"get_scenario", "get_run", "get_frames", "get_hazard_footprint", "get_exposure"} <= set(tools)
     assert body["execution_ms"] is not None and body["execution_ms"] >= 0
@@ -152,8 +152,8 @@ def test_analyze_frame_records_trigger_and_version(client):
     assert brief["frame_index"] == 3
     # Every graph node reported its own execution record for the HUD.
     agents = {r["agent"]: r for r in brief["agent_runs"]}
-    assert {"hazard_agent", "damage_agent", "risk_agent", "precaution_agent", "response_agent", "resource_agent", "safety_validator", "command_synthesizer"} <= set(agents)
-    assert agents["resource_agent"]["status"] == "UNAVAILABLE"
+    assert {"hazard_agent", "damage_agent", "risk_agent", "precaution_agent", "response_agent", "safety_validator", "command_synthesizer"} <= set(agents)
+    assert "resource_agent" not in agents
     assert brief["resource_status"] == "RESOURCE_DATA_UNAVAILABLE"
     for action in [*brief["precautions"], *brief["recommended_actions"]]:
         assert action["requires_human_approval"] is True

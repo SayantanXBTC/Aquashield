@@ -59,7 +59,7 @@ function brief(frameIndex: number, exposures: AIExposureFinding[], options: { ci
       { agent: "context_collector", label: "Context Collector", status: "COMPLETED", summary: "8 evidence item(s)", duration_ms: 2 },
       { agent: "hazard_agent", label: "Hazard Analyst", status: "COMPLETED", summary: "trend approaching", duration_ms: 1 },
       { agent: "damage_agent", label: "Damage / Impact Analyst", status: "FAILED", summary: "provider outage", duration_ms: 1 },
-      { agent: "resource_agent", label: "Resource Agent", status: "UNAVAILABLE", summary: "no inventory", duration_ms: 0 },
+      { agent: "risk_agent", label: "Risk / Vulnerability Analyst", status: "UNAVAILABLE", summary: "no inventory", duration_ms: 0 },
     ],
     evidence_references: [],
     evidence_citations: options.cited ? [citation()] : [],
@@ -169,7 +169,7 @@ describe("AgentExecutionHud", () => {
 
   it("groups the chips by the graph's supersteps so the parallel branches read as parallel", () => {
     const stages = byStage(idleRoster());
-    expect(stages.map((s) => s.id)).toEqual(["collect", "analyse", "evidence", "advise", "resource", "assure"]);
+    expect(stages.map((s) => s.id)).toEqual(["collect", "analyse", "evidence", "advise", "assure"]);
     expect(stages.find((s) => s.id === "analyse")?.runs.map((r) => r.agent)).toEqual(["hazard_agent", "damage_agent", "risk_agent"]);
     expect(stages.filter((s) => s.parallel).map((s) => s.id)).toEqual(["analyse", "advise"]);
 
@@ -186,7 +186,7 @@ describe("AgentExecutionHud", () => {
 
   it("starts every agent pending and disables manual analysis with no recorded run", () => {
     render(<AgentExecutionHud agents={idleRoster()} status="idle" trigger={null} frameIndex={null} error={null} onAnalyseNow={() => {}} disabled />);
-    expect(screen.getAllByText("PENDING")).toHaveLength(10);
+    expect(screen.getAllByText("PENDING")).toHaveLength(9);
     expect(screen.getByText("Frame —")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /analyse now/i })).toBeDisabled();
     expect(screen.getByText("No recorded run")).toBeInTheDocument();

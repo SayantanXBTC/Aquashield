@@ -1,5 +1,34 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-12 — Remove Resource Agent (permanently UNAVAILABLE, added no value)
+
+**Added/Changed:**
+- Removed `resource_agent` entirely: the graph node (`agents/graph/workflow/graph.py`), its module
+  (`agents/agents/resource/`), the `ResourceAssessment` schema and `AquaShieldAgentState.resource_assessment`
+  field, its `AGENT_LABELS`/`AGENT_ROSTER`/`AGENT_STAGES` entries, and the frontend HUD "Resource" stage.
+  Precaution/Response now feed the Safety Validator directly instead of fanning through the resource node.
+- `RecommendedAction.resources` and `CommandBrief.resource_status` are unaffected — they already read
+  `RESOURCE_DATA_UNAVAILABLE` as a fixed value, independent of any dedicated node.
+- `PROMPT_VERSION` bumped to `2026-09-12.4`; `AGENT_VERSIONS["resource_agent"]` kept so an `ai_requests` row
+  recorded before the removal still resolves.
+
+**Why:**
+- No verified resource inventory exists (CLAUDE.md §26a), so the node could never report anything but
+  UNAVAILABLE — a permanent placeholder chip in the HUD with no value until a real inventory is built. User
+  asked for it removed rather than left visible for no benefit; can be re-added as a real agent once a
+  resource-inventory data source exists (see docs/agents/ai-layer.md's "Resource Agent removed" section for
+  what that would take).
+
+**Files/Modules:**
+- `agents/graph/workflow/graph.py`, `agents/agents/resource/` (deleted), `agents/schemas/{state,outputs}.py`,
+  `agents/agents/command/synthesis.py`, `agents/prompts/versions.py`,
+  `frontend/src/features/command-center/ai/agentRoster.ts`, plus updated tests in `agents/tests/`,
+  `backend/tests/api/test_ai_analysis.py`, `frontend/.../IntelligencePanel.test.tsx`.
+
+**Future Context:**
+- The graph is a 9-node graph again (was 10 with `evidence_retrieval` + `resource_agent` both present).
+  docs/agents/ai-layer.md and architecture.md §30 updated to match.
+
 ### 2026-09-12 — RAG goes live with real sources; command-center recording/agent/warning legibility fixes
 
 **Added/Changed:**

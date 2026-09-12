@@ -129,18 +129,3 @@ class ResponsePlan(BaseModel):
 
     actions: list[RecommendedAction] = Field(default_factory=list)
     uncertainties: list[str] = Field(default_factory=list)
-
-
-class ResourceAssessment(BaseModel):
-    """Resource Agent output.
-
-    AQUASHIELD has no verified resource inventory, so this agent reports
-    RESOURCE_DATA_UNAVAILABLE and nothing else. `status` is a closed literal
-    precisely so a model cannot invent "3 rescue boats"; when a real
-    inventory data source exists, this schema gains the fields it feeds."""
-
-    status: Literal["RESOURCE_DATA_UNAVAILABLE"] = RESOURCE_DATA_UNAVAILABLE
-    note: str = Field(
-        default="No verified resource inventory is connected to AQUASHIELD; resource availability cannot be assessed.",
-        max_length=400,
-    )
