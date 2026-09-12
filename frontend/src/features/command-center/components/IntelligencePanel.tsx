@@ -85,7 +85,7 @@ export function IntelligencePanel({ brief, structures, frameIndex, briefIsBehind
           }
         />
       ) : (
-        <div className="flex max-h-[46vh] flex-col gap-2.5 overflow-y-auto pr-1">
+        <div className="flex max-h-[38vh] flex-col gap-2.5 overflow-y-auto pr-1">
           {briefIsBehind ? (
             <p className="text-severity-moderate text-[10px]">
               Showing frame {brief.frame_index}; playhead is at frame {frameIndex}.
