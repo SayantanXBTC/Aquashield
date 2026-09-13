@@ -9,12 +9,13 @@ import {
 } from "@/propagation/hazards";
 import { paramsToConfig, type PropagationParams } from "@/propagation/kinematics";
 import { assessStructures, geometryFromSnapshot } from "@/propagation/structures";
-import { distanceToCoastAlongHeading, shoreX, WORLD_KM } from "@/propagation/world";
+import { DEFAULT_SHORE, distanceToCoastAlongHeading, shoreX, WORLD_KM, type ShoreParams } from "@/propagation/world";
 import { scenarioApi } from "../api/scenarioApi";
 import { simulationApi } from "../api/simulationApi";
 import type { PlaybackClock } from "../playback/playbackClock";
 import type { DisasterPreset } from "../presets";
-import type { ScenarioDetail, ScenarioListItem, SimulationRun, StructureConfig, StructureImpact, StructureType, TimelineFrame, WorldProfile } from "../types";
+import { getTown, TOWNS } from "../towns";
+import type { CityId, ScenarioDetail, ScenarioListItem, SimulationRun, StructureConfig, StructureImpact, StructureType, TimelineFrame, TownProfile, WorldProfile } from "../types";
 
 export type AsyncStatus = "idle" | "loading" | "error";
 export type SaveStatus = "saved" | "dirty" | "saving" | "error";
@@ -52,7 +53,13 @@ function durationFromConfig(config: Record<string, unknown> | undefined): number
 }
 
 function worldProfileFromConfig(config: Record<string, unknown> | undefined): WorldProfile {
-  return config?.world_profile === "dense_coastal" ? "dense_coastal" : "demo";
+  const raw = config?.world_profile;
+  return raw === "dense_coastal" || raw === "real_city" ? raw : "demo";
+}
+
+function cityIdFromConfig(config: Record<string, unknown> | undefined): CityId | null {
+  const raw = config?.city_id;
+  return typeof raw === "string" && raw in TOWNS ? (raw as CityId) : null;
 }
 
 /**
@@ -93,6 +100,9 @@ export function useScenarioSession(clock: PlaybackClock) {
   const [params, setParamsState] = useState<PropagationParams | null>(null);
   const [durationHours, setDurationHoursState] = useState(DEFAULT_DURATION_HOURS);
   const [worldProfile, setWorldProfileState] = useState<WorldProfile>("demo");
+  const [cityId, setCityIdState] = useState<CityId | null>(null);
+  const town: TownProfile | undefined = useMemo(() => (worldProfile === "real_city" ? getTown(cityId) : undefined), [worldProfile, cityId]);
+  const shore: ShoreParams = useMemo(() => (town ? { baseXKm: town.shore_base_x_km, terms: town.shore_terms } : DEFAULT_SHORE), [town]);
   const [structures, setStructuresState] = useState<StructureConfig[]>([]);
   const [showStructures, setShowStructures] = useState(true);
   const structuresRef = useRef<StructureConfig[]>([]);
@@ -188,6 +198,7 @@ export function useScenarioSession(clock: PlaybackClock) {
         const hours = durationFromConfig(config);
         setDurationHoursState(hours);
         setWorldProfileState(worldProfileFromConfig(config));
+        setCityIdState(cityIdFromConfig(config));
         clock.setDuration(hours * 60);
         setRuns(runList);
         setSaveStatus("saved");
@@ -281,7 +292,8 @@ export function useScenarioSession(clock: PlaybackClock) {
   const setWorldProfile = useCallback(
     (profile: WorldProfile) => {
       setWorldProfileState(profile);
-      latestConfig.current = { ...latestConfig.current, world_profile: profile === "demo" ? undefined : profile };
+      setCityIdState(null);
+      latestConfig.current = { ...latestConfig.current, world_profile: profile === "demo" ? undefined : profile, city_id: undefined };
       if (paramsRef.current) void persist(paramsRef.current, durationHours);
     },
     [persist, durationHours],
@@ -350,13 +362,25 @@ export function useScenarioSession(clock: PlaybackClock) {
   // --- creating a new test ------------------------------------------------
 
   const createTest = useCallback(
-    async (name: string, preset: DisasterPreset, worldProfile: WorldProfile = "demo") => {
+    async (name: string, preset: DisasterPreset, worldProfile: WorldProfile = "demo", cityId: CityId | null = null) => {
       setCreating(true);
       try {
+        const town = worldProfile === "real_city" ? getTown(cityId) : undefined;
+        const scenario_config =
+          worldProfile === "demo"
+            ? preset.config
+            : {
+                ...preset.config,
+                world_profile: worldProfile,
+                ...(worldProfile === "real_city" && cityId ? { city_id: cityId } : {}),
+                // A real city's default coastal facing overrides the preset's
+                // generic heading, same as any other per-city default.
+                ...(town ? { heading_deg: town.heading_deg } : {}),
+              };
         const detail = await scenarioApi.createScenario({
           name: name.trim() || preset.name,
           disaster_type: preset.disasterType,
-          scenario_config: worldProfile === "dense_coastal" ? { ...preset.config, world_profile: worldProfile } : preset.config,
+          scenario_config,
           version_label: `Preset: ${preset.name}`,
         });
         await loadScenarios(detail.id);
@@ -460,24 +484,31 @@ export function useScenarioSession(clock: PlaybackClock) {
   // --- the per-frame snapshot accessor -----------------------------------
 
   const coastDistanceKm = useMemo(
-    () => (params ? distanceToCoastAlongHeading(params.originXKm, params.originYKm, params.headingDeg) : null),
-    [params],
+    () => (params ? distanceToCoastAlongHeading(params.originXKm, params.originYKm, params.headingDeg, shore) : null),
+    [params, shore],
   );
 
   const snapshotCache = useRef<{ key: string; elapsed: number; snapshot: HazardSnapshot | null }>({ key: "", elapsed: -1, snapshot: null });
-  const frameSource = useRef<{ kind: HazardKind | null; params: PropagationParams | null; frames: TimelineFrame[]; replay: boolean; structures: StructureConfig[] }>({ kind: null, params: null, frames: [], replay: false, structures: [] });
+  const frameSource = useRef<{ kind: HazardKind | null; params: PropagationParams | null; frames: TimelineFrame[]; replay: boolean; structures: StructureConfig[]; shore: ShoreParams }>({
+    kind: null,
+    params: null,
+    frames: [],
+    replay: false,
+    structures: [],
+    shore: DEFAULT_SHORE,
+  });
   useEffect(() => {
-    frameSource.current = { kind, params, frames: replayFrames, replay: replayRunId !== null && replayFrames.length > 0, structures };
-  }, [kind, params, replayFrames, replayRunId, structures]);
+    frameSource.current = { kind, params, frames: replayFrames, replay: replayRunId !== null && replayFrames.length > 0, structures, shore };
+  }, [kind, params, replayFrames, replayRunId, structures, shore]);
 
   const getSnapshot = useCallback((): HazardSnapshot | null => {
-    const { kind: k, params: p, frames, replay, structures: placed } = frameSource.current;
+    const { kind: k, params: p, frames, replay, structures: placed, shore: activeShore } = frameSource.current;
     if (!k || !p) return null;
     const elapsed = clock.elapsedMinutes;
     const structureKey = placed.map((s) => `${s.id}:${s.x_km.toFixed(2)},${s.y_km.toFixed(2)},${s.enabled ? 1 : 0}`).join("|");
     const key = replay
       ? `replay:${frames.length}`
-      : `live:${p.originXKm},${p.originYKm},${p.headingDeg},${p.speedKmh},${p.intensity},${p.spreadRadiusKm},${p.dispersionRate}|${structureKey}`;
+      : `live:${p.originXKm},${p.originYKm},${p.headingDeg},${p.speedKmh},${p.intensity},${p.spreadRadiusKm},${p.dispersionRate}|${structureKey}|shore:${activeShore.baseXKm}`;
     const cache = snapshotCache.current;
     if (cache.key === key && cache.elapsed === elapsed) return cache.snapshot;
     let snapshot: HazardSnapshot | null;
@@ -490,8 +521,8 @@ export function useScenarioSession(clock: PlaybackClock) {
       // structures that existed when it was recorded — never re-derived.
       snapshot.impacts = state.infrastructure_impacts ?? [];
     } else {
-      snapshot = computeHazard(k, p, elapsed);
-      snapshot.impacts = assessStructures(placed, geometryFromSnapshot(snapshot));
+      snapshot = computeHazard(k, p, elapsed, activeShore);
+      snapshot.impacts = assessStructures(placed, geometryFromSnapshot(snapshot), activeShore);
     }
     snapshotCache.current = { key, elapsed, snapshot };
     return snapshot;
@@ -516,6 +547,8 @@ export function useScenarioSession(clock: PlaybackClock) {
     setDurationHours,
     worldProfile,
     setWorldProfile,
+    cityId,
+    town,
     saveStatus,
     saveError,
     coastDistanceKm,

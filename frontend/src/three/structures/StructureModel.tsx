@@ -3,7 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import { Group, Mesh, MeshBasicMaterial, MeshStandardMaterial } from "three";
 import type { StructureConfig, StructureImpact, StructureStatus } from "@shared/types";
 import type { HazardKind, HazardSnapshot } from "@/propagation/hazards";
-import { shoreX, WORLD_KM } from "@/propagation/world";
+import { DEFAULT_SHORE, shoreX, WORLD_KM, type ShoreParams } from "@/propagation/world";
 import { SceneLabel } from "@/three/overlays/SceneLabel";
 import { hazardChannel } from "@/three/hazard/hazardChannel";
 import { kmToScene } from "@/three/world/demoWorld";
@@ -23,6 +23,9 @@ interface StructureModelProps {
   /** Dense Coastal Profile's flat-canvas choice — grounds the structure on
    * the same flattened surface the terrain mesh uses. */
   flat?: boolean;
+  /** A curated real city's fitted shoreline (architecture.md ADR-009), or
+   * the fictional demo curve by default. */
+  shoreParams?: ShoreParams;
 }
 
 const STRUCTURE_VISUAL_SCALE = 2;
@@ -45,7 +48,7 @@ const STATUS_LABEL: Record<StructureStatus, string> = { clear: "clear", at_risk:
  * no damage model — and it is reversible, so scrubbing the timeline back
  * stands the structure up again. Nothing here computes exposure.
  */
-export function StructureModel({ structure, getSnapshot, onDrag, onDragEnd, locked, selected, onSelect, flat = false }: StructureModelProps) {
+export function StructureModel({ structure, getSnapshot, onDrag, onDragEnd, locked, selected, onSelect, flat = false, shoreParams = DEFAULT_SHORE }: StructureModelProps) {
   const groupRef = useRef<Group>(null);
   const ringRef = useRef<Mesh>(null);
   const rubbleRef = useRef<Group>(null);
@@ -61,11 +64,11 @@ export function StructureModel({ structure, getSnapshot, onDrag, onDragEnd, lock
   const clamp = useCallback(
     (xRaw: number, yRaw: number): [number, number] => {
       const y = Math.max(2, Math.min(WORLD_KM - 2, yRaw));
-      const shore = shoreX(y);
+      const shore = shoreX(y, shoreParams);
       if (coastal) return [shore + 0.6, y]; // snaps to the shoreline
       return [Math.max(shore + 1.2, Math.min(WORLD_KM - 2, xRaw)), y];
     },
-    [coastal],
+    [coastal, shoreParams],
   );
   const { handlers, hovered, dragging } = useGroundDrag({
     onDrag: (x, y) => onDrag(structure.id, x, y),
@@ -82,7 +85,7 @@ export function StructureModel({ structure, getSnapshot, onDrag, onDragEnd, lock
     [structure.x_km, structure.y_km, flat],
   );
   const foundationDepth = reliefY + 0.9;
-  const rotationY = coastal ? shoreAlignedRotationY(structure.y_km) : 0;
+  const rotationY = coastal ? shoreAlignedRotationY(structure.y_km, shoreParams) : 0;
   const Model = STRUCTURE_MODELS[structure.type];
   // Stagger label heights so neighbouring callouts don't stack on one line.
   const labelLift = (parseInt(structure.id.slice(-2), 36) % 4) * 1.4;

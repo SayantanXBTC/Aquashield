@@ -10,6 +10,7 @@
  * and regenerate the fixtures (scripts/generate_propagation_fixtures.py).
  */
 import demoWorld from "@shared/constants/demo_world.json";
+import type { TownShoreTerm } from "@shared/types";
 
 export const WORLD_KM: number = demoWorld.world_km;
 export const WORLD_ID: string = demoWorld.world_id;
@@ -20,17 +21,26 @@ const MARCH_MAX_KM: number = demoWorld.march_max_km;
 
 export const WORLD_DEFAULTS = demoWorld.defaults;
 
+/** The shoreline's shape — the fictional demo constants by default, or a
+ * curated real city's fitted curve (architecture.md ADR-009). */
+export interface ShoreParams {
+  baseXKm: number;
+  terms: ReadonlyArray<TownShoreTerm>;
+}
+
+export const DEFAULT_SHORE: ShoreParams = { baseXKm: SHORE_BASE_X_KM, terms: SHORE_TERMS };
+
 /** East-west position of the shoreline at northing `yKm`. */
-export function shoreX(yKm: number): number {
-  let x = SHORE_BASE_X_KM;
-  for (const { amp, freq, phase } of SHORE_TERMS) {
+export function shoreX(yKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
+  let x = shore.baseXKm;
+  for (const { amp, freq, phase } of shore.terms) {
     x += amp * Math.sin((2 * Math.PI * freq * yKm) / WORLD_KM + phase);
   }
   return x;
 }
 
-export function isLand(xKm: number, yKm: number): boolean {
-  return xKm >= shoreX(yKm);
+export function isLand(xKm: number, yKm: number, shore: ShoreParams = DEFAULT_SHORE): boolean {
+  return xKm >= shoreX(yKm, shore);
 }
 
 /** Compass heading -> unit (dx, dy): 0° = +y (north), 90° = +x (east). */
@@ -41,18 +51,18 @@ export function headingVector(headingDeg: number): [number, number] {
 
 /** Distance from (x, y) to the first land point along `headingDeg`, or null
  * if that line never reaches land within the world; 0 if already on land. */
-export function distanceToCoastAlongHeading(xKm: number, yKm: number, headingDeg: number): number | null {
-  if (isLand(xKm, yKm)) return 0;
+export function distanceToCoastAlongHeading(xKm: number, yKm: number, headingDeg: number, shore: ShoreParams = DEFAULT_SHORE): number | null {
+  if (isLand(xKm, yKm, shore)) return 0;
   const [dx, dy] = headingVector(headingDeg);
   let traveled = 0;
   while (traveled < MARCH_MAX_KM) {
     const nxt = traveled + MARCH_STEP_KM;
-    if (isLand(xKm + dx * nxt, yKm + dy * nxt)) {
+    if (isLand(xKm + dx * nxt, yKm + dy * nxt, shore)) {
       let lo = traveled;
       let hi = nxt;
       for (let i = 0; i < 12; i++) {
         const mid = 0.5 * (lo + hi);
-        if (isLand(xKm + dx * mid, yKm + dy * mid)) hi = mid;
+        if (isLand(xKm + dx * mid, yKm + dy * mid, shore)) hi = mid;
         else lo = mid;
       }
       return round4(hi);
@@ -64,13 +74,13 @@ export function distanceToCoastAlongHeading(xKm: number, yKm: number, headingDeg
 
 /** Straight-line distance to the closest shoreline sample within ±80 km of
  * northing; 0 on land. Telemetry only. */
-export function nearestShoreDistance(xKm: number, yKm: number): number {
-  if (isLand(xKm, yKm)) return 0;
+export function nearestShoreDistance(xKm: number, yKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
+  if (isLand(xKm, yKm, shore)) return 0;
   let best = Number.POSITIVE_INFINITY;
   const y0 = yKm - 80;
   for (let i = 0; i <= 160; i++) {
     const yi = y0 + i;
-    const d = Math.hypot(shoreX(yi) - xKm, yi - yKm);
+    const d = Math.hypot(shoreX(yi, shore) - xKm, yi - yKm);
     if (d < best) best = d;
   }
   return round4(best);

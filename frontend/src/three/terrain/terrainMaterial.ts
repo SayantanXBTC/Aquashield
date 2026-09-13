@@ -1,5 +1,6 @@
-import { MeshStandardMaterial, type WebGLProgramParametersWithUniforms } from "three";
-import { DEMO_WORLD_GLSL } from "../world/demoWorld";
+import { MeshStandardMaterial, Vector3, type WebGLProgramParametersWithUniforms } from "three";
+import { DEFAULT_SHORE, type ShoreParams } from "@/propagation/world";
+import { DEMO_WORLD_GLSL, shoreUniformDefaults } from "../world/demoWorld";
 
 /**
  * VISUAL DEMONSTRATION — the land plate's surface. A MeshStandardMaterial
@@ -8,10 +9,22 @@ import { DEMO_WORLD_GLSL } from "../world/demoWorld";
  * dunes, grassland with mottled fields, forest patches and bare rock on the
  * steep faces — instead of one vertex-colour ramp. Purely procedural, no
  * dataset, no claim about land cover anywhere.
+ *
+ * `shore` (the fictional demo curve by default, or a curated real city's
+ * fitted curve, ADR-009) must be set here even though the colour logic
+ * below never calls `terrainHeightKm` directly — it calls `landDepthKm`,
+ * which reads the same `shoreX()` GLSL uniforms, so an unset shore would
+ * silently break coastal colouring for every scene, not just real cities.
  */
-export function createTerrainMaterial(): MeshStandardMaterial {
+export function createTerrainMaterial(flat = false, shore: ShoreParams = DEFAULT_SHORE): MeshStandardMaterial {
+  const shoreUniforms = shoreUniformDefaults(shore);
   const material = new MeshStandardMaterial({ color: "#ffffff", roughness: 0.92, metalness: 0.02 });
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
+    shader.uniforms.uFlatTerrain = { value: flat ? 1 : 0 };
+    shader.uniforms.uShoreBase = { value: shoreUniforms.uShoreBase };
+    shader.uniforms.uShoreAmp = { value: new Vector3(...shoreUniforms.uShoreAmp) };
+    shader.uniforms.uShoreFreq = { value: new Vector3(...shoreUniforms.uShoreFreq) };
+    shader.uniforms.uShorePhase = { value: new Vector3(...shoreUniforms.uShorePhase) };
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",

@@ -624,6 +624,7 @@ Full detail (verification results, pinned-version constraints): architecture.md 
 | AI — frame-synchronised command-center integration (`/ws/ai`, Agent HUD, Intelligence panel) | BOOTSTRAPPED (Prompt 15 — throttled/debounced, stale-guarded; architecture.md §30a) |
 | Auth — Firebase Authentication + PyJWT verification | BOOTSTRAPPED (Prompt 12 — per-user scenario isolation via `scenarios.owner_uid`; operator supplies the Firebase project config; see docs/development/setup.md) |
 | Demo shoreline world + client-side propagation mirror | BOOTSTRAPPED (Prompt 12 — `simulation/core/propagation.py` ↔ `frontend/src/propagation/`, fixture-pinned; architecture.md ADR-005) |
+| Real City mode (Chennai) — curated real coastline + real building geometry | BOOTSTRAPPED, Chennai only (ADR-009, §28c — real Natural Earth coastline fit + real OSM buildings, `world_profile="real_city"`; simplified physics unchanged; Mumbai/Puri/Visakhapatnam/Kochi pending their own fit-quality validation) |
 
 "Dependency foundation only" means the package is installed and import-verified, with no AQUASHIELD logic
 built on it — do not treat its presence in `node_modules`/the venv as a green light to start implementing the
@@ -669,7 +670,10 @@ Full detail: docs/development/scenarios.md. Architecture: architecture.md §26.
   only — the server is always authoritative; don't skip a server-side check because the client already has one.
 - Scenario creation happens inside the command center (`features/command-center/components/NewTestModal.tsx`
   + `presets.ts`) — there is no standalone builder route. Presets are generic demo disasters only: never add a
-  real-world place name or coordinate to a preset, the scenario form, or a scene label.
+  real-world place name or coordinate to a preset, the scenario form, or a scene label — **except** the five
+  curated cities behind `world_profile: "real_city"` / `city_id` (architecture.md ADR-009, §28c): their
+  geometry is genuinely real, built only by `scripts/build_town_data.py`, never a runtime/user-supplied
+  place. This exception does not extend to presets, structures' free-text `name` field, or anywhere else.
 - Every scenario/run row is scoped to the verified Firebase uid (`scenarios.owner_uid`, `app/core/auth.py`).
   Never accept an owner from a request body, never list across owners, and report another user's row as 404
   (not 403). New endpoints touching scenarios/runs must depend on `CurrentUser` and go through a service
@@ -793,7 +797,12 @@ Full detail: docs/development/command-center.md. Architecture: architecture.md �
   kind reuse decisions live in `hazardKindFor`.
 - The shoreline is watertight by construction: the water fragment shader evaluates the same
   `terrainHeightKm` (`three/world/demoWorld.ts`, JS + GLSL twins) the terrain mesh is built from. Never
-  change one twin without the other, and never add a second water or terrain mesh.
+  change one twin without the other, and never add a second water or terrain mesh. The shoreline's shape
+  (`uShoreBase`/`uShoreAmp`/`uShoreFreq`/`uShorePhase`) is a runtime uniform, not a baked shader constant —
+  a curated real city (architecture.md ADR-009, §28c) overrides it per-scenario without a shader recompile;
+  its data comes only from the committed `shared/constants/towns/<city_id>.json` (built by
+  `scripts/build_town_data.py`, never fetched at runtime) and must always render the "real coastline &
+  buildings, simplified physics" disclosure label.
 - Every visual quantity that isn't a direct simulation field (e.g. a tsunami's visual impact radius) is a
   documented, fixed rendering convenience — never an invented physical formula. Say so in a comment where
   it's computed.

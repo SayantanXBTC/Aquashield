@@ -24,6 +24,7 @@ export type {
   AIRequestStatusOut,
   AIRequestType,
   AITrustLevel,
+  CityId,
   CommandBrief,
   DisasterType,
   HazardPhase,
@@ -47,5 +48,8 @@ export type {
   StructureType,
   TimelineFrame,
   TimelineResponse,
+  TownPlacement,
+  TownProfile,
+  TownShoreTerm,
   WorldProfile,
 } from "@shared/types";

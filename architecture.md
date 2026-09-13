@@ -322,6 +322,36 @@ Consequences: retrieval quality is bounded by the local hash embedding's crude b
 a real embedding model is wired in; `RAG_PROVIDER=none` keeps every existing AI-layer behaviour and test
 unchanged until an operator explicitly opts in and ingests sources. See §30b, docs/rag/pipeline.md.
 
+### ADR-009: A narrow, curated exception to "no real place names" for genuinely real coastline/building geometry
+
+Decision: exactly five curated Indian coastal cities (Chennai, Mumbai, Puri, Visakhapatnam, Kochi) may be
+selected as a scenario's `world_profile: "real_city"` + `city_id` (`PropagationConfig`, both optional,
+cross-validated: one implies the other). Selecting one swaps the fictional demo shoreline's sine-curve
+constants and generic building field for that city's real Natural Earth coastline (curve-fit into the
+*same* 3-term-sine `shore_x` parametrization every consumer already expects, never a polyline rewrite) and
+real OpenStreetMap building footprints (generic `StructureType`s only — a real hospital's OSM tag becomes
+the type `"hospital"`, never its real name). Physics is unchanged: the same simplified propagation/exposure
+model as every other scenario, explicitly not extended to bathymetry-driven solvers in this phase. Every
+`real_city` scene carries a persistent label: "Real coastline & building geometry. Simplified demonstration
+physics — not an operational forecast" (`TelemetryPanel`). See §28c.
+Reason: CLAUDE.md §25/§27 and ADR-005 forbid a real place name/coordinate on the fictional world because
+simplified-demo-physics + a real named place reads as a real risk assessment — a genuine liability concern
+specific to *fictional* geometry wearing a real name. Once the geometry (coastline shape, building
+positions) is genuinely real and the UI discloses that physics stays simplified, naming the city stops
+being that harm.
+Alternatives: keep the blanket ban (rejected — unreachable without some exception); allow an arbitrary
+user-entered city/coordinate (rejected — reopens the original liability concern for any place, not five
+reviewed ones, and skips fit-quality review); real geometry under a generic/fictional name (rejected — this
+is exactly what §28b's Dense Coastal Profile already is; doesn't meet the actual requirement).
+Consequences: `scripts/build_town_data.py` and its output (`shared/constants/towns/*.json`) are the only
+path real lat/lon or real building data enters the repo — never fetched at runtime, always a reviewed,
+committed data change. Both `frontend/src/propagation/*` (live preview) and `simulation/core/propagation.py`
+(the authoritative recorded-run engine) read the same per-scenario shore override, so a recorded run's
+physics stays geometrically consistent with what renders — this took real code changes on both sides
+(§25/§26's mirroring discipline extends to a per-scenario shoreline, not just the one fixed constant set).
+Phase 1 ships Chennai only; the other four cities are commented into the script's `CITIES` table with real,
+verifiable centers, pending their own fit-quality validation before being committed.
+
 ## 14. Data Sources
 
 All external environmental/geospatial data providers are **PLANNED / TO BE DECIDED**. No data provider is selected or assumed at this stage.
@@ -935,6 +965,43 @@ persisted as an ordinary `scenario_config` edit like every other parameter. RAG 
 needed no code changes — real NDMA/IMD sources were added to the existing `rag/sources/` categories
 (tsunami/cyclone/flood), surfacing via the existing disaster-type-filtered retrieval for any matching
 scenario, dense-canvas or not.
+
+### 28c. Real City mode — curated real coastline/buildings (ADR-009, phase 1: Chennai)
+
+`scenario_config.world_profile: "real_city"` + `city_id` (one of the five curated cities) swaps the
+fictional shoreline/buildings for a real one. Data flow: `scripts/build_town_data.py` (a one-time,
+rerunnable developer tool, network access at prep time only) fetches Natural Earth's 10m coastline for a
+bbox around the city, resamples and fits it to `shore_base_x_km` + three `{amp, freq, phase}` sine terms
+via `scipy.optimize.curve_fit` (Chennai: 0.52 km RMSE over 134 resampled points — a close-to-straight coast
+is the best fit candidate; the fit is deliberately frequency-bounded to approximate general curvature, not
+trace every inlet), and fetches OpenStreetMap building footprints via Overpass (`way["building"]` in the
+same bbox; height from `height`/`building:levels` tags with a documented fallback table; footprint
+orientation from the polygon's minimum-rotated-rectangle axis, not random). Output:
+`shared/constants/towns/<city_id>.json` (`TownProfile` — `shared/types/index.ts`), containing only km-frame
+numbers and generic `StructureType`s, never real lat/lon or a real building's name.
+
+Both consumers read the same file directly, one source of truth (no hand-synced duplicate constant set like
+the fictional world's Python/TS pair): `frontend/src/features/command-center/towns.ts` bundles it at build
+time via `import.meta.glob` (auto-discovers whichever cities are actually committed, so a partial rollout
+never breaks the build); `simulation/core/propagation.py`'s `shore_params_for_city()` `json.load()`s it
+directly from `shared/constants/towns/` at run time, raising `SimulationConfigError` rather than silently
+falling back to the fictional shoreline if the file is missing.
+
+Every function keyed on shoreline position gained an optional `shore`/`ShoreParams` override, defaulting to
+the fictional constants, so every existing call site is provably unaffected: `shore_x`/`is_land`/
+`distance_to_coast_along_heading`/`nearest_shore_distance`/`PropagationParams` (Python and the TS mirror),
+`terrainHeightKm`/`landDepthKm` and their GLSL twin in `DEMO_WORLD_GLSL` (the shoreline's sine terms became
+GLSL *uniforms* — `uShoreBase`/`uShoreAmp`/`uShoreFreq`/`uShorePhase` — rather than baked shader-source
+constants, so switching cities never needs a shader recompile), `exposureFor`/`assessStructures`/
+`inlandDepthKm`, and the origin-pin/structure drag-clamps. `three/urban/DenseBuildingLayer.tsx` renders a
+real city's buildings via `realTownPlacements.ts`'s `placementsFromTown()` (maps each committed
+`TownPlacement` through the same instancing/exposure-tint path §28b's fictional `buildingPlacement.ts`
+already established) instead of the procedural generator.
+
+UI: a third "Real City" option in `NewTestModal.tsx`'s world radiogroup opens `CityPicker.tsx` (a
+decorative, schematic India outline with pins — not GIS data — only cities with committed data are
+selectable); `TelemetryPanel.tsx` renders the mandatory ADR-009 disclosure label and a real, computed
+impacted/total building count using the same `exposureFor()`/`statusFor()` functions.
 
 ## 29. Authenticated Interactive Console (Prompt 12)
 

@@ -1,5 +1,61 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-14 — Real City mode, phase 1: real Chennai coastline + buildings (ADR-009)
+
+**Added/Changed:**
+- `scenario_config` gains `world_profile: "real_city"` + `city_id` (one of five curated cities, cross-field
+  validated). Selecting one swaps the fictional shoreline/buildings for a real one — physics stays the same
+  simplified model, unchanged from every other scenario.
+- `scripts/build_town_data.py` (new, one-time/rerunnable dev tool, no new dependencies): fetches Natural
+  Earth's 10m coastline for a city bbox, fits it to the existing 3-term-sine `shore_x` shape via
+  `scipy.optimize.curve_fit` (Chennai: 0.52 km RMSE, 134 points), fetches OSM building footprints via
+  Overpass, derives generic class/type/height, writes `shared/constants/towns/<city_id>.json`. Ran for
+  Chennai only this phase — 1,535 real building placements, all verified on land under the fitted shoreline.
+- Every shoreline-position function on both sides of the mirror gained an optional shore-override parameter,
+  defaulting to today's fictional constants: `simulation/core/propagation.py` (`shore_x`, `is_land`,
+  `distance_to_coast_along_heading`, `nearest_shore_distance`, `PropagationParams.shore`, new
+  `shore_params_for_city()`), `simulation/core/structures.py` (`inland_depth_km`, `exposure_for`,
+  `assess_structures`), the four disaster models' `assess_structures` call sites, and their TypeScript
+  mirrors (`propagation/world.ts`, `kinematics.ts`, `structures.ts`, `hazards.ts`). The GLSL shoreline
+  (`DEMO_WORLD_GLSL`) changed from baked shader-source constants to runtime uniforms
+  (`uShoreBase`/`uShoreAmp`/`uShoreFreq`/`uShorePhase`) so a city switch never needs a shader recompile —
+  `waterMaterial.ts`/`terrainMaterial.ts`/`forestMaterial.ts` all initialize them explicitly.
+- `three/urban/realTownPlacements.ts` (new): maps a `TownProfile`'s real buildings through the same
+  instancing/exposure-tint path `DenseBuildingLayer.tsx` already uses for the fictional Dense Coastal
+  Profile — only the placement data source differs.
+- `frontend/src/features/command-center/towns.ts` (new): `import.meta.glob`-based loader, auto-discovers
+  whichever `shared/constants/towns/*.json` files are actually committed, so a partial rollout (today:
+  Chennai only) never breaks the build.
+- `NewTestModal.tsx` gains a "Real City" world option and `CityPicker.tsx` (a decorative, schematic India
+  outline with pins — not GIS data; only cities with committed data are selectable).
+  `TelemetryPanel.tsx` renders the mandatory disclosure label ("Real coastline & building geometry.
+  Simplified demonstration physics — not an operational forecast") and a real building impacted/total count.
+- New tests: `backend/tests/schemas/test_scenario_config.py` (city_id/world_profile cross-validation),
+  `simulation/tests/test_real_city_shore.py` (proves a recorded run's measured distance-to-coast actually
+  differs between the demo world and Chennai — the authoritative engine, not just the frontend, is wired),
+  `frontend/src/three/urban/realTownPlacements.test.ts` (caught a real bug pre-merge: buildings were being
+  grounded against the fictional shoreline instead of Chennai's, fixed).
+
+**Why:**
+- User wants a genuinely real-geometry mode, not just a fictional one; explicitly scoped phase 1 to keep
+  today's simplified physics and validate the pipeline on one city (Chennai, a near-straight coastline —
+  the best sine-fit candidate) before the other four.
+
+**Files/Modules:**
+- `backend/app/schemas/scenario_config.py`, `simulation/core/{propagation,structures}.py`,
+  `simulation/models/*/model.py`, `shared/types/index.ts`, `frontend/src/propagation/*.ts`,
+  `frontend/src/three/{world/demoWorld.ts,water/*,terrain/*,structures/*,urban/*,markers/OriginPin.tsx}`,
+  `frontend/src/features/command-center/{towns.ts,hooks/useScenarioSession.ts,
+  components/{NewTestModal.tsx,CityPicker.tsx,TelemetryPanel.tsx,TopBar.tsx}}`,
+  `scripts/build_town_data.py`, `shared/constants/towns/chennai.json`.
+
+**Future Context:**
+- Mumbai/Puri/Visakhapatnam/Kochi are commented into `build_town_data.py`'s `CITIES` table with real,
+  verifiable centers — running the script for each is the remaining work, gated on their fit-quality
+  passing the same bar Chennai did (a real coastline this simple sine form can approximate).
+- Local dev backend needs `TEST_DATABASE_URL` set for the test suite (pre-existing convention,
+  `docs/development/database.md`) — unrelated to this feature but required to run it green.
+
 ### 2026-09-13 — Dense Coastal Profile: flat-canvas world variant with generic dense buildings
 
 **Added/Changed:**

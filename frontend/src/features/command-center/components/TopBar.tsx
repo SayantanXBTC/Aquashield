@@ -61,11 +61,11 @@ export function TopBar({ scenario, saveStatus, replaying, worldProfile, onToggle
           type="button"
           onClick={onToggleWorldProfile}
           disabled={replaying}
-          title={worldProfile === "dense_coastal" ? "Reset to Demo World" : "Switch to Dense Coastal Profile"}
+          title={worldProfile === "demo" ? "Switch to Dense Coastal Profile" : "Reset to Demo World"}
           className="border-hairline-strong bg-surface-raised/60 text-ink-soft hover:bg-surface-active hover:text-ink inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[var(--radius-control)] border px-2.5 py-1 text-[10px] font-medium tracking-[0.06em] uppercase transition-colors disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Building2 className="h-3.5 w-3.5" />
-          {worldProfile === "dense_coastal" ? "Reset to Demo World" : "Dense Coastal Profile"}
+          {worldProfile === "demo" ? "Dense Coastal Profile" : "Reset to Demo World"}
         </button>
       ) : null}
 

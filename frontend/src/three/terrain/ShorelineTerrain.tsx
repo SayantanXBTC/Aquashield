@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { BufferAttribute, PlaneGeometry } from "three";
 import type { WorldProfile } from "@shared/types";
+import { DEFAULT_SHORE, type ShoreParams } from "@/propagation/world";
 import { useDiagnostics } from "../diagnostics/diagnosticStore";
 import { sceneToKm, terrainHeightKm, landDepthKm, SCENE_MESH_SIZE } from "../world/demoWorld";
 import { createTerrainMaterial } from "./terrainMaterial";
@@ -17,8 +18,18 @@ import { createTerrainMaterial } from "./terrainMaterial";
  * fields, forest, rock by depth/slope/noise); the vertex colours here are a
  * coarse fallback used only by the diagnostics modes. No imagery, no dataset.
  */
-export function ShorelineTerrain({ segments = 420, worldProfile }: { segments?: number; worldProfile?: WorldProfile }) {
-  const flat = worldProfile === "dense_coastal";
+export function ShorelineTerrain({
+  segments = 420,
+  worldProfile,
+  shore = DEFAULT_SHORE,
+}: {
+  segments?: number;
+  worldProfile?: WorldProfile;
+  /** The fictional demo curve by default, or a curated real city's fitted
+   * curve (ADR-009) — must match WaterSurface's `shore` exactly. */
+  shore?: ShoreParams;
+}) {
+  const flat = worldProfile === "dense_coastal" || worldProfile === "real_city";
   const geometry = useMemo(() => {
     const geo = new PlaneGeometry(SCENE_MESH_SIZE, SCENE_MESH_SIZE, segments, segments);
     const position = geo.attributes.position as BufferAttribute;
@@ -29,8 +40,8 @@ export function ShorelineTerrain({ segments = 420, worldProfile }: { segments?: 
       const sceneX = position.getX(i);
       const sceneZ = -position.getY(i);
       const [xKm, yKm] = sceneToKm(sceneX, sceneZ);
-      const h = terrainHeightKm(xKm, yKm, flat);
-      const d = landDepthKm(xKm, yKm);
+      const h = terrainHeightKm(xKm, yKm, flat, shore);
+      const d = landDepthKm(xKm, yKm, shore);
       position.setZ(i, h);
 
       let r: number;
@@ -68,10 +79,10 @@ export function ShorelineTerrain({ segments = 420, worldProfile }: { segments?: 
     geo.setAttribute("color", new BufferAttribute(colors, 3));
     geo.computeVertexNormals();
     return geo;
-  }, [segments, flat]);
+  }, [segments, flat, shore]);
 
   const { enabled, terrainMode } = useDiagnostics();
-  const material = useMemo(() => createTerrainMaterial(), []);
+  const material = useMemo(() => createTerrainMaterial(flat, shore), [flat, shore]);
   useEffect(() => () => material.dispose(), [material]);
 
   return (

@@ -89,3 +89,31 @@ def test_omitting_world_profile_leaves_is_config_populated_unaffected() -> None:
     empty = validate_scenario_config(DisasterType.TSUNAMI, {})
     assert "world_profile" not in empty
     assert is_config_populated(DisasterType.TSUNAMI, empty) is False
+
+
+# --- city_id / world_profile="real_city": a curated real coastline/building
+# exception (architecture.md ADR-009) — geometry only, physics unchanged ---
+
+
+def test_real_city_round_trips_with_matching_city_id() -> None:
+    result = validate_scenario_config(DisasterType.TSUNAMI, {"world_profile": "real_city", "city_id": "chennai"})
+    assert result["world_profile"] == "real_city"
+    assert result["city_id"] == "chennai"
+
+
+def test_city_id_rejects_an_unknown_value() -> None:
+    # Never an arbitrary place — only the five curated, committed cities.
+    with pytest.raises(ValueError):
+        validate_scenario_config(DisasterType.TSUNAMI, {"world_profile": "real_city", "city_id": "atlantis"})
+
+
+def test_city_id_without_real_city_profile_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        validate_scenario_config(DisasterType.TSUNAMI, {"world_profile": "dense_coastal", "city_id": "chennai"})
+    with pytest.raises(ValueError):
+        validate_scenario_config(DisasterType.TSUNAMI, {"city_id": "chennai"})
+
+
+def test_real_city_profile_without_city_id_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        validate_scenario_config(DisasterType.TSUNAMI, {"world_profile": "real_city"})

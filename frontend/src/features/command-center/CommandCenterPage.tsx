@@ -100,6 +100,7 @@ export function CommandCenterPage() {
         entrance={entrance}
         onEntranceComplete={handleEntranceComplete}
         worldProfile={session.worldProfile}
+        town={session.town}
         structures={{
           structures: session.structures,
           visible: session.showStructures,
@@ -118,7 +119,7 @@ export function CommandCenterPage() {
           saveStatus={session.saveStatus}
           replaying={replaying}
           worldProfile={session.scenario ? session.worldProfile : undefined}
-          onToggleWorldProfile={() => session.setWorldProfile(session.worldProfile === "dense_coastal" ? "demo" : "dense_coastal")}
+          onToggleWorldProfile={() => session.setWorldProfile(session.worldProfile === "demo" ? "dense_coastal" : "demo")}
         />
 
         <div className="relative z-10 flex min-h-0 flex-1 gap-3">
@@ -171,7 +172,7 @@ export function CommandCenterPage() {
           </div>
 
           <div className={`flex w-[320px] shrink-0 flex-col gap-3 overflow-y-auto pb-1 ${hudOpen ? "" : "hidden"}`}>
-            <TelemetryPanel kind={session.kind} clock={clock} getSnapshot={session.getSnapshot} worldProfile={session.worldProfile} structures={session.structures} />
+            <TelemetryPanel kind={session.kind} clock={clock} getSnapshot={session.getSnapshot} worldProfile={session.worldProfile} structures={session.structures} town={session.town} />
             <StructuresPanel
               structures={session.structures}
               visible={session.showStructures}
@@ -218,7 +219,7 @@ export function CommandCenterPage() {
         open={newTestOpen}
         busy={session.creating}
         onClose={() => setNewTestOpen(false)}
-        onCreate={async (name, preset, worldProfile) => void (await session.createTest(name, preset, worldProfile))}
+        onCreate={async (name, preset, worldProfile, cityId) => void (await session.createTest(name, preset, worldProfile, cityId))}
       />
     </div>
   );

@@ -21,9 +21,13 @@ Disaster models layer their own (documented, illustrative) formulas on top.
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+from simulation.core.errors import SimulationConfigError
 
 WORLD_KM = 300.0
 WORLD_ID = "demo-shoreline-v1"
@@ -46,17 +50,57 @@ DEFAULT_HEADING_DEG = 90.0
 DEFAULT_INTENSITY = 0.6
 DEFAULT_DISPERSION = 0.3
 
+# Repo root, so a "real_city" scenario's shoreline can be read from the same
+# committed shared/constants/towns/<city_id>.json the frontend bundles — one
+# source of truth, not a second hand-synced constant set (architecture.md
+# ADR-009). simulation/ stays framework-free: this is a plain file read, no
+# import of backend/app or frontend code.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_TOWNS_DIR = _REPO_ROOT / "shared" / "constants" / "towns"
 
-def shore_x(y_km: float) -> float:
+
+@dataclass(frozen=True)
+class ShoreParams:
+    """The shoreline's shape — the fictional demo constants by default, or a
+    curated real city's fitted curve (ADR-009). Never real lat/lon; always
+    the same 3-term-sine shape `shore_x` expects, whatever produced it."""
+
+    base_x_km: float = SHORE_BASE_X_KM
+    terms: tuple[tuple[float, float, float], ...] = SHORE_TERMS
+
+
+DEFAULT_SHORE = ShoreParams()
+
+
+def shore_params_for_city(city_id: str) -> ShoreParams:
+    """Loads a curated real city's fitted shoreline (ADR-009) from the
+    committed town JSON. Raises rather than silently falling back to the
+    fictional shoreline — a missing/malformed city dataset is a config
+    error, not something to paper over with the wrong geometry."""
+    path = _TOWNS_DIR / f"{city_id}.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise SimulationConfigError(f"No town data for city_id={city_id!r} at {path}. Run scripts/build_town_data.py.") from exc
+    except json.JSONDecodeError as exc:
+        raise SimulationConfigError(f"Town data at {path} is not valid JSON: {exc}") from exc
+    try:
+        terms = tuple((t["amp"], t["freq"], t["phase"]) for t in data["shore_terms"])
+        return ShoreParams(base_x_km=data["shore_base_x_km"], terms=terms)
+    except (KeyError, TypeError) as exc:
+        raise SimulationConfigError(f"Town data at {path} is missing shore_base_x_km/shore_terms: {exc}") from exc
+
+
+def shore_x(y_km: float, shore: ShoreParams = DEFAULT_SHORE) -> float:
     """East-west position of the shoreline at northing `y_km`."""
-    x = SHORE_BASE_X_KM
-    for amp, freq, phase in SHORE_TERMS:
+    x = shore.base_x_km
+    for amp, freq, phase in shore.terms:
         x += amp * math.sin(2.0 * math.pi * freq * y_km / WORLD_KM + phase)
     return x
 
 
-def is_land(x_km: float, y_km: float) -> bool:
-    return x_km >= shore_x(y_km)
+def is_land(x_km: float, y_km: float, shore: ShoreParams = DEFAULT_SHORE) -> bool:
+    return x_km >= shore_x(y_km, shore)
 
 
 def heading_vector(heading_deg: float) -> tuple[float, float]:
@@ -65,23 +109,23 @@ def heading_vector(heading_deg: float) -> tuple[float, float]:
     return math.sin(rad), math.cos(rad)
 
 
-def distance_to_coast_along_heading(x_km: float, y_km: float, heading_deg: float) -> float | None:
+def distance_to_coast_along_heading(x_km: float, y_km: float, heading_deg: float, shore: ShoreParams = DEFAULT_SHORE) -> float | None:
     """Distance from (x, y) to the first land point along `heading_deg`, or
     None if that line never reaches land within the world. 0.0 if the start
     point is already on land."""
-    if is_land(x_km, y_km):
+    if is_land(x_km, y_km, shore):
         return 0.0
     dx, dy = heading_vector(heading_deg)
     traveled = 0.0
     while traveled < _MARCH_MAX_KM:
         nxt = traveled + _MARCH_STEP_KM
         px, py = x_km + dx * nxt, y_km + dy * nxt
-        if is_land(px, py):
+        if is_land(px, py, shore):
             # Bisect the last step so the result is accurate to ~1 m.
             lo, hi = traveled, nxt
             for _ in range(12):
                 mid = 0.5 * (lo + hi)
-                if is_land(x_km + dx * mid, y_km + dy * mid):
+                if is_land(x_km + dx * mid, y_km + dy * mid, shore):
                     hi = mid
                 else:
                     lo = mid
@@ -90,16 +134,16 @@ def distance_to_coast_along_heading(x_km: float, y_km: float, heading_deg: float
     return None
 
 
-def nearest_shore_distance(x_km: float, y_km: float) -> float:
+def nearest_shore_distance(x_km: float, y_km: float, shore: ShoreParams = DEFAULT_SHORE) -> float:
     """Straight-line distance to the closest shoreline sample within ±80 km
     of northing; 0 on land. Telemetry only."""
-    if is_land(x_km, y_km):
+    if is_land(x_km, y_km, shore):
         return 0.0
     best = float("inf")
     y0 = y_km - 80.0
     for i in range(161):
         yi = y0 + i
-        d = math.hypot(shore_x(yi) - x_km, yi - y_km)
+        d = math.hypot(shore_x(yi, shore) - x_km, yi - y_km)
         if d < best:
             best = d
     return round(best, 4)
@@ -118,6 +162,12 @@ class PropagationParams:
     intensity: float
     spread_radius_km: float
     dispersion_rate: float
+    # The fictional demo shoreline by default; a curated real city's fitted
+    # curve when scenario_config carries world_profile="real_city" (ADR-009).
+    # Every downstream shore_x/is_land/distance_to_coast_along_heading call
+    # reads this, so a recorded run's physics stays geometrically consistent
+    # with whatever the scene actually rendered.
+    shore: ShoreParams = DEFAULT_SHORE
 
     @classmethod
     def from_config(
@@ -131,6 +181,9 @@ class PropagationParams:
             raw = config.get(key)
             return float(raw) if raw is not None else default
 
+        city_id = config.get("city_id")
+        shore = shore_params_for_city(city_id) if city_id else DEFAULT_SHORE
+
         return cls(
             origin_x_km=clamp(num("origin_x_km", DEFAULT_ORIGIN_X_KM), 0.0, WORLD_KM),
             origin_y_km=clamp(num("origin_y_km", DEFAULT_ORIGIN_Y_KM), 0.0, WORLD_KM),
@@ -139,6 +192,7 @@ class PropagationParams:
             intensity=clamp(num("intensity", DEFAULT_INTENSITY), 0.0, 1.0),
             spread_radius_km=max(0.0, num("spread_radius_km", default_spread_radius_km)),
             dispersion_rate=clamp(num("dispersion_rate", DEFAULT_DISPERSION), 0.0, 1.0),
+            shore=shore,
         )
 
 
@@ -184,7 +238,7 @@ def front_state(params: PropagationParams, elapsed_minutes: float, *, stop_at_co
     (a slick beaches, a surge front piles up at the coast); False lets it
     continue inland (a cyclone eye keeps moving)."""
     hours = max(0.0, elapsed_minutes) / 60.0
-    total = distance_to_coast_along_heading(params.origin_x_km, params.origin_y_km, params.heading_deg)
+    total = distance_to_coast_along_heading(params.origin_x_km, params.origin_y_km, params.heading_deg, params.shore)
     traveled = params.speed_kmh * hours
     dx, dy = heading_vector(params.heading_deg)
 
