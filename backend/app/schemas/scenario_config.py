@@ -14,7 +14,7 @@ direction outside 0-360°). See docs/development/scenarios.md.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -53,6 +53,12 @@ class PropagationConfig(BaseModel):
     intensity: float | None = Field(default=None, ge=0, le=1)
     spread_radius_km: float | None = Field(default=None, ge=0, le=150)
     dispersion_rate: float | None = Field(default=None, ge=0, le=1)
+    # A purely cosmetic 3D-rendering choice (flat canvas + dense instanced
+    # buildings vs the default procedural-hill world) — never a real place,
+    # never read by the Python simulation engine. `None` (not a "demo"
+    # default) so is_config_populated() below is unaffected for scenarios
+    # that never touch this field (see docs/development/scenarios.md).
+    world_profile: Literal["demo", "dense_coastal"] | None = None
 
 
 class FloodConfig(BaseModel):

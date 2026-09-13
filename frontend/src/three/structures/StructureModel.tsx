@@ -20,6 +20,9 @@ interface StructureModelProps {
   locked: boolean;
   selected: boolean;
   onSelect: (id: string) => void;
+  /** Dense Coastal Profile's flat-canvas choice — grounds the structure on
+   * the same flattened surface the terrain mesh uses. */
+  flat?: boolean;
 }
 
 const STRUCTURE_VISUAL_SCALE = 2;
@@ -42,7 +45,7 @@ const STATUS_LABEL: Record<StructureStatus, string> = { clear: "clear", at_risk:
  * no damage model — and it is reversible, so scrubbing the timeline back
  * stands the structure up again. Nothing here computes exposure.
  */
-export function StructureModel({ structure, getSnapshot, onDrag, onDragEnd, locked, selected, onSelect }: StructureModelProps) {
+export function StructureModel({ structure, getSnapshot, onDrag, onDragEnd, locked, selected, onSelect, flat = false }: StructureModelProps) {
   const groupRef = useRef<Group>(null);
   const ringRef = useRef<Mesh>(null);
   const rubbleRef = useRef<Group>(null);
@@ -75,8 +78,8 @@ export function StructureModel({ structure, getSnapshot, onDrag, onDragEnd, lock
   // Seat the model on the highest ground under its footprint and let the
   // foundation reach down to the lowest — so it never floats and never sinks.
   const { baseY, reliefY } = useMemo(
-    () => footprintGround(structure.x_km, structure.y_km, FOOTPRINT_RADIUS_KM),
-    [structure.x_km, structure.y_km],
+    () => footprintGround(structure.x_km, structure.y_km, FOOTPRINT_RADIUS_KM, flat),
+    [structure.x_km, structure.y_km, flat],
   );
   const foundationDepth = reliefY + 0.9;
   const rotationY = coastal ? shoreAlignedRotationY(structure.y_km) : 0;

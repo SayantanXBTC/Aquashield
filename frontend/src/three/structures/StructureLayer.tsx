@@ -11,11 +11,13 @@ export interface StructureLayerProps {
   locked: boolean;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** Dense Coastal Profile's flat-canvas choice, threaded to every model. */
+  flat?: boolean;
 }
 
 /** Every enabled, user-placed structure (three/structures/StructureModel).
  * Disabled structures are not rendered and not assessed. */
-export function StructureLayer({ structures, visible, getSnapshot, onDrag, onDragEnd, locked, selectedId, onSelect }: StructureLayerProps) {
+export function StructureLayer({ structures, visible, getSnapshot, onDrag, onDragEnd, locked, selectedId, onSelect, flat }: StructureLayerProps) {
   if (!visible) return null;
   return (
     <group>
@@ -31,6 +33,7 @@ export function StructureLayer({ structures, visible, getSnapshot, onDrag, onDra
             locked={locked}
             selected={s.id === selectedId}
             onSelect={onSelect}
+            flat={flat}
           />
         ))}
     </group>

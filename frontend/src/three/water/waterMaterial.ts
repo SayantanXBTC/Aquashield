@@ -36,6 +36,10 @@ export const WaterMaterial = shaderMaterial(
     uWaterLevelM: 0,
     uWaveHeight: 0,
     uHazardLateralKm: 0,
+    // Dense Coastal Profile's flat-canvas rendering choice (CLAUDE.md §27) —
+    // must agree with ShorelineTerrain's terrainHeightKm(flat) so the
+    // shoreline stays watertight in either mode.
+    uFlatTerrain: 0,
   },
   waterVertexShader,
   waterFragmentShader,

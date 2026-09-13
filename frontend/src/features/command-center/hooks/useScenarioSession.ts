@@ -14,7 +14,7 @@ import { scenarioApi } from "../api/scenarioApi";
 import { simulationApi } from "../api/simulationApi";
 import type { PlaybackClock } from "../playback/playbackClock";
 import type { DisasterPreset } from "../presets";
-import type { ScenarioDetail, ScenarioListItem, SimulationRun, StructureConfig, StructureImpact, StructureType, TimelineFrame } from "../types";
+import type { ScenarioDetail, ScenarioListItem, SimulationRun, StructureConfig, StructureImpact, StructureType, TimelineFrame, WorldProfile } from "../types";
 
 export type AsyncStatus = "idle" | "loading" | "error";
 export type SaveStatus = "saved" | "dirty" | "saving" | "error";
@@ -49,6 +49,10 @@ export function defaultStructurePosition(type: StructureType, existing: number, 
 function durationFromConfig(config: Record<string, unknown> | undefined): number {
   const raw = config?.duration_hours;
   return typeof raw === "number" && raw > 0 ? raw : DEFAULT_DURATION_HOURS;
+}
+
+function worldProfileFromConfig(config: Record<string, unknown> | undefined): WorldProfile {
+  return config?.world_profile === "dense_coastal" ? "dense_coastal" : "demo";
 }
 
 /**
@@ -88,6 +92,7 @@ export function useScenarioSession(clock: PlaybackClock) {
 
   const [params, setParamsState] = useState<PropagationParams | null>(null);
   const [durationHours, setDurationHoursState] = useState(DEFAULT_DURATION_HOURS);
+  const [worldProfile, setWorldProfileState] = useState<WorldProfile>("demo");
   const [structures, setStructuresState] = useState<StructureConfig[]>([]);
   const [showStructures, setShowStructures] = useState(true);
   const structuresRef = useRef<StructureConfig[]>([]);
@@ -182,6 +187,7 @@ export function useScenarioSession(clock: PlaybackClock) {
         setStructuresState(structuresFromConfig(config));
         const hours = durationFromConfig(config);
         setDurationHoursState(hours);
+        setWorldProfileState(worldProfileFromConfig(config));
         clock.setDuration(hours * 60);
         setRuns(runList);
         setSaveStatus("saved");
@@ -269,6 +275,18 @@ export function useScenarioSession(clock: PlaybackClock) {
     [clock, scheduleSave],
   );
 
+  /** A purely cosmetic 3D-rendering choice (CLAUDE.md §25/§27) — persists
+   * immediately (not debounced like a slider drag) as its own version, the
+   * same as every other scenario_config edit. */
+  const setWorldProfile = useCallback(
+    (profile: WorldProfile) => {
+      setWorldProfileState(profile);
+      latestConfig.current = { ...latestConfig.current, world_profile: profile === "demo" ? undefined : profile };
+      if (paramsRef.current) void persist(paramsRef.current, durationHours);
+    },
+    [persist, durationHours],
+  );
+
   // --- structures ---------------------------------------------------------
 
   /** Live edit (drag): preview only. */
@@ -332,13 +350,13 @@ export function useScenarioSession(clock: PlaybackClock) {
   // --- creating a new test ------------------------------------------------
 
   const createTest = useCallback(
-    async (name: string, preset: DisasterPreset) => {
+    async (name: string, preset: DisasterPreset, worldProfile: WorldProfile = "demo") => {
       setCreating(true);
       try {
         const detail = await scenarioApi.createScenario({
           name: name.trim() || preset.name,
           disaster_type: preset.disasterType,
-          scenario_config: preset.config,
+          scenario_config: worldProfile === "dense_coastal" ? { ...preset.config, world_profile: worldProfile } : preset.config,
           version_label: `Preset: ${preset.name}`,
         });
         await loadScenarios(detail.id);
@@ -496,6 +514,8 @@ export function useScenarioSession(clock: PlaybackClock) {
     commitParams,
     durationHours,
     setDurationHours,
+    worldProfile,
+    setWorldProfile,
     saveStatus,
     saveError,
     coastDistanceKm,
