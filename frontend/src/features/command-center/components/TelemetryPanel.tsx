@@ -3,8 +3,10 @@ import { Activity } from "lucide-react";
 import { MetricTile } from "@/components/ui";
 import type { HazardKind, HazardSnapshot } from "@/propagation/hazards";
 import { exposureFor, geometryFromSnapshot, statusFor } from "@/propagation/structures";
+import { DEFAULT_SHORE, type ShoreParams } from "@/propagation/world";
 import { buildBuildingPlacements } from "@/three/urban/buildingPlacement";
-import type { StructureConfig, WorldProfile } from "../types";
+import { placementsFromTown } from "@/three/urban/realTownPlacements";
+import type { StructureConfig, TownProfile, WorldProfile } from "../types";
 import type { PlaybackClock } from "../playback/playbackClock";
 import { HudPanel } from "./HudPanel";
 
@@ -14,6 +16,9 @@ interface TelemetryPanelProps {
   getSnapshot: () => HazardSnapshot | null;
   worldProfile?: WorldProfile;
   structures?: StructureConfig[];
+  /** The curated real city's data (ADR-009), required to compute its real
+   * building stats when worldProfile is "real_city". */
+  town?: TownProfile;
 }
 
 const PHASE_LABEL = { offshore: "Offshore", landfall: "Landfall", inland: "Inland" } as const;
@@ -40,35 +45,40 @@ function fmtClock(minutes: number): string {
  * frame rate). Every value comes from the propagation mirror or a recorded
  * frame; a missing one renders "—" (CLAUDE.md §27).
  */
-export function TelemetryPanel({ kind, clock, getSnapshot, worldProfile, structures }: TelemetryPanelProps) {
+export function TelemetryPanel({ kind, clock, getSnapshot, worldProfile, structures, town }: TelemetryPanelProps) {
   const [snap, setSnap] = useState<HazardSnapshot | null>(null);
-  const dense = worldProfile === "dense_coastal";
+  const dense = worldProfile === "dense_coastal" || worldProfile === "real_city";
+  const shore: ShoreParams = useMemo(() => (town ? { baseXKm: town.shore_base_x_km, terms: town.shore_terms } : DEFAULT_SHORE), [town]);
 
   useEffect(() => {
     const id = window.setInterval(() => setSnap(getSnapshot()), 125);
     return () => window.clearInterval(id);
   }, [getSnapshot, clock]);
 
-  // Dense Coastal Profile's generic building field — the exact same
-  // deterministic placement DenseBuildingLayer renders, and the exact same
+  // Dense Coastal Profile's generic building field, or a curated real
+  // city's real footprints (ADR-009) — the exact same deterministic
+  // placement DenseBuildingLayer renders, and the exact same
   // exposureFor()/statusFor() functions named structures use. A real,
-  // computed count of a fictional demo dataset, never a fabricated one.
+  // computed count, never a fabricated one.
   const clearings = useMemo(
     () => (structures ?? []).filter((s) => s.enabled !== false).map((s) => ({ xKm: s.x_km, yKm: s.y_km })),
     [structures],
   );
-  const buildingPlacements = useMemo(() => (dense ? buildBuildingPlacements(clearings) : null), [dense, clearings]);
+  const buildingPlacements = useMemo(
+    () => (worldProfile === "real_city" && town ? placementsFromTown(town, clearings) : dense ? buildBuildingPlacements(clearings) : null),
+    [worldProfile, town, dense, clearings],
+  );
   const buildingStats = useMemo(() => {
     if (!buildingPlacements || !snap) return null;
     const all = [...buildingPlacements.low, ...buildingPlacements.mid, ...buildingPlacements.highrise];
     if (!all.length) return { impacted: 0, total: 0 };
     const geometry = geometryFromSnapshot(snap);
     const impacted = all.reduce((count, p) => {
-      const [, exposure] = exposureFor(geometry, p.xKm, p.yKm);
+      const [, exposure] = exposureFor(geometry, p.xKm, p.yKm, shore);
       return statusFor(exposure) === "clear" ? count : count + 1;
     }, 0);
     return { impacted, total: all.length };
-  }, [buildingPlacements, snap]);
+  }, [buildingPlacements, snap, shore]);
 
   const headline = (() => {
     if (!snap) return { label: "Hazard", value: null as string | null, unit: undefined as string | undefined };
@@ -150,9 +160,11 @@ export function TelemetryPanel({ kind, clock, getSnapshot, worldProfile, structu
             />
           ) : null}
           <p className="text-ink-faint col-span-2 text-[10px] leading-relaxed tracking-[0.06em] uppercase">
-            {dense
-              ? "Dense Coastal Profile · potentially exposed, not damage · illustrative"
-              : "Simplified demonstration model — not an official forecast"}
+            {worldProfile === "real_city" && town
+              ? `${town.label} · real coastline & buildings, simplified physics · not an operational forecast`
+              : dense
+                ? "Dense Coastal Profile · potentially exposed, not damage · illustrative"
+                : "Simplified demonstration model — not an official forecast"}
           </p>
         </>
       )}

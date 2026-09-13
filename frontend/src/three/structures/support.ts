@@ -6,7 +6,7 @@
  */
 import { CanvasTexture, Color, MeshStandardMaterial, RepeatWrapping, SRGBColorSpace } from "three";
 import type { StructureType } from "@shared/types";
-import { shoreX } from "@/propagation/world";
+import { DEFAULT_SHORE, shoreX, type ShoreParams } from "@/propagation/world";
 import { terrainHeightKm } from "@/three/world/demoWorld";
 
 /** Deterministic 0-1 hash of a string + salt — stable per structure id. */
@@ -21,16 +21,16 @@ export function hash01(seed: string, salt = 0): number {
 
 /** Shoreline tangent direction at northing yKm, in world km: (dx, dy),
  * unit length, pointing north-ish. */
-export function shoreTangent(yKm: number): [number, number] {
-  const dxdy = (shoreX(yKm + 0.5) - shoreX(yKm - 0.5)) / 1.0;
+export function shoreTangent(yKm: number, shore: ShoreParams = DEFAULT_SHORE): [number, number] {
+  const dxdy = (shoreX(yKm + 0.5, shore) - shoreX(yKm - 0.5, shore)) / 1.0;
   const len = Math.hypot(dxdy, 1);
   return [dxdy / len, 1 / len];
 }
 
 /** Scene-space Y rotation that aligns a model's local +X with the shore
  * tangent (so quays run along the coast) and its local -Z toward the sea. */
-export function shoreAlignedRotationY(yKm: number): number {
-  const [tx, ty] = shoreTangent(yKm);
+export function shoreAlignedRotationY(yKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
+  const [tx, ty] = shoreTangent(yKm, shore);
   // km (tx, ty) -> scene (tx, -ty); angle of that vector from +x toward +z.
   return -Math.atan2(-ty, tx);
 }

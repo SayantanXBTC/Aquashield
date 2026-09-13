@@ -2,6 +2,7 @@ import { shaderMaterial } from "@react-three/drei";
 import { extend, type ThreeElement } from "@react-three/fiber";
 import { Color, Vector2, Vector3 } from "three";
 import { waterFragmentShader, waterVertexShader } from "../shaders/water";
+import { shoreUniformDefaults } from "../world/demoWorld";
 
 /**
  * VISUAL DEMONSTRATION — the ocean material's palette, sun direction and
@@ -12,6 +13,7 @@ import { waterFragmentShader, waterVertexShader } from "../shaders/water";
  * light position (see core/LightingSystem.tsx).
  */
 const SUN_DIRECTION = new Vector3(-48, 58, 30).normalize();
+const SHORE_DEFAULTS = shoreUniformDefaults();
 
 export const WaterMaterial = shaderMaterial(
   {
@@ -40,6 +42,14 @@ export const WaterMaterial = shaderMaterial(
     // must agree with ShorelineTerrain's terrainHeightKm(flat) so the
     // shoreline stays watertight in either mode.
     uFlatTerrain: 0,
+    // The shoreline's shape as a runtime uniform — the fictional demo curve
+    // by default, or a curated real city's fitted curve (ADR-009). Must
+    // match ShorelineTerrain's `shore` prop exactly, or the shoreline stops
+    // being watertight.
+    uShoreBase: SHORE_DEFAULTS.uShoreBase,
+    uShoreAmp: new Vector3(...SHORE_DEFAULTS.uShoreAmp),
+    uShoreFreq: new Vector3(...SHORE_DEFAULTS.uShoreFreq),
+    uShorePhase: new Vector3(...SHORE_DEFAULTS.uShorePhase),
   },
   waterVertexShader,
   waterFragmentShader,

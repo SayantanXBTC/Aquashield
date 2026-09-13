@@ -1,5 +1,5 @@
 import { createElement, Suspense, useEffect, useMemo } from "react";
-import type { WorldProfile } from "@shared/types";
+import type { TownProfile, WorldProfile } from "@shared/types";
 import { getDisasterVisualizer } from "@/three/disasters/registry";
 import { clearHazardChannel } from "@/three/hazard/hazardChannel";
 import { HeadingGuide } from "@/three/markers/HeadingGuide";
@@ -11,7 +11,7 @@ import { ForestLayer } from "@/three/vegetation/ForestLayer";
 import { WaterSurface } from "@/three/water/WaterSurface";
 import { kmToScene, kmToSceneUnits } from "@/three/world/demoWorld";
 import type { HazardKind, HazardSnapshot } from "@/propagation/hazards";
-import { headingVector } from "@/propagation/world";
+import { DEFAULT_SHORE, headingVector, type ShoreParams } from "@/propagation/world";
 import { CameraController } from "./CameraController";
 import { EnvironmentSystem } from "./EnvironmentSystem";
 import { LightingSystem } from "./LightingSystem";
@@ -33,8 +33,13 @@ export interface SceneRootProps {
   structures?: Omit<StructureLayerProps, "getSnapshot">;
   /** A purely cosmetic 3D-rendering choice — never a real place (CLAUDE.md
    * §25/§27). "dense_coastal" flattens the terrain and swaps the forest for
-   * a generic instanced building field. */
+   * a generic instanced building field; "real_city" is the ADR-009
+   * exception — see `town`. */
   worldProfile?: WorldProfile;
+  /** The curated real city's data (ADR-009), required when worldProfile is
+   * "real_city". Its `shore_base_x_km`/`shore_terms` override the fictional
+   * demo curve everywhere — terrain, water, buildings, structure grounding. */
+  town?: TownProfile;
 }
 
 /** Fallback framing radius in scene units when nothing is placed. */
@@ -64,9 +69,14 @@ export function SceneRoot({
   onEntranceComplete,
   structures,
   worldProfile,
+  town,
 }: SceneRootProps) {
   const Visualizer = getDisasterVisualizer(kind);
-  const dense = worldProfile === "dense_coastal";
+  const dense = worldProfile === "dense_coastal" || worldProfile === "real_city";
+  const shore: ShoreParams = useMemo(
+    () => (worldProfile === "real_city" && town ? { baseXKm: town.shore_base_x_km, terms: town.shore_terms } : DEFAULT_SHORE),
+    [worldProfile, town],
+  );
 
   useEffect(() => {
     if (!Visualizer) clearHazardChannel();
@@ -100,12 +110,13 @@ export function SceneRoot({
       <LightingSystem />
       <CameraController focus={focus} frameRadius={frameRadius} entrance={entrance} onEntranceComplete={onEntranceComplete} />
 
-      <WaterSurface worldProfile={worldProfile} />
-      <ShorelineTerrain worldProfile={worldProfile} />
+      <WaterSurface worldProfile={worldProfile} shore={shore} />
+      <ShorelineTerrain worldProfile={worldProfile} shore={shore} />
       {dense ? (
-        // Dense Coastal Profile: a generic, fictional instanced building
-        // field replaces the forest (three/urban/DenseBuildingLayer.tsx).
-        <DenseBuildingLayer structures={structures?.structures} getSnapshot={getSnapshot} />
+        // Dense Coastal Profile / real city: a generic (or real-footprint)
+        // instanced building field replaces the forest
+        // (three/urban/DenseBuildingLayer.tsx).
+        <DenseBuildingLayer structures={structures?.structures} getSnapshot={getSnapshot} town={worldProfile === "real_city" ? town : undefined} shore={shore} />
       ) : (
         // Scenery on the land plate — planted by the same noise the terrain
         // material paints its forest with, cleared around placed structures.
@@ -113,9 +124,9 @@ export function SceneRoot({
       )}
 
       <HeadingGuide originKm={originKm} landfallKm={landfallKm} fallbackEndKm={fallbackEndKm} />
-      <OriginPin originKm={originKm} onDrag={onOriginDrag} onDragEnd={onOriginDragEnd} disabled={originLocked} />
+      <OriginPin originKm={originKm} onDrag={onOriginDrag} onDragEnd={onOriginDragEnd} disabled={originLocked} shore={shore} />
 
-      {structures ? <StructureLayer {...structures} getSnapshot={getSnapshot} flat={dense} /> : null}
+      {structures ? <StructureLayer {...structures} getSnapshot={getSnapshot} flat={dense} shoreParams={shore} /> : null}
 
       {/* createElement, not JSX: the visualizer is a stable module-level
           component resolved from the registry, not one created in render. */}

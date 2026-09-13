@@ -80,7 +80,7 @@ class TsunamiModel(DisasterModel):
             inundation_km=inundation_km,
             scale=(wave_height_m * front.arrival_progress) / self.initial_wave_height_m,
         )
-        return [i.to_dict() for i in assess_structures(self.config.get("structures"), geometry)]
+        return [i.to_dict() for i in assess_structures(self.config.get("structures"), geometry, self.params.shore)]
 
     def is_key_event(self, timestep: int) -> bool:
         """The frame where the wave first reaches the coast."""

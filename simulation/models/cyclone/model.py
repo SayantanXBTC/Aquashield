@@ -76,7 +76,7 @@ class CycloneModel(DisasterModel):
             radius_km=self.params.spread_radius_km,
             scale=min(1.0, self.peak_wind_kt * decay / 160.0),
         )
-        return [i.to_dict() for i in assess_structures(self.config.get("structures"), geometry)]
+        return [i.to_dict() for i in assess_structures(self.config.get("structures"), geometry, self.params.shore)]
 
     def is_key_event(self, timestep: int) -> bool:
         """The landfall frame."""

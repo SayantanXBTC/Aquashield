@@ -1,7 +1,7 @@
 import { useCallback, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Mesh } from "three";
-import { isLand, shoreX, WORLD_KM } from "@/propagation/world";
+import { DEFAULT_SHORE, isLand, shoreX, WORLD_KM, type ShoreParams } from "@/propagation/world";
 import { kmToScene } from "@/three/world/demoWorld";
 import { useGroundDrag } from "./useGroundDrag";
 
@@ -11,6 +11,7 @@ interface OriginPinProps {
   onDragEnd: () => void;
   color?: string;
   disabled?: boolean;
+  shore?: ShoreParams;
 }
 
 /** Keep the pin at least this far offshore when dropped on land. */
@@ -20,14 +21,17 @@ const SHORE_MARGIN_KM = 1.5;
  * VISUAL DEMONSTRATION MARKER — the hazard's starting origin, draggable
  * anywhere on the water (a drop on land snaps back to just offshore).
  */
-export function OriginPin({ originKm, onDrag, onDragEnd, color = "#5fd8e4", disabled = false }: OriginPinProps) {
+export function OriginPin({ originKm, onDrag, onDragEnd, color = "#5fd8e4", disabled = false, shore = DEFAULT_SHORE }: OriginPinProps) {
   const ringRef = useRef<Mesh>(null);
-  const clamp = useCallback((xRaw: number, yRaw: number): [number, number] => {
-    let x = Math.max(0.5, Math.min(WORLD_KM - 0.5, xRaw));
-    const y = Math.max(0.5, Math.min(WORLD_KM - 0.5, yRaw));
-    if (isLand(x, y)) x = Math.max(0.5, shoreX(y) - SHORE_MARGIN_KM);
-    return [x, y];
-  }, []);
+  const clamp = useCallback(
+    (xRaw: number, yRaw: number): [number, number] => {
+      let x = Math.max(0.5, Math.min(WORLD_KM - 0.5, xRaw));
+      const y = Math.max(0.5, Math.min(WORLD_KM - 0.5, yRaw));
+      if (isLand(x, y, shore)) x = Math.max(0.5, shoreX(y, shore) - SHORE_MARGIN_KM);
+      return [x, y];
+    },
+    [shore],
+  );
   const { handlers, hovered, dragging } = useGroundDrag({ onDrag, onDragEnd, clamp, disabled });
   const [sx, sz] = kmToScene(originKm[0], originKm[1]);
 

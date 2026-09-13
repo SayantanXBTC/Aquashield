@@ -5,14 +5,18 @@ import type { WorldProfile } from "@shared/types";
 import "./waterMaterial";
 import { useDiagnostics } from "../diagnostics/diagnosticStore";
 import { hazardChannel } from "../hazard/hazardChannel";
-import { SCENE_MESH_SIZE } from "../world/demoWorld";
+import { SCENE_MESH_SIZE, shoreUniformDefaults } from "../world/demoWorld";
+import { DEFAULT_SHORE, type ShoreParams } from "@/propagation/world";
 
 interface WaterSurfaceProps {
   /** Visual swell scale — a RENDERING choice, never a reported sea state. */
   amplitude?: number;
-  /** Dense Coastal Profile's flat-canvas choice — must agree with
+  /** Dense Coastal Profile / real-city choice — must agree with
    * ShorelineTerrain's `flat` so the shoreline stays watertight. */
   worldProfile?: WorldProfile;
+  /** The fictional demo curve by default, or a curated real city's fitted
+   * curve (ADR-009) — must match ShorelineTerrain's `shore` exactly. */
+  shore?: ShoreParams;
 }
 
 type WaterUniforms = ShaderMaterial & {
@@ -42,10 +46,11 @@ type WaterUniforms = ShaderMaterial & {
  * Gerstner crests and the tsunami front resolve at the camera distances
  * CameraController allows.
  */
-export function WaterSurface({ amplitude = 0.6, worldProfile }: WaterSurfaceProps) {
+export function WaterSurface({ amplitude = 0.6, worldProfile, shore = DEFAULT_SHORE }: WaterSurfaceProps) {
   const materialRef = useRef<WaterUniforms>(null);
   const { enabled } = useDiagnostics();
-  const flat = worldProfile === "dense_coastal";
+  const flat = worldProfile === "dense_coastal" || worldProfile === "real_city";
+  const shoreUniforms = shoreUniformDefaults(shore);
 
   useFrame((_, delta) => {
     const m = materialRef.current;
@@ -71,7 +76,18 @@ export function WaterSurface({ amplitude = 0.6, worldProfile }: WaterSurfaceProp
       {enabled ? (
         <meshBasicMaterial color="#0284c7" />
       ) : (
-        <waterMaterial ref={materialRef} attach="material" uAmplitude={amplitude} uFlatTerrain={flat ? 1 : 0} transparent depthWrite />
+        <waterMaterial
+          ref={materialRef}
+          attach="material"
+          uAmplitude={amplitude}
+          uFlatTerrain={flat ? 1 : 0}
+          uShoreBase={shoreUniforms.uShoreBase}
+          uShoreAmp={shoreUniforms.uShoreAmp}
+          uShoreFreq={shoreUniforms.uShoreFreq}
+          uShorePhase={shoreUniforms.uShorePhase}
+          transparent
+          depthWrite
+        />
       )}
     </mesh>
   );

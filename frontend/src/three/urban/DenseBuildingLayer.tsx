@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { BoxGeometry, Color, InstancedMesh, Matrix4, MeshStandardMaterial, Quaternion, Vector3 } from "three";
-import type { StructureConfig } from "@shared/types";
+import type { StructureConfig, TownProfile } from "@shared/types";
 import type { HazardSnapshot } from "@/propagation/hazards";
 import { exposureFor, geometryFromSnapshot, statusFor } from "@/propagation/structures";
+import type { ShoreParams } from "@/propagation/world";
 import { STATUS_COLOR } from "@/three/structures/support";
 import { buildBuildingPlacements, BUILDING_CLEARING_KM, type BuildingClass, type Placement } from "./buildingPlacement";
+import { placementsFromTown } from "./realTownPlacements";
 
 /**
  * VISUAL DEMONSTRATION — the Dense Coastal Profile's generic building field:
@@ -28,9 +30,10 @@ interface ClassStandProps {
   cls: BuildingClass;
   placements: Placement[];
   getSnapshot: () => HazardSnapshot | null;
+  shore?: ShoreParams;
 }
 
-function ClassStand({ cls, placements, getSnapshot }: ClassStandProps) {
+function ClassStand({ cls, placements, getSnapshot, shore }: ClassStandProps) {
   const meshRef = useRef<InstancedMesh>(null);
   const elapsed = useRef(0);
   const colorRef = useRef(new Color());
@@ -84,7 +87,7 @@ function ClassStand({ cls, placements, getSnapshot }: ClassStandProps) {
     const color = colorRef.current;
     for (let i = 0; i < placements.length; i++) {
       const p = placements[i];
-      const [, exposure] = exposureFor(geom, p.xKm, p.yKm);
+      const [, exposure] = exposureFor(geom, p.xKm, p.yKm, shore);
       color.set(STATUS_COLOR[statusFor(exposure)]);
       mesh.setColorAt(i, color);
     }
@@ -100,20 +103,27 @@ export interface DenseBuildingLayerProps {
    * BUILDING_CLEARING_KM of one. */
   structures?: StructureConfig[];
   getSnapshot: () => HazardSnapshot | null;
+  /** A curated real city (architecture.md ADR-009) — its real building
+   * footprints render instead of the procedural fictional field. */
+  town?: TownProfile;
+  /** The town's fitted shoreline (or the fictional demo curve) — must match
+   * whatever ShorelineTerrain/WaterSurface are using, so exposure and the
+   * rendered coastline agree. */
+  shore?: ShoreParams;
 }
 
-export function DenseBuildingLayer({ structures, getSnapshot }: DenseBuildingLayerProps) {
+export function DenseBuildingLayer({ structures, getSnapshot, town, shore }: DenseBuildingLayerProps) {
   const clearings = useMemo(
     () => (structures ?? []).filter((s) => s.enabled !== false).map((s) => ({ xKm: s.x_km, yKm: s.y_km })),
     [structures],
   );
-  const placements = useMemo(() => buildBuildingPlacements(clearings), [clearings]);
+  const placements = useMemo(() => (town ? placementsFromTown(town, clearings) : buildBuildingPlacements(clearings)), [town, clearings]);
 
   return (
     <group>
-      <ClassStand cls="low" placements={placements.low} getSnapshot={getSnapshot} />
-      <ClassStand cls="mid" placements={placements.mid} getSnapshot={getSnapshot} />
-      <ClassStand cls="highrise" placements={placements.highrise} getSnapshot={getSnapshot} />
+      <ClassStand cls="low" placements={placements.low} getSnapshot={getSnapshot} shore={shore} />
+      <ClassStand cls="mid" placements={placements.mid} getSnapshot={getSnapshot} shore={shore} />
+      <ClassStand cls="highrise" placements={placements.highrise} getSnapshot={getSnapshot} shore={shore} />
     </group>
   );
 }

@@ -80,7 +80,7 @@ class OilSpillModel(DisasterModel):
             radius_km=radius_km,
             scale=concentration,
         )
-        return [i.to_dict() for i in assess_structures(self.config.get("structures"), geometry)]
+        return [i.to_dict() for i in assess_structures(self.config.get("structures"), geometry, self.params.shore)]
 
     def is_key_event(self, timestep: int) -> bool:
         """The frame where the slick first beaches."""

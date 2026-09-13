@@ -4,13 +4,14 @@ import { X } from "lucide-react";
 import { DISASTER_ICON } from "@/components/ui/icons";
 import { cn } from "@/lib/utils";
 import { DISASTER_PRESETS, type DisasterPreset } from "../presets";
-import type { WorldProfile } from "../types";
+import type { CityId, WorldProfile } from "../types";
+import { CityPicker } from "./CityPicker";
 
 interface NewTestModalProps {
   open: boolean;
   busy: boolean;
   onClose: () => void;
-  onCreate: (name: string, preset: DisasterPreset, worldProfile: WorldProfile) => Promise<void>;
+  onCreate: (name: string, preset: DisasterPreset, worldProfile: WorldProfile, cityId: CityId | null) => Promise<void>;
 }
 
 /** In-situ "New test": a name and a generic preset, nothing else. The test
@@ -20,6 +21,7 @@ export function NewTestModal({ open, busy, onClose, onCreate }: NewTestModalProp
   const [name, setName] = useState("");
   const [presetId, setPresetId] = useState(DISASTER_PRESETS[0].id);
   const [worldProfile, setWorldProfile] = useState<WorldProfile>("demo");
+  const [cityId, setCityId] = useState<CityId | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -41,8 +43,12 @@ export function NewTestModal({ open, busy, onClose, onCreate }: NewTestModalProp
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (worldProfile === "real_city" && !cityId) {
+      setError("Pick a city for the Real City world.");
+      return;
+    }
     try {
-      await onCreate(name, preset, worldProfile);
+      await onCreate(name, preset, worldProfile, worldProfile === "real_city" ? cityId : null);
       setName("");
       close();
     } catch (err) {
@@ -123,11 +129,12 @@ export function NewTestModal({ open, busy, onClose, onCreate }: NewTestModalProp
             </div>
 
             <span className="text-ink-faint mb-1.5 block text-[10px] tracking-[0.14em] uppercase">World</span>
-            <div role="radiogroup" className="mb-4 grid grid-cols-2 gap-2">
+            <div role="radiogroup" className="mb-2 grid grid-cols-3 gap-2">
               {(
                 [
-                  { id: "demo", label: "Demo World", blurb: "The default procedural shoreline." },
-                  { id: "dense_coastal", label: "Dense Coastal Profile", blurb: "Flat canvas, dense generic buildings." },
+                  { id: "demo", label: "Demo World", blurb: "Default procedural shoreline." },
+                  { id: "dense_coastal", label: "Dense Coastal", blurb: "Flat canvas, generic buildings." },
+                  { id: "real_city", label: "Real City", blurb: "Real coastline & buildings." },
                 ] as const
               ).map((w) => {
                 const active = w.id === worldProfile;
@@ -137,7 +144,10 @@ export function NewTestModal({ open, busy, onClose, onCreate }: NewTestModalProp
                     type="button"
                     role="radio"
                     aria-checked={active}
-                    onClick={() => setWorldProfile(w.id)}
+                    onClick={() => {
+                      setWorldProfile(w.id);
+                      if (w.id !== "real_city") setCityId(null);
+                    }}
                     className={cn(
                       "flex cursor-pointer flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors",
                       active ? "border-accent/50 bg-accent/12" : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06]",
@@ -149,6 +159,12 @@ export function NewTestModal({ open, busy, onClose, onCreate }: NewTestModalProp
                 );
               })}
             </div>
+
+            {worldProfile === "real_city" ? (
+              <div className="mb-4">
+                <CityPicker value={cityId} onChange={setCityId} />
+              </div>
+            ) : null}
 
             {error ? (
               <p role="alert" className="text-status-critical mb-3 text-[11px]">

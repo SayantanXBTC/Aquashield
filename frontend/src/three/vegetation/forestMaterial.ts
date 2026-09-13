@@ -19,8 +19,16 @@
  * The shore function comes from DEMO_WORLD_GLSL, so the canopy's waterline
  * agrees with the terrain and the water surface exactly.
  */
-import { Color, MeshStandardMaterial, type WebGLProgramParametersWithUniforms } from "three";
-import { DEMO_WORLD_GLSL } from "../world/demoWorld";
+import { Color, MeshStandardMaterial, Vector3, type WebGLProgramParametersWithUniforms } from "three";
+import { DEMO_WORLD_GLSL, shoreUniformDefaults } from "../world/demoWorld";
+
+// The forest only ever renders over the fictional demo world (it's
+// suppressed under Dense Coastal Profile / real-city profiles, three/core/
+// SceneRoot.tsx), so its shore uniforms are always the fictional defaults —
+// still required, though: landDepthKm() below reads the same shoreX()
+// uniforms as the water/terrain materials, and an unset uniform would break
+// the inundation waterline for every scene.
+const SHORE_DEFAULTS = shoreUniformDefaults();
 
 export interface ForestUniforms {
   uTime: { value: number };
@@ -87,6 +95,11 @@ const SWAY_GLSL = /* glsl */ `
 export function applyForestShader(material: MeshStandardMaterial, uniforms: ForestUniforms, part: "trunk" | "canopy"): MeshStandardMaterial {
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     Object.assign(shader.uniforms, uniforms);
+    shader.uniforms.uFlatTerrain = { value: 0 };
+    shader.uniforms.uShoreBase = { value: SHORE_DEFAULTS.uShoreBase };
+    shader.uniforms.uShoreAmp = { value: new Vector3(...SHORE_DEFAULTS.uShoreAmp) };
+    shader.uniforms.uShoreFreq = { value: new Vector3(...SHORE_DEFAULTS.uShoreFreq) };
+    shader.uniforms.uShorePhase = { value: new Vector3(...SHORE_DEFAULTS.uShorePhase) };
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
