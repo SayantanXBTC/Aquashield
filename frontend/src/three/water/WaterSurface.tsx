@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import type { ShaderMaterial } from "three";
+import type { WorldProfile } from "@shared/types";
 import "./waterMaterial";
 import { useDiagnostics } from "../diagnostics/diagnosticStore";
 import { hazardChannel } from "../hazard/hazardChannel";
@@ -9,6 +10,9 @@ import { SCENE_MESH_SIZE } from "../world/demoWorld";
 interface WaterSurfaceProps {
   /** Visual swell scale — a RENDERING choice, never a reported sea state. */
   amplitude?: number;
+  /** Dense Coastal Profile's flat-canvas choice — must agree with
+   * ShorelineTerrain's `flat` so the shoreline stays watertight. */
+  worldProfile?: WorldProfile;
 }
 
 type WaterUniforms = ShaderMaterial & {
@@ -24,6 +28,7 @@ type WaterUniforms = ShaderMaterial & {
   uWaterLevelM: number;
   uWaveHeight: number;
   uHazardLateralKm: number;
+  uFlatTerrain: number;
 };
 
 /**
@@ -37,9 +42,10 @@ type WaterUniforms = ShaderMaterial & {
  * Gerstner crests and the tsunami front resolve at the camera distances
  * CameraController allows.
  */
-export function WaterSurface({ amplitude = 0.6 }: WaterSurfaceProps) {
+export function WaterSurface({ amplitude = 0.6, worldProfile }: WaterSurfaceProps) {
   const materialRef = useRef<WaterUniforms>(null);
   const { enabled } = useDiagnostics();
+  const flat = worldProfile === "dense_coastal";
 
   useFrame((_, delta) => {
     const m = materialRef.current;
@@ -65,7 +71,7 @@ export function WaterSurface({ amplitude = 0.6 }: WaterSurfaceProps) {
       {enabled ? (
         <meshBasicMaterial color="#0284c7" />
       ) : (
-        <waterMaterial ref={materialRef} attach="material" uAmplitude={amplitude} transparent depthWrite />
+        <waterMaterial ref={materialRef} attach="material" uAmplitude={amplitude} uFlatTerrain={flat ? 1 : 0} transparent depthWrite />
       )}
     </mesh>
   );

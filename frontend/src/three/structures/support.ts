@@ -58,15 +58,15 @@ export interface FootprintGround {
  * Reads the same `terrainHeightKm` the land mesh is built from, so the seam
  * is exact rather than approximately right.
  */
-export function footprintGround(xKm: number, yKm: number, radiusKm: number): FootprintGround {
-  let min = terrainHeightKm(xKm, yKm);
+export function footprintGround(xKm: number, yKm: number, radiusKm: number, flat = false): FootprintGround {
+  let min = terrainHeightKm(xKm, yKm, flat);
   let max = min;
   const samples = 12;
   for (let ring = 0; ring < 2; ring++) {
     const r = radiusKm * (ring === 0 ? 0.6 : 1);
     for (let i = 0; i < samples; i++) {
       const a = (i / samples) * Math.PI * 2;
-      const h = terrainHeightKm(xKm + Math.cos(a) * r, yKm + Math.sin(a) * r);
+      const h = terrainHeightKm(xKm + Math.cos(a) * r, yKm + Math.sin(a) * r, flat);
       if (h < min) min = h;
       if (h > max) max = h;
     }

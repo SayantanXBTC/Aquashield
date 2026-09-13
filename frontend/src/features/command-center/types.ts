@@ -47,4 +47,5 @@ export type {
   StructureType,
   TimelineFrame,
   TimelineResponse,
+  WorldProfile,
 } from "@shared/types";

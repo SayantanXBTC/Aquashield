@@ -510,6 +510,11 @@ export interface ImpactFrame {
 // Coordinates are kilometres in the synthetic demo shoreline world
 // (shared/constants/demo_world.json) — never real-world lat/lon.
 
+/** A purely cosmetic 3D-rendering choice — never a real place, never read by
+ * the simulation engine. "demo" (or unset) is the default procedural-hill
+ * world; "dense_coastal" is a flat canvas with dense instanced buildings. */
+export type WorldProfile = "demo" | "dense_coastal";
+
 export interface PropagationConfig {
   origin_x_km?: number;
   origin_y_km?: number;
@@ -522,6 +527,7 @@ export interface PropagationConfig {
   /** 0-1. */
   dispersion_rate?: number;
   duration_hours?: number;
+  world_profile?: WorldProfile;
 }
 
 export type HazardPhase = "offshore" | "landfall" | "inland";

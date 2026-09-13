@@ -1,5 +1,52 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-13 — Dense Coastal Profile: flat-canvas world variant with generic dense buildings
+
+**Added/Changed:**
+- `scenario_config.world_profile: "demo" | "dense_coastal" | None` (`backend/app/schemas/scenario_config.py`,
+  `shared/types/index.ts`) — a purely cosmetic 3D-rendering choice, additive/JSONB, no migration.
+- `three/world/demoWorld.ts`: `terrainHeightKm`/`DEMO_WORLD_GLSL` gain a `flat` branch that returns a
+  constant on the land side only — the sea-floor branch and the `landDepthKm`/`shoreX` land/sea boundary are
+  untouched, so hazard physics is identical between profiles (verified via a real `/ai/analyze` + recorded
+  run end-to-end run, not just unit tests).
+- New `three/urban/{buildingPlacement.ts,DenseBuildingLayer.tsx}`: a fictional, deterministic, procedurally
+  placed instanced-building field (mirrors `three/vegetation/forestPlacement.ts`'s technique exactly),
+  exposure-tinted Clear/Amber/Red via the exact same `exposureFor()`/`statusFor()`/`STATUS_COLOR` named
+  structures already use — no second exposure model. Forest is suppressed (not thinned) under this profile.
+- `SceneRoot.tsx`, `ShorelineTerrain.tsx`, `WaterSurface.tsx`, `StructureLayer.tsx`/`StructureModel.tsx`,
+  `support.ts` thread the profile/`flat` flag through so named structures ground correctly on either
+  terrain.
+- UI: a world-profile toggle in `NewTestModal.tsx` (creation time) and `TopBar.tsx` ("Dense Coastal
+  Profile" / "Reset to Demo World", disabled during replay); `TelemetryPanel.tsx` gains a real, computed
+  "Structures impacted · N / M" tile for the dense building field, illustrative-labeled.
+- RAG: added 3 real TIER_1 sources — NDMA tsunami risk management, IMD's four-stage cyclone warning system,
+  NDMA flood management guidelines (`rag/sources/{tsunami,cyclone,flood}/`) — under the **existing**
+  category taxonomy, alongside NOAA/FEMA. No `rag/`/`agents/`/backend RAG code changes were needed;
+  retrieval is disaster-type-scoped, not gated by which terrain profile is active.
+
+**Why:**
+- User requested a "real-world Indian coastal town digital twin" (named cities, real coordinates, real OSM
+  building data). That directly conflicts with CLAUDE.md §25/§27 (no real-world place name/coordinate in a
+  preset/scene, world stays an illustrative demo) — flagged, and the user chose to build the real feature as
+  a generic/fictional preset instead (AskUserQuestion). Real NDMA/IMD content stays legitimate to cite
+  (citing a real authority's real guidance is not the same as naming the scene after a real place).
+
+**Files/Modules:**
+- `backend/app/schemas/scenario_config.py`, `shared/types/index.ts`,
+  `frontend/src/three/{world/demoWorld.ts,water/{waterMaterial.ts,WaterSurface.tsx},
+  terrain/ShorelineTerrain.tsx,structures/{support.ts,StructureModel.tsx,StructureLayer.tsx},
+  urban/{buildingPlacement.ts,DenseBuildingLayer.tsx},core/SceneRoot.tsx}`,
+  `frontend/src/features/command-center/{hooks/useScenarioSession.ts,CommandCenterPage.tsx,
+  components/{NewTestModal.tsx,TopBar.tsx,TelemetryPanel.tsx}}`, `rag/sources/{tsunami,cyclone,flood}/*.md`.
+
+**Future Context:**
+- A multi-stage loading overlay (per the original spec) was deliberately **not** built — the real work
+  (procedural building placement + instance upload) is sub-frame/synchronous, and padding it with an
+  artificial minimum duration would itself be fabricated pacing (CLAUDE.md §27). Revisit only if a genuinely
+  slow async step is added later.
+- Only tsunami/cyclone/flood have real NDMA/IMD content; oil-spill/pollution/search-rescue/general remain
+  NOAA/FEMA-only until real Indian-authority sources are identified for those categories too.
+
 ### 2026-09-12 — Remove Resource Agent (permanently UNAVAILABLE, added no value)
 
 **Added/Changed:**

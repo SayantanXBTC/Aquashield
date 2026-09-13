@@ -99,6 +99,7 @@ export function CommandCenterPage() {
         originLocked={replaying || !session.params}
         entrance={entrance}
         onEntranceComplete={handleEntranceComplete}
+        worldProfile={session.worldProfile}
         structures={{
           structures: session.structures,
           visible: session.showStructures,
@@ -112,7 +113,13 @@ export function CommandCenterPage() {
 
       {/* HUD layer — pointer-events pass through to the canvas except on the panels themselves. */}
       <motion.div {...hudMotion} className="pointer-events-none absolute inset-0 flex flex-col gap-3 p-3">
-        <TopBar scenario={session.scenario} saveStatus={session.saveStatus} replaying={replaying} />
+        <TopBar
+          scenario={session.scenario}
+          saveStatus={session.saveStatus}
+          replaying={replaying}
+          worldProfile={session.scenario ? session.worldProfile : undefined}
+          onToggleWorldProfile={() => session.setWorldProfile(session.worldProfile === "dense_coastal" ? "demo" : "dense_coastal")}
+        />
 
         <div className="relative z-10 flex min-h-0 flex-1 gap-3">
           <div className={`flex w-[300px] shrink-0 flex-col gap-3 overflow-y-auto pb-1 ${hudOpen ? "" : "hidden"}`}>
@@ -164,7 +171,7 @@ export function CommandCenterPage() {
           </div>
 
           <div className={`flex w-[320px] shrink-0 flex-col gap-3 overflow-y-auto pb-1 ${hudOpen ? "" : "hidden"}`}>
-            <TelemetryPanel kind={session.kind} clock={clock} getSnapshot={session.getSnapshot} />
+            <TelemetryPanel kind={session.kind} clock={clock} getSnapshot={session.getSnapshot} worldProfile={session.worldProfile} structures={session.structures} />
             <StructuresPanel
               structures={session.structures}
               visible={session.showStructures}
@@ -207,7 +214,12 @@ export function CommandCenterPage() {
         </div>
       </motion.div>
 
-      <NewTestModal open={newTestOpen} busy={session.creating} onClose={() => setNewTestOpen(false)} onCreate={async (name, preset) => void (await session.createTest(name, preset))} />
+      <NewTestModal
+        open={newTestOpen}
+        busy={session.creating}
+        onClose={() => setNewTestOpen(false)}
+        onCreate={async (name, preset, worldProfile) => void (await session.createTest(name, preset, worldProfile))}
+      />
     </div>
   );
 }

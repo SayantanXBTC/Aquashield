@@ -1,10 +1,12 @@
 import { createElement, Suspense, useEffect, useMemo } from "react";
+import type { WorldProfile } from "@shared/types";
 import { getDisasterVisualizer } from "@/three/disasters/registry";
 import { clearHazardChannel } from "@/three/hazard/hazardChannel";
 import { HeadingGuide } from "@/three/markers/HeadingGuide";
 import { OriginPin } from "@/three/markers/OriginPin";
 import { StructureLayer, type StructureLayerProps } from "@/three/structures/StructureLayer";
 import { ShorelineTerrain } from "@/three/terrain/ShorelineTerrain";
+import { DenseBuildingLayer } from "@/three/urban/DenseBuildingLayer";
 import { ForestLayer } from "@/three/vegetation/ForestLayer";
 import { WaterSurface } from "@/three/water/WaterSurface";
 import { kmToScene, kmToSceneUnits } from "@/three/world/demoWorld";
@@ -29,6 +31,10 @@ export interface SceneRootProps {
   onEntranceComplete?: () => void;
   /** User-placed structures (Prompt 13). */
   structures?: Omit<StructureLayerProps, "getSnapshot">;
+  /** A purely cosmetic 3D-rendering choice — never a real place (CLAUDE.md
+   * §25/§27). "dense_coastal" flattens the terrain and swaps the forest for
+   * a generic instanced building field. */
+  worldProfile?: WorldProfile;
 }
 
 /** Fallback framing radius in scene units when nothing is placed. */
@@ -57,8 +63,10 @@ export function SceneRoot({
   entrance = false,
   onEntranceComplete,
   structures,
+  worldProfile,
 }: SceneRootProps) {
   const Visualizer = getDisasterVisualizer(kind);
+  const dense = worldProfile === "dense_coastal";
 
   useEffect(() => {
     if (!Visualizer) clearHazardChannel();
@@ -92,16 +100,22 @@ export function SceneRoot({
       <LightingSystem />
       <CameraController focus={focus} frameRadius={frameRadius} entrance={entrance} onEntranceComplete={onEntranceComplete} />
 
-      <WaterSurface />
-      <ShorelineTerrain />
-      {/* Scenery on the land plate — planted by the same noise the terrain
-          material paints its forest with, cleared around placed structures. */}
-      <ForestLayer structures={structures?.structures} />
+      <WaterSurface worldProfile={worldProfile} />
+      <ShorelineTerrain worldProfile={worldProfile} />
+      {dense ? (
+        // Dense Coastal Profile: a generic, fictional instanced building
+        // field replaces the forest (three/urban/DenseBuildingLayer.tsx).
+        <DenseBuildingLayer structures={structures?.structures} getSnapshot={getSnapshot} />
+      ) : (
+        // Scenery on the land plate — planted by the same noise the terrain
+        // material paints its forest with, cleared around placed structures.
+        <ForestLayer structures={structures?.structures} />
+      )}
 
       <HeadingGuide originKm={originKm} landfallKm={landfallKm} fallbackEndKm={fallbackEndKm} />
       <OriginPin originKm={originKm} onDrag={onOriginDrag} onDragEnd={onOriginDragEnd} disabled={originLocked} />
 
-      {structures ? <StructureLayer {...structures} getSnapshot={getSnapshot} /> : null}
+      {structures ? <StructureLayer {...structures} getSnapshot={getSnapshot} flat={dense} /> : null}
 
       {/* createElement, not JSX: the visualizer is a stable module-level
           component resolved from the registry, not one created in render. */}

@@ -63,14 +63,20 @@ function smoothstep(e0: number, e1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** Terrain height (scene units) at world km coordinates. */
-export function terrainHeightKm(xKm: number, yKm: number): number {
+/** Terrain height (scene units) at world km coordinates. `flat` is the
+ * Dense Coastal Profile's rendering choice (CLAUDE.md §27: a cosmetic
+ * variant, never a real place) — the sea-floor branch and the shoreline
+ * boundary (`landDepthKm`/`shoreX`) never change, so hazard physics stays
+ * identical between profiles; only the land-side elevation flattens. */
+export function terrainHeightKm(xKm: number, yKm: number, flat = false): number {
   const d = landDepthKm(xKm, yKm);
-  const n = vnoise(xKm, yKm);
   if (d < 0) {
     // Sea floor: a shelf that shelves down over ~40 km, noise-broken.
+    const n = vnoise(xKm, yKm);
     return -0.8 - 6.0 * smoothstep(0, 40, -d) + n * 0.12 * smoothstep(0, 10, -d);
   }
+  if (flat) return 0.05;
+  const n = vnoise(xKm, yKm);
   const beach = 0.35 + 1.4 * smoothstep(0, 5, d);
   const hills = (n * 0.75 + 2.6) * smoothstep(3, 28, d);
   const ridge = 4.5 * smoothstep(40, 120, d) * (0.6 + 0.4 * Math.sin(yKm * 0.05 + n * 0.1));
@@ -87,6 +93,7 @@ export const DEMO_WORLD_GLSL = /* glsl */ `
   const float WORLD_KM = ${f(WORLD_KM)};
   const float WORLD_HALF = ${f(HALF)};
   const float SCENE_PER_KM = ${f(SCENE_UNITS_PER_KM)};
+  uniform float uFlatTerrain;
 
   vec2 sceneToKm(vec2 sceneXZ) {
     return vec2(sceneXZ.x / SCENE_PER_KM + WORLD_HALF, -sceneXZ.y / SCENE_PER_KM + WORLD_HALF);
@@ -111,10 +118,12 @@ export const DEMO_WORLD_GLSL = /* glsl */ `
 
   float terrainHeightKm(float xKm, float yKm) {
     float d = landDepthKm(xKm, yKm);
-    float n = worldNoise(xKm, yKm);
     if (d < 0.0) {
+      float n = worldNoise(xKm, yKm);
       return -0.8 - 6.0 * smoothstep(0.0, 40.0, -d) + n * 0.12 * smoothstep(0.0, 10.0, -d);
     }
+    if (uFlatTerrain > 0.5) { return 0.05; }
+    float n = worldNoise(xKm, yKm);
     float beach = 0.35 + 1.4 * smoothstep(0.0, 5.0, d);
     float hills = (n * 0.75 + 2.6) * smoothstep(3.0, 28.0, d);
     float ridge = 4.5 * smoothstep(40.0, 120.0, d) * (0.6 + 0.4 * sin(yKm * 0.05 + n * 0.1));

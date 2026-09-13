@@ -4,12 +4,13 @@ import { X } from "lucide-react";
 import { DISASTER_ICON } from "@/components/ui/icons";
 import { cn } from "@/lib/utils";
 import { DISASTER_PRESETS, type DisasterPreset } from "../presets";
+import type { WorldProfile } from "../types";
 
 interface NewTestModalProps {
   open: boolean;
   busy: boolean;
   onClose: () => void;
-  onCreate: (name: string, preset: DisasterPreset) => Promise<void>;
+  onCreate: (name: string, preset: DisasterPreset, worldProfile: WorldProfile) => Promise<void>;
 }
 
 /** In-situ "New test": a name and a generic preset, nothing else. The test
@@ -18,6 +19,7 @@ interface NewTestModalProps {
 export function NewTestModal({ open, busy, onClose, onCreate }: NewTestModalProps) {
   const [name, setName] = useState("");
   const [presetId, setPresetId] = useState(DISASTER_PRESETS[0].id);
+  const [worldProfile, setWorldProfile] = useState<WorldProfile>("demo");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -40,7 +42,7 @@ export function NewTestModal({ open, busy, onClose, onCreate }: NewTestModalProp
     e.preventDefault();
     setError(null);
     try {
-      await onCreate(name, preset);
+      await onCreate(name, preset, worldProfile);
       setName("");
       close();
     } catch (err) {
@@ -115,6 +117,34 @@ export function NewTestModal({ open, busy, onClose, onCreate }: NewTestModalProp
                       {p.name}
                     </span>
                     <span className="text-ink-faint text-[11px] leading-snug">{p.blurb}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <span className="text-ink-faint mb-1.5 block text-[10px] tracking-[0.14em] uppercase">World</span>
+            <div role="radiogroup" className="mb-4 grid grid-cols-2 gap-2">
+              {(
+                [
+                  { id: "demo", label: "Demo World", blurb: "The default procedural shoreline." },
+                  { id: "dense_coastal", label: "Dense Coastal Profile", blurb: "Flat canvas, dense generic buildings." },
+                ] as const
+              ).map((w) => {
+                const active = w.id === worldProfile;
+                return (
+                  <button
+                    key={w.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => setWorldProfile(w.id)}
+                    className={cn(
+                      "flex cursor-pointer flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors",
+                      active ? "border-accent/50 bg-accent/12" : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06]",
+                    )}
+                  >
+                    <span className={cn("text-xs font-medium", active ? "text-accent-strong" : "text-ink")}>{w.label}</span>
+                    <span className="text-ink-faint text-[11px] leading-snug">{w.blurb}</span>
                   </button>
                 );
               })}

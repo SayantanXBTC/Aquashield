@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Activity } from "lucide-react";
 import { MetricTile } from "@/components/ui";
 import type { HazardKind, HazardSnapshot } from "@/propagation/hazards";
+import { exposureFor, geometryFromSnapshot, statusFor } from "@/propagation/structures";
+import { buildBuildingPlacements } from "@/three/urban/buildingPlacement";
+import type { StructureConfig, WorldProfile } from "../types";
 import type { PlaybackClock } from "../playback/playbackClock";
 import { HudPanel } from "./HudPanel";
 
@@ -9,6 +12,8 @@ interface TelemetryPanelProps {
   kind: HazardKind | null;
   clock: PlaybackClock;
   getSnapshot: () => HazardSnapshot | null;
+  worldProfile?: WorldProfile;
+  structures?: StructureConfig[];
 }
 
 const PHASE_LABEL = { offshore: "Offshore", landfall: "Landfall", inland: "Inland" } as const;
@@ -35,13 +40,35 @@ function fmtClock(minutes: number): string {
  * frame rate). Every value comes from the propagation mirror or a recorded
  * frame; a missing one renders "—" (CLAUDE.md §27).
  */
-export function TelemetryPanel({ kind, clock, getSnapshot }: TelemetryPanelProps) {
+export function TelemetryPanel({ kind, clock, getSnapshot, worldProfile, structures }: TelemetryPanelProps) {
   const [snap, setSnap] = useState<HazardSnapshot | null>(null);
+  const dense = worldProfile === "dense_coastal";
 
   useEffect(() => {
     const id = window.setInterval(() => setSnap(getSnapshot()), 125);
     return () => window.clearInterval(id);
   }, [getSnapshot, clock]);
+
+  // Dense Coastal Profile's generic building field — the exact same
+  // deterministic placement DenseBuildingLayer renders, and the exact same
+  // exposureFor()/statusFor() functions named structures use. A real,
+  // computed count of a fictional demo dataset, never a fabricated one.
+  const clearings = useMemo(
+    () => (structures ?? []).filter((s) => s.enabled !== false).map((s) => ({ xKm: s.x_km, yKm: s.y_km })),
+    [structures],
+  );
+  const buildingPlacements = useMemo(() => (dense ? buildBuildingPlacements(clearings) : null), [dense, clearings]);
+  const buildingStats = useMemo(() => {
+    if (!buildingPlacements || !snap) return null;
+    const all = [...buildingPlacements.low, ...buildingPlacements.mid, ...buildingPlacements.highrise];
+    if (!all.length) return { impacted: 0, total: 0 };
+    const geometry = geometryFromSnapshot(snap);
+    const impacted = all.reduce((count, p) => {
+      const [, exposure] = exposureFor(geometry, p.xKm, p.yKm);
+      return statusFor(exposure) === "clear" ? count : count + 1;
+    }, 0);
+    return { impacted, total: all.length };
+  }, [buildingPlacements, snap]);
 
   const headline = (() => {
     if (!snap) return { label: "Hazard", value: null as string | null, unit: undefined as string | undefined };
@@ -115,8 +142,17 @@ export function TelemetryPanel({ kind, clock, getSnapshot }: TelemetryPanelProps
             value={snap?.impacts && snap.impacts.length ? `${(Math.max(0, ...snap.impacts.map((i) => i.exposure)) * 100).toFixed(0)}` : null}
             unit="%"
           />
+          {dense ? (
+            <MetricTile
+              label="Structures impacted"
+              value={buildingStats ? `${buildingStats.impacted} / ${buildingStats.total}` : null}
+              tone={buildingStats && buildingStats.impacted > 0 ? "warning" : "default"}
+            />
+          ) : null}
           <p className="text-ink-faint col-span-2 text-[10px] leading-relaxed tracking-[0.06em] uppercase">
-            Simplified demonstration model — not an official forecast
+            {dense
+              ? "Dense Coastal Profile · potentially exposed, not damage · illustrative"
+              : "Simplified demonstration model — not an official forecast"}
           </p>
         </>
       )}

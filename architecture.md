@@ -919,6 +919,23 @@ AQUASHIELD has none — it is a pure function of the current exposure (so it rev
 scrubbed back), it imports its thresholds from `propagation/structures.ts`, and the UI states the caveat
 alongside the statuses (CLAUDE.md §25). Detail: docs/development/command-center.md.
 
+### 28b. Dense Coastal Profile — a flat-canvas world variant
+
+`scenario_config.world_profile` (`"demo" | "dense_coastal"`, `PropagationConfig`, optional, defaults to
+`None`/"demo") is a purely cosmetic 3D-rendering choice — never a real place, never read by the Python
+simulation engine (CLAUDE.md §25/§27). `"dense_coastal"` flattens the land-side branch of
+`terrainHeightKm`/`DEMO_WORLD_GLSL` (`three/world/demoWorld.ts`) to a constant, leaving the sea-floor branch
+and `landDepthKm`/`shoreX` (the land/sea boundary) untouched — hazard physics is provably identical between
+profiles. `ForestLayer` is suppressed and replaced with `three/urban/DenseBuildingLayer.tsx`, a fictional,
+procedurally generated instanced-building field (`buildingPlacement.ts`, same deterministic-grid technique
+as `forestPlacement.ts`) whose exposure tint (Clear/Amber/Red) reuses the exact
+`exposureFor()`/`statusFor()` functions and `STATUS_COLOR` palette named structures already use — no second
+exposure model. Toggled from the "New test" modal or the TopBar (`TopBar.tsx`'s world-profile button),
+persisted as an ordinary `scenario_config` edit like every other parameter. RAG grounding for this profile
+needed no code changes — real NDMA/IMD sources were added to the existing `rag/sources/` categories
+(tsunami/cyclone/flood), surfacing via the existing disaster-type-filtered retrieval for any matching
+scenario, dense-canvas or not.
+
 ## 29. Authenticated Interactive Console (Prompt 12)
 
 The console was rebuilt around three decisions: Firebase Authentication with per-user data isolation
