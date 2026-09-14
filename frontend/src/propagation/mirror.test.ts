@@ -9,31 +9,43 @@ import { describe, expect, it } from "vitest";
 import cases from "@shared/fixtures/propagation_cases.json";
 import { computeHazard, type HazardKind } from "./hazards";
 import { frontState, paramsFromConfig } from "./kinematics";
-import { distanceToCoastAlongHeading, nearestShoreDistance, shoreX } from "./world";
+import { distanceToCoastAlongHeading, nearestShoreDistance, shoreX, type ShoreParams } from "./world";
 
 const TOL = 1e-6;
 
+interface FixtureShore {
+  base_x_km: number;
+  terms: { amp: number; freq: number; phase: number }[];
+  land_sign: number;
+}
+
+const shoreOf = (c: { shore: FixtureShore }): ShoreParams => ({
+  baseXKm: c.shore.base_x_km,
+  terms: c.shore.terms,
+  landSign: c.shore.land_sign,
+});
+
 describe("demo world mirror", () => {
   it("shore_x matches", () => {
-    for (const c of cases.shore_x) expect(shoreX(c.y)).toBeCloseTo(c.x, 6);
+    for (const c of cases.shore_x) expect(shoreX(c.y, shoreOf(c))).toBeCloseTo(c.x, 6);
   });
 
   it("distance_to_coast matches", () => {
     for (const c of cases.distance_to_coast) {
-      const d = distanceToCoastAlongHeading(c.x, c.y, c.heading);
+      const d = distanceToCoastAlongHeading(c.x, c.y, c.heading, shoreOf(c));
       if (c.distance === null) expect(d).toBeNull();
       else expect(d).toBeCloseTo(c.distance, 4);
     }
   });
 
   it("nearest_shore matches", () => {
-    for (const c of cases.nearest_shore) expect(nearestShoreDistance(c.x, c.y)).toBeCloseTo(c.distance, 4);
+    for (const c of cases.nearest_shore) expect(nearestShoreDistance(c.x, c.y, shoreOf(c))).toBeCloseTo(c.distance, 4);
   });
 
   it("front_state matches", () => {
     for (const c of cases.front_state) {
       const params = paramsFromConfig(c.params, { speedKmh: 1, spreadRadiusKm: 1 });
-      const fs = frontState(params, c.elapsed_minutes, c.stop_at_coast);
+      const fs = frontState(params, c.elapsed_minutes, c.stop_at_coast, shoreOf(c));
       const r = c.result;
       expect(fs.traveledKm).toBeCloseTo(r.traveled_km, 4);
       expect(Math.abs(fs.positionXKm - r.position_x_km)).toBeLessThan(TOL);
@@ -63,7 +75,7 @@ describe("demo world mirror", () => {
         spreadRadiusKm: m.params.spread_radius_km,
       });
       for (const f of m.frames) {
-        const snap = computeHazard(kind, params, f.elapsed_minutes);
+        const snap = computeHazard(kind, params, f.elapsed_minutes, shoreOf(m));
         const h = f.hazard_state as Record<string, number | boolean | string | null | { x: number; y: number }>;
         expect(snap.phase).toBe(h.phase);
         expect(snap.radiusKm).toBeCloseTo(h.radius_km as number, 3);
@@ -91,7 +103,7 @@ describe("recorded-frame replay", () => {
       const kind = kindOf[m.disaster_type];
       const params = paramsFromConfig(m.params, { speedKmh: m.params.speed_kmh, spreadRadiusKm: m.params.spread_radius_km });
       for (const f of m.frames) {
-        const live = computeHazard(kind, params, f.elapsed_minutes);
+        const live = computeHazard(kind, params, f.elapsed_minutes, shoreOf(m));
         const replay = snapshotFromRecordedFrame(kind, f.hazard_state as never, f.elapsed_minutes);
         expect(replay.phase).toBe(live.phase);
         expect(replay.radiusKm).toBeCloseTo(live.radiusKm, 3);
@@ -116,8 +128,8 @@ describe("structure exposure mirror", () => {
       const kind = kindOf[m.disaster_type];
       const params = paramsFromConfig(m.params, { speedKmh: m.params.speed_kmh, spreadRadiusKm: m.params.spread_radius_km });
       for (const f of m.frames) {
-        const snap = computeHazard(kind, params, f.elapsed_minutes);
-        const impacts = assessStructures(m.structures as never, geometryFromSnapshot(snap));
+        const snap = computeHazard(kind, params, f.elapsed_minutes, shoreOf(m));
+        const impacts = assessStructures(m.structures as never, geometryFromSnapshot(snap), shoreOf(m));
         const expected = f.infrastructure_impacts as { structure_id: string; exposure: number; status: string; distance_km: number }[];
         expect(impacts.map((i) => i.structure_id)).toEqual(expected.map((e) => e.structure_id));
         impacts.forEach((i, idx) => {
