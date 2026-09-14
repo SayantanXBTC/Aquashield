@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SHORE, type ShoreParams } from "@/propagation/world";
+import { DEFAULT_SHORE, LAND_FIELD_BLEND_KM, type ShoreParams } from "@/propagation/world";
 import { DEMO_WORLD_GLSL, shoreUniformDefaults } from "./demoWorld";
 import { landFieldUniformDefaults } from "./landField";
 
@@ -33,7 +33,7 @@ describe("GLSL shore uniforms", () => {
   });
 
   it("applies the sign inside landDepthKm", () => {
-    expect(DEMO_WORLD_GLSL).toContain("return uLandSign * (xKm - shoreX(yKm));");
+    expect(DEMO_WORLD_GLSL).toContain("float fallback = uLandSign * (xKm - shoreX(yKm));");
   });
 
   it("does not bake the shoreline into shader source", () => {
@@ -74,7 +74,15 @@ describe("shore uniforms are set by every consuming material", () => {
 describe("GLSL land field uniforms (ADR-009 rasterised coast)", () => {
   it("falls back to the sine curve when disabled or out of coverage", () => {
     expect(DEMO_WORLD_GLSL).toContain("if (uLandFieldEnabled > 0.5)");
-    expect(DEMO_WORLD_GLSL).toContain("return uLandSign * (xKm - shoreX(yKm));");
+    expect(DEMO_WORLD_GLSL).toContain("float fallback = uLandSign * (xKm - shoreX(yKm));");
+    expect(DEMO_WORLD_GLSL).toContain("return fallback;");
+  });
+
+  it("cross-fades the field into the sine at the field border", () => {
+    // A hard switch steps the terrain and renders a rectangular plateau;
+    // the CPU twins blend over the same LAND_FIELD_BLEND_KM.
+    expect(DEMO_WORLD_GLSL).toContain("mix(fallback, sampled, weight)");
+    expect(DEMO_WORLD_GLSL).toContain(`smoothstep(0.0, ${LAND_FIELD_BLEND_KM.toFixed(6)}, insetKm)`);
   });
 
   it("samples with a texel-centred UV (nearest, not bilinear)", () => {

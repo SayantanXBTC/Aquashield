@@ -9,7 +9,7 @@
  * world's middle is the scene origin: sceneX = xKm - 150, sceneZ = -(yKm -
  * 150) (+z is south). Nothing here is GIS data or real terrain.
  */
-import { DEFAULT_SHORE, landDepthKm, WORLD_KM, type ShoreParams } from "@/propagation/world";
+import { DEFAULT_SHORE, LAND_FIELD_BLEND_KM, landDepthKm, WORLD_KM, type ShoreParams } from "@/propagation/world";
 
 export const SCENE_UNITS_PER_KM = 1;
 export const WORLD_SCENE_SIZE = WORLD_KM * SCENE_UNITS_PER_KM;
@@ -150,6 +150,7 @@ export const DEMO_WORLD_GLSL = /* glsl */ `
   }
 
   float landDepthKm(float xKm, float yKm) {
+    float fallback = uLandSign * (xKm - shoreX(yKm));
     if (uLandFieldEnabled > 0.5) {
       float u = (xKm - uLandFieldOrigin.x) / uLandFieldSizeKm;
       float v = (yKm - uLandFieldOrigin.y) / uLandFieldSizeKm;
@@ -157,10 +158,19 @@ export const DEMO_WORLD_GLSL = /* glsl */ `
         float col = clamp(floor(u * uLandFieldResolution), 0.0, uLandFieldResolution - 1.0);
         float row = clamp(floor(v * uLandFieldResolution), 0.0, uLandFieldResolution - 1.0);
         vec2 texel = (vec2(col, row) + 0.5) / uLandFieldResolution;
-        return texture2D(uLandFieldTex, texel).r;
+        float sampled = texture2D(uLandFieldTex, texel).r;
+        // The raster and the sine describe the same coast from different
+        // sources and disagree slightly; an abrupt switch steps the terrain
+        // into a rectangular plateau at the field's border.
+        float insetKm = min(
+          min(xKm - uLandFieldOrigin.x, uLandFieldOrigin.x + uLandFieldSizeKm - xKm),
+          min(yKm - uLandFieldOrigin.y, uLandFieldOrigin.y + uLandFieldSizeKm - yKm)
+        );
+        float weight = smoothstep(0.0, ${f(LAND_FIELD_BLEND_KM)}, insetKm);
+        return mix(fallback, sampled, weight);
       }
     }
-    return uLandSign * (xKm - shoreX(yKm));
+    return fallback;
   }
 
   float worldNoise(float x, float y) {

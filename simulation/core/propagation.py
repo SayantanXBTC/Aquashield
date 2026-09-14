@@ -62,6 +62,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _TOWNS_DIR = _REPO_ROOT / "shared" / "constants" / "towns"
 
 
+# Width of the cross-fade from a curated city's rasterised land field into
+# the analytic sine curve at the field's border. The two sources describe
+# the same coast but disagree slightly, so an abrupt switch renders as a
+# rectangular plateau. Mirrored in the TS and GLSL twins.
+LAND_FIELD_BLEND_KM = 3.0
+
+
 @dataclass(frozen=True)
 class LandField:
     """A rasterised signed-distance-to-coast field for a curated real city
@@ -93,6 +100,24 @@ class LandField:
         index = row * self.resolution + col
         raw = struct.unpack_from("<h", self.data, index * 2)[0]
         return raw * self.scale_km
+
+    def edge_weight(self, x_km: float, y_km: float) -> float:
+        """How much this field should count at (x, y): 1 well inside, falling
+        to 0 at the border over LAND_FIELD_BLEND_KM. Lets a caller cross-fade
+        into the analytic curve instead of stepping off a cliff at the edge.
+        Mirrored in the TS and GLSL twins."""
+        inset_km = min(
+            x_km - self.origin_x_km,
+            self.origin_x_km + self.size_km - x_km,
+            y_km - self.origin_y_km,
+            self.origin_y_km + self.size_km - y_km,
+        )
+        if inset_km <= 0.0:
+            return 0.0
+        if inset_km >= LAND_FIELD_BLEND_KM:
+            return 1.0
+        t = inset_km / LAND_FIELD_BLEND_KM
+        return t * t * (3.0 - 2.0 * t)
 
 
 @dataclass(frozen=True)
@@ -197,12 +222,20 @@ def land_depth_km(x_km: float, y_km: float, shore: ShoreParams = DEFAULT_SHORE) 
 
     A curated real city's `land_field` (ADR-009) is authoritative wherever
     it covers the point; outside its coverage (or when there is no field at
-    all) the analytic sine curve is the far-field fallback."""
-    if shore.land_field is not None:
-        sampled = shore.land_field.sample(x_km, y_km)
-        if sampled is not None:
-            return sampled
-    return shore.land_sign * (x_km - shore_x(y_km, shore))
+    all) the analytic sine curve is the far-field fallback.
+
+    The two disagree — they describe the same coast from different sources —
+    so switching between them abruptly puts a step in the terrain, which
+    renders as a rectangular plateau at the field's border. They are instead
+    cross-faded over `LAND_FIELD_BLEND_KM` inside the edge."""
+    fallback = shore.land_sign * (x_km - shore_x(y_km, shore))
+    if shore.land_field is None:
+        return fallback
+    sampled = shore.land_field.sample(x_km, y_km)
+    if sampled is None:
+        return fallback
+    weight = shore.land_field.edge_weight(x_km, y_km)
+    return sampled * weight + fallback * (1.0 - weight)
 
 
 def is_land(x_km: float, y_km: float, shore: ShoreParams = DEFAULT_SHORE) -> bool:

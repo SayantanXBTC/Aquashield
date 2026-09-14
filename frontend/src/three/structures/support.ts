@@ -167,4 +167,7 @@ export function disposePalette(p: StructurePalette): void {
   p.glass.dispose();
 }
 
-export const STATUS_COLOR = { clear: "#3fbf8a", at_risk: "#d9b23d", impacted: "#e08a3c", severe: "#e2564c" } as const;
+/** Unexposed structures read as architectural slate, not a colour — a city
+ * of thousands of green boxes reads as vegetation. Only actual exposure
+ * carries hue, so the eye goes to what the hazard has reached. */
+export const STATUS_COLOR = { clear: "#94a3b8", at_risk: "#f59e0b", impacted: "#ef4444", severe: "#b91c1c" } as const;

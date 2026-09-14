@@ -93,6 +93,26 @@ function sampleLandField(field: LandField, xKm: number, yKm: number): number | n
   return field.data[row * field.resolution + col] * field.scaleKm;
 }
 
+/** Width of the cross-fade from a curated city's rasterised land field
+ * into the analytic sine curve at the field's border. Mirror of Python's
+ * LAND_FIELD_BLEND_KM; the GLSL twin uses the same value. */
+export const LAND_FIELD_BLEND_KM = 3.0;
+
+/** How much the field counts at (x, y): 1 well inside, easing to 0 at its
+ * border over LAND_FIELD_BLEND_KM. Mirror of Python's `LandField.edge_weight`. */
+function landFieldEdgeWeight(field: LandField, xKm: number, yKm: number): number {
+  const insetKm = Math.min(
+    xKm - field.originXKm,
+    field.originXKm + field.sizeKm - xKm,
+    yKm - field.originYKm,
+    field.originYKm + field.sizeKm - yKm,
+  );
+  if (insetKm <= 0) return 0;
+  if (insetKm >= LAND_FIELD_BLEND_KM) return 1;
+  const t = insetKm / LAND_FIELD_BLEND_KM;
+  return t * t * (3 - 2 * t);
+}
+
 /** East-west position of the shoreline at northing `yKm`. */
 export function shoreX(yKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
   let x = shore.baseXKm;
@@ -109,7 +129,14 @@ export function shoreX(yKm: number, shore: ShoreParams = DEFAULT_SHORE): number 
 export function landDepthKm(xKm: number, yKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
   if (shore.landField) {
     const sampled = sampleLandField(shore.landField, xKm, yKm);
-    if (sampled !== null) return sampled;
+    if (sampled !== null) {
+      // The raster and the sine describe the same coast from different
+      // sources and disagree slightly, so switching abruptly steps the
+      // terrain and renders a rectangular plateau at the field's border.
+      const weight = landFieldEdgeWeight(shore.landField, xKm, yKm);
+      const fallback = shore.landSign * (xKm - shoreX(yKm, shore));
+      return sampled * weight + fallback * (1 - weight);
+    }
   }
   return shore.landSign * (xKm - shoreX(yKm, shore));
 }
