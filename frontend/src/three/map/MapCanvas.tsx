@@ -171,13 +171,17 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
     const probe = window.setInterval(() => {
       const rect = container.getBoundingClientRect();
       const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
-      const overlay = container.parentElement?.querySelectorAll("canvas") ?? [];
+      const canvases = Array.from(container.parentElement?.querySelectorAll("canvas") ?? []);
+      // The overlay is whichever canvas is not the map's. Its context alpha
+      // is the one thing that decides whether it hides the map underneath.
+      const over = canvases.find((c) => c !== canvas);
+      const overGl = over ? ((over.getContext("webgl2") ?? over.getContext("webgl")) as WebGLRenderingContext | null) : null;
       setDiag([
         `container ${Math.round(rect.width)}x${Math.round(rect.height)}`,
         `map canvas ${canvas.width}x${canvas.height} css ${canvas.clientWidth}x${canvas.clientHeight}`,
         `gl ${gl ? (gl.isContextLost() ? "LOST" : "live") : "none"}`,
         `loaded ${map.loaded()} style ${map.isStyleLoaded()} matrix ${matrixRef.current ? "yes" : "no"}`,
-        `canvases on page ${overlay.length}`,
+        `canvases ${canvases.length} overlay ${over ? `${over.width}x${over.height} alpha ${overGl ? String(overGl.getContextAttributes()?.alpha) : "no-ctx"}` : "none"}`,
         errors.length ? `err ${errors.join(" | ")}` : "err none",
       ]);
     }, 700);
@@ -246,7 +250,7 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
         </div>
       ) : null}
       {/* TEMPORARY probe — removed once the basemap renders. */}
-      <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 rounded-[6px] border border-cyan-400/40 bg-[rgba(4,12,18,0.92)] px-3 py-2 font-mono text-[11px] leading-relaxed text-cyan-200">
+      <div className="pointer-events-none absolute top-1/3 left-1/2 -translate-x-1/2 rounded-[6px] border border-cyan-400/40 bg-[rgba(4,12,18,0.92)] px-3 py-2 font-mono text-[11px] leading-relaxed text-cyan-200">
         {diag.length ? diag.map((line) => <div key={line}>{line}</div>) : <div>probing…</div>}
       </div>
       <div className="pointer-events-none absolute bottom-3 left-3 rounded-[6px] border border-white/[0.08] bg-[rgba(9,14,20,0.72)] px-3 py-1.5 text-[10px] tracking-[0.08em] text-white/70 backdrop-blur-xl">
