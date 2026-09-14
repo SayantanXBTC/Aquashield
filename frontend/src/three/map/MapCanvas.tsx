@@ -225,7 +225,14 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
 
   return (
     <div className="absolute inset-0">
-      <div ref={containerRef} className="absolute inset-0" />
+      {/* Inline style, not a class: MapLibre stamps `maplibregl-map` on its
+          container, and that rule sets `position: relative`. It has the same
+          specificity as Tailwind's `absolute` but lands later in the cascade,
+          so the element falls out of absolute positioning, takes height:auto
+          over no in-flow content, and measures Nx0. MapLibre then sizes its
+          canvas to the 300px default and paints a map nobody can see. An
+          inline style outranks both classes. */}
+      <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
             <div className="pointer-events-none absolute inset-0">
         <Canvas
           dpr={[1, 2]}
