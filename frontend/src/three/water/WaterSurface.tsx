@@ -85,6 +85,7 @@ export function WaterSurface({ amplitude = 0.6, worldProfile, shore = DEFAULT_SH
           uShoreAmp={shoreUniforms.uShoreAmp}
           uShoreFreq={shoreUniforms.uShoreFreq}
           uShorePhase={shoreUniforms.uShorePhase}
+          uLandSign={shoreUniforms.uLandSign}
           transparent
           depthWrite
         />

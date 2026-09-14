@@ -50,6 +50,7 @@ export const WaterMaterial = shaderMaterial(
     uShoreAmp: new Vector3(...SHORE_DEFAULTS.uShoreAmp),
     uShoreFreq: new Vector3(...SHORE_DEFAULTS.uShoreFreq),
     uShorePhase: new Vector3(...SHORE_DEFAULTS.uShorePhase),
+    uLandSign: SHORE_DEFAULTS.uLandSign,
   },
   waterVertexShader,
   waterFragmentShader,

@@ -25,6 +25,7 @@ export function createTerrainMaterial(flat = false, shore: ShoreParams = DEFAULT
     shader.uniforms.uShoreAmp = { value: new Vector3(...shoreUniforms.uShoreAmp) };
     shader.uniforms.uShoreFreq = { value: new Vector3(...shoreUniforms.uShoreFreq) };
     shader.uniforms.uShorePhase = { value: new Vector3(...shoreUniforms.uShorePhase) };
+    shader.uniforms.uLandSign = { value: shoreUniforms.uLandSign };
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",

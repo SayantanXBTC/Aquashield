@@ -90,13 +90,20 @@ const f = (v: number) => v.toFixed(6);
  * real city (ADR-009) overrides these per-material at scenario load; the
  * shoreline shape is a runtime uniform, never baked into shader source, so
  * switching cities never requires a shader recompile. */
-export function shoreUniformDefaults(shore: ShoreParams = DEFAULT_SHORE): { uShoreBase: number; uShoreAmp: [number, number, number]; uShoreFreq: [number, number, number]; uShorePhase: [number, number, number] } {
+export function shoreUniformDefaults(shore: ShoreParams = DEFAULT_SHORE): {
+  uShoreBase: number;
+  uShoreAmp: [number, number, number];
+  uShoreFreq: [number, number, number];
+  uShorePhase: [number, number, number];
+  uLandSign: number;
+} {
   const [t0, t1, t2] = shore.terms;
   return {
     uShoreBase: shore.baseXKm,
     uShoreAmp: [t0.amp, t1.amp, t2.amp],
     uShoreFreq: [t0.freq, t1.freq, t2.freq],
     uShorePhase: [t0.phase, t1.phase, t2.phase],
+    uLandSign: shore.landSign,
   };
 }
 
@@ -113,6 +120,7 @@ export const DEMO_WORLD_GLSL = /* glsl */ `
   uniform vec3 uShoreAmp;
   uniform vec3 uShoreFreq;
   uniform vec3 uShorePhase;
+  uniform float uLandSign;
 
   vec2 sceneToKm(vec2 sceneXZ) {
     return vec2(sceneXZ.x / SCENE_PER_KM + WORLD_HALF, -sceneXZ.y / SCENE_PER_KM + WORLD_HALF);
@@ -125,7 +133,7 @@ export const DEMO_WORLD_GLSL = /* glsl */ `
       + uShoreAmp.z * sin(6.28318530718 * uShoreFreq.z * yKm / WORLD_KM + uShorePhase.z);
   }
 
-  float landDepthKm(float xKm, float yKm) { return xKm - shoreX(yKm); }
+  float landDepthKm(float xKm, float yKm) { return uLandSign * (xKm - shoreX(yKm)); }
 
   float worldNoise(float x, float y) {
     return 2.2 * sin(0.021 * x + 0.9 * sin(0.017 * y))
