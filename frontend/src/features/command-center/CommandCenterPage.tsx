@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
+import { AnchorControl } from "./components/AnchorControl";
 import { CommandCenterViewport } from "./components/CommandCenterViewport";
 import { NewTestModal } from "./components/NewTestModal";
 import { ParameterPanel } from "./components/ParameterPanel";
@@ -18,7 +19,14 @@ import { useAIOrchestrator } from "./ai/useAIOrchestrator";
 import { useScenarioSession } from "./hooks/useScenarioSession";
 import { usePlaybackClock } from "./playback/usePlaybackClock";
 
+// maplibre-gl (and its custom-layer three.js bridge) stays out of every
+// bundle but the one visit that actually opens a "real_map" test — lazy
+// like the command center itself is lazy from the landing page (CLAUDE.md
+// §27's build-output check covers this).
+const MapCanvas = lazy(() => import("@/three/map/MapCanvas"));
+
 const RECORDED_TIMESTEP_MINUTES = 15;
+const WORLD_PROFILE_CYCLE = { demo: "dense_coastal", dense_coastal: "real_map", real_map: "demo" } as const;
 
 /**
  * The AQUASHIELD command center — one full-bleed 3D shoreline world with
@@ -88,28 +96,45 @@ export function CommandCenterPage() {
 
   return (
     <div className="bg-void relative h-screen w-screen overflow-hidden">
-      <CommandCenterViewport
-        kind={session.kind}
-        originKm={originKm}
-        headingDeg={session.params?.headingDeg ?? 90}
-        coastDistanceKm={session.coastDistanceKm}
-        getSnapshot={session.getSnapshot}
-        onOriginDrag={handleOriginDrag}
-        onOriginDragEnd={handleOriginDragEnd}
-        originLocked={replaying || !session.params}
-        entrance={entrance}
-        onEntranceComplete={handleEntranceComplete}
-        worldProfile={session.worldProfile}
-        structures={{
-          structures: session.structures,
-          visible: session.showStructures,
-          onDrag: handleStructureDrag,
-          onDragEnd: handleStructureDragEnd,
-          locked: replaying || !session.params,
-          selectedId: selectedStructureId,
-          onSelect: handleStructureSelect,
-        }}
-      />
+      {session.worldProfile === "real_map" ? (
+        // The ONE sanctioned exception to "exactly one <Canvas>": this path
+        // drives Three.js directly inside a MapLibre custom layer instead of
+        // mounting <AquaCanvas>'s <Canvas> — see three/map/threeMapLayer.ts.
+        // There is still never more than one Three.js renderer alive.
+        <Suspense fallback={<div className="bg-abyss-2 absolute inset-0" />}>
+          <MapCanvas
+            kind={session.kind}
+            originKm={originKm}
+            headingDeg={session.params?.headingDeg ?? 90}
+            coastDistanceKm={session.coastDistanceKm}
+            getSnapshot={session.getSnapshot}
+            anchor={session.anchor}
+          />
+        </Suspense>
+      ) : (
+        <CommandCenterViewport
+          kind={session.kind}
+          originKm={originKm}
+          headingDeg={session.params?.headingDeg ?? 90}
+          coastDistanceKm={session.coastDistanceKm}
+          getSnapshot={session.getSnapshot}
+          onOriginDrag={handleOriginDrag}
+          onOriginDragEnd={handleOriginDragEnd}
+          originLocked={replaying || !session.params}
+          entrance={entrance}
+          onEntranceComplete={handleEntranceComplete}
+          worldProfile={session.worldProfile}
+          structures={{
+            structures: session.structures,
+            visible: session.showStructures,
+            onDrag: handleStructureDrag,
+            onDragEnd: handleStructureDragEnd,
+            locked: replaying || !session.params,
+            selectedId: selectedStructureId,
+            onSelect: handleStructureSelect,
+          }}
+        />
+      )}
 
       {/* HUD layer — pointer-events pass through to the canvas except on the panels themselves. */}
       <motion.div {...hudMotion} className="pointer-events-none absolute inset-0 flex flex-col gap-3 p-3">
@@ -118,7 +143,7 @@ export function CommandCenterPage() {
           saveStatus={session.saveStatus}
           replaying={replaying}
           worldProfile={session.scenario ? session.worldProfile : undefined}
-          onToggleWorldProfile={() => session.setWorldProfile(session.worldProfile === "demo" ? "dense_coastal" : "demo")}
+          onToggleWorldProfile={() => session.setWorldProfile(WORLD_PROFILE_CYCLE[session.worldProfile])}
         />
 
         <div className="relative z-10 flex min-h-0 flex-1 gap-3">
@@ -143,6 +168,11 @@ export function CommandCenterPage() {
               onCommit={session.commitParams}
               onDurationChange={session.setDurationHours}
             />
+            {session.worldProfile === "real_map" ? (
+              // Keyed by scenario so switching tests remounts fresh local
+              // text state instead of an effect resyncing it (AnchorControl.tsx).
+              <AnchorControl key={session.selectedScenarioId ?? "none"} anchor={session.anchor} onChange={session.setAnchor} locked={replaying} />
+            ) : null}
             <AgentExecutionHud
               agents={ai.agents}
               status={ai.status}
@@ -218,7 +248,7 @@ export function CommandCenterPage() {
         open={newTestOpen}
         busy={session.creating}
         onClose={() => setNewTestOpen(false)}
-        onCreate={async (name, preset, worldProfile) => void (await session.createTest(name, preset, worldProfile))}
+        onCreate={async (name, preset, worldProfile, anchor) => void (await session.createTest(name, preset, worldProfile, anchor))}
       />
     </div>
   );

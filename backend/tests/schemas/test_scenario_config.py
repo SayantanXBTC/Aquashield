@@ -72,9 +72,28 @@ def test_world_profile_dense_coastal_round_trips() -> None:
 
 
 def test_world_profile_rejects_an_unknown_value() -> None:
-    # Never a real place name — only the two known internal profile ids.
+    # Only the three known internal profile ids.
     with pytest.raises(ValueError):
         validate_scenario_config(DisasterType.TSUNAMI, {"world_profile": "real_city"})
+
+
+def test_world_profile_real_map_round_trips_with_anchor() -> None:
+    # real_map is the deliberate exception to "never a real place" — it
+    # anchors the km frame to a real lat/lon (CLAUDE.md's real_map profile).
+    result = validate_scenario_config(
+        DisasterType.TSUNAMI,
+        {"world_profile": "real_map", "anchor_lat": 18.9388, "anchor_lon": 72.8354},
+    )
+    assert result["world_profile"] == "real_map"
+    assert result["anchor_lat"] == 18.9388
+    assert result["anchor_lon"] == 72.8354
+
+
+def test_anchor_lat_lon_rejects_out_of_range_values() -> None:
+    with pytest.raises(ValueError):
+        validate_scenario_config(DisasterType.TSUNAMI, {"anchor_lat": 91})
+    with pytest.raises(ValueError):
+        validate_scenario_config(DisasterType.TSUNAMI, {"anchor_lon": -181})
 
 
 def test_omitting_world_profile_leaves_is_config_populated_unaffected() -> None:

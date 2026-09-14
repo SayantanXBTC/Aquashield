@@ -10,11 +10,21 @@ interface TopBarProps {
   scenario: ScenarioDetail | null;
   saveStatus: SaveStatus;
   replaying: boolean;
-  /** A purely cosmetic 3D-rendering choice (CLAUDE.md §25/§27) — never a
-   * real place. Omit both to hide the toggle (no test selected). */
+  /** "demo"/"dense_coastal" are a purely cosmetic 3D-rendering choice
+   * (CLAUDE.md §25/§27) — never a real place; "real_map" is the deliberate
+   * exception, a real basemap. Omit both to hide the toggle (no test
+   * selected). */
   worldProfile?: WorldProfile;
   onToggleWorldProfile?: () => void;
 }
+
+/** Label for the button given the profile it's ABOUT TO switch to — the
+ * cycle is demo -> dense_coastal -> real_map -> demo. */
+const NEXT_PROFILE_LABEL: Record<WorldProfile, string> = {
+  demo: "Dense Coastal Profile",
+  dense_coastal: "Real Basemap",
+  real_map: "Reset to Demo World",
+};
 
 const SAVE_TONE: Record<SaveStatus, { tone: "ok" | "warning" | "critical" | "loading"; label: string }> = {
   saved: { tone: "ok", label: "Saved" },
@@ -56,16 +66,25 @@ export function TopBar({ scenario, saveStatus, replaying, worldProfile, onToggle
         {replaying ? "Replay · recorded run" : "Live preview"}
       </span>
 
+      {worldProfile === "real_map" ? (
+        <span
+          title="Real basemap — the hazard is still a simplified demonstration model, not an operational forecast"
+          className="border-accent-soft text-accent-strong hidden rounded-full border px-2.5 py-0.5 text-[10px] font-semibold tracking-[0.14em] uppercase md:inline"
+        >
+          Real basemap · simplified hazard model
+        </span>
+      ) : null}
+
       {worldProfile && onToggleWorldProfile ? (
         <button
           type="button"
           onClick={onToggleWorldProfile}
           disabled={replaying}
-          title={worldProfile === "demo" ? "Switch to Dense Coastal Profile" : "Reset to Demo World"}
+          title={`Switch to ${NEXT_PROFILE_LABEL[worldProfile]}`}
           className="border-hairline-strong bg-surface-raised/60 text-ink-soft hover:bg-surface-active hover:text-ink inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[var(--radius-control)] border px-2.5 py-1 text-[10px] font-medium tracking-[0.06em] uppercase transition-colors disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Building2 className="h-3.5 w-3.5" />
-          {worldProfile === "demo" ? "Dense Coastal Profile" : "Reset to Demo World"}
+          {NEXT_PROFILE_LABEL[worldProfile]}
         </button>
       ) : null}
 

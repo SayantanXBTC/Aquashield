@@ -510,10 +510,13 @@ export interface ImpactFrame {
 // Coordinates are kilometres in the synthetic demo shoreline world
 // (shared/constants/demo_world.json) — never real-world lat/lon.
 
-/** A 3D-world/geometry choice. Both values are purely cosmetic rendering
- * variants of the fictional world — never a real place, never read by the
- * simulation engine. */
-export type WorldProfile = "demo" | "dense_coastal";
+/** A 3D-world/geometry choice. "demo" and "dense_coastal" are purely
+ * cosmetic rendering variants of the fictional world — never a real place,
+ * never read by the simulation engine. "real_map" is the exception
+ * (CLAUDE.md's "real_map" world profile, architecture.md ADR): a real
+ * MapLibre basemap anchored at `anchor_lat`/`anchor_lon`, still running the
+ * same simplified demonstration hazard model over the same km frame. */
+export type WorldProfile = "demo" | "dense_coastal" | "real_map";
 
 export interface PropagationConfig {
   origin_x_km?: number;
@@ -528,6 +531,12 @@ export interface PropagationConfig {
   dispersion_rate?: number;
   duration_hours?: number;
   world_profile?: WorldProfile;
+  /** Only meaningful for `world_profile: "real_map"` — where the km frame's
+   * centre (150, 150) sits on the real earth. Never consumed by the
+   * simulation engine itself, only the render-boundary projection
+   * (frontend/src/three/map/geoAnchor.ts). */
+  anchor_lat?: number;
+  anchor_lon?: number;
 }
 
 export type HazardPhase = "offshore" | "landfall" | "inland";

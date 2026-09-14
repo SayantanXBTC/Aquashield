@@ -3,6 +3,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { DISASTER_ICON } from "@/components/ui/icons";
 import { cn } from "@/lib/utils";
+import type { GeoAnchor } from "@/three/map/geoAnchor";
+import { ANCHOR_PRESETS, DEFAULT_ANCHOR } from "../anchorPresets";
 import { DISASTER_PRESETS, type DisasterPreset } from "../presets";
 import type { WorldProfile } from "../types";
 
@@ -10,7 +12,7 @@ interface NewTestModalProps {
   open: boolean;
   busy: boolean;
   onClose: () => void;
-  onCreate: (name: string, preset: DisasterPreset, worldProfile: WorldProfile) => Promise<void>;
+  onCreate: (name: string, preset: DisasterPreset, worldProfile: WorldProfile, anchor?: GeoAnchor) => Promise<void>;
 }
 
 /** In-situ "New test": a name and a generic preset, nothing else. The test
@@ -20,6 +22,7 @@ export function NewTestModal({ open, busy, onClose, onCreate }: NewTestModalProp
   const [name, setName] = useState("");
   const [presetId, setPresetId] = useState(DISASTER_PRESETS[0].id);
   const [worldProfile, setWorldProfile] = useState<WorldProfile>("demo");
+  const [anchor, setAnchor] = useState<GeoAnchor>(DEFAULT_ANCHOR);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -42,7 +45,7 @@ export function NewTestModal({ open, busy, onClose, onCreate }: NewTestModalProp
     e.preventDefault();
     setError(null);
     try {
-      await onCreate(name, preset, worldProfile);
+      await onCreate(name, preset, worldProfile, worldProfile === "real_map" ? anchor : undefined);
       setName("");
       close();
     } catch (err) {
@@ -123,11 +126,12 @@ export function NewTestModal({ open, busy, onClose, onCreate }: NewTestModalProp
             </div>
 
             <span className="text-ink-faint mb-1.5 block text-[10px] tracking-[0.14em] uppercase">World</span>
-            <div role="radiogroup" className="mb-4 grid grid-cols-2 gap-2">
+            <div role="radiogroup" className="mb-4 grid grid-cols-3 gap-2">
               {(
                 [
                   { id: "demo", label: "Demo World", blurb: "Default procedural shoreline." },
                   { id: "dense_coastal", label: "Dense Coastal", blurb: "Flat canvas, generic buildings." },
+                  { id: "real_map", label: "Real Basemap", blurb: "Real coastline & buildings, simplified hazard model." },
                 ] as const
               ).map((w) => {
                 const active = w.id === worldProfile;
@@ -149,6 +153,53 @@ export function NewTestModal({ open, busy, onClose, onCreate }: NewTestModalProp
                 );
               })}
             </div>
+
+            {worldProfile === "real_map" ? (
+              <div className="mb-4 rounded-lg border border-white/[0.08] bg-white/[0.03] p-3">
+                <span className="text-ink-faint mb-1.5 block text-[10px] tracking-[0.14em] uppercase">Anchor location</span>
+                <div className="mb-2 flex gap-2">
+                  <label className="flex-1">
+                    <span className="text-ink-faint mb-1 block text-[10px]">Latitude</span>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      min={-90}
+                      max={90}
+                      value={anchor.lat}
+                      onChange={(e) => setAnchor((a) => ({ ...a, lat: Number(e.target.value) }))}
+                      className="text-ink h-9 w-full rounded-md border border-white/[0.08] bg-white/5 px-2 text-xs outline-none focus:border-accent/40"
+                    />
+                  </label>
+                  <label className="flex-1">
+                    <span className="text-ink-faint mb-1 block text-[10px]">Longitude</span>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      min={-180}
+                      max={180}
+                      value={anchor.lon}
+                      onChange={(e) => setAnchor((a) => ({ ...a, lon: Number(e.target.value) }))}
+                      className="text-ink h-9 w-full rounded-md border border-white/[0.08] bg-white/5 px-2 text-xs outline-none focus:border-accent/40"
+                    />
+                  </label>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {ANCHOR_PRESETS.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setAnchor({ lat: p.lat, lon: p.lon })}
+                      className="text-ink-soft hover:text-ink hover:bg-white/[0.06] cursor-pointer rounded-full border border-white/[0.08] px-2.5 py-1 text-[10px]"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-ink-faint mt-2 text-[10px] leading-snug">
+                  Real coastline &amp; buildings from a real basemap; the hazard itself is still the same simplified demonstration model — not an operational forecast.
+                </p>
+              </div>
+            ) : null}
 
             {error ? (
               <p role="alert" className="text-status-critical mb-3 text-[11px]">

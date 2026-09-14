@@ -53,12 +53,20 @@ class PropagationConfig(BaseModel):
     intensity: float | None = Field(default=None, ge=0, le=1)
     spread_radius_km: float | None = Field(default=None, ge=0, le=150)
     dispersion_rate: float | None = Field(default=None, ge=0, le=1)
-    # A 3D-world/geometry choice. Both values are purely cosmetic rendering
-    # variants of the fictional world — never read by the Python simulation
-    # engine. `None` (not a "demo" default) so is_config_populated() below is
-    # unaffected for scenarios that never touch this field (see
-    # docs/development/scenarios.md).
-    world_profile: Literal["demo", "dense_coastal"] | None = None
+    # A 3D-world/geometry choice. "demo"/"dense_coastal" are purely cosmetic
+    # rendering variants of the fictional world; "real_map" is the deliberate
+    # exception — a real MapLibre basemap anchored at anchor_lat/anchor_lon,
+    # still running the same simplified hazard model over the same km frame
+    # (CLAUDE.md's "real_map" world profile). None of the three is read by
+    # the Python simulation engine. `None` (not a "demo" default) so
+    # is_config_populated() below is unaffected for scenarios that never
+    # touch this field (see docs/development/scenarios.md).
+    world_profile: Literal["demo", "dense_coastal", "real_map"] | None = None
+    # Only meaningful for world_profile="real_map" — where the km frame's
+    # centre (150, 150) sits on the real earth. Never consumed by the
+    # simulation engine, only the frontend's render-boundary projection.
+    anchor_lat: float | None = Field(default=None, ge=-90, le=90)
+    anchor_lon: float | None = Field(default=None, ge=-180, le=180)
 
 
 class FloodConfig(BaseModel):

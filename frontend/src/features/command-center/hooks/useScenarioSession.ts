@@ -10,6 +10,8 @@ import {
 import { paramsToConfig, type PropagationParams } from "@/propagation/kinematics";
 import { assessStructures, geometryFromSnapshot } from "@/propagation/structures";
 import { DEFAULT_SHORE, distanceToCoastAlongHeading, shoreX, WORLD_KM, type ShoreParams } from "@/propagation/world";
+import type { GeoAnchor } from "@/three/map/geoAnchor";
+import { DEFAULT_ANCHOR } from "../anchorPresets";
 import { scenarioApi } from "../api/scenarioApi";
 import { simulationApi } from "../api/simulationApi";
 import type { PlaybackClock } from "../playback/playbackClock";
@@ -61,7 +63,16 @@ function durationFromConfig(config: Record<string, unknown> | undefined): number
 
 function worldProfileFromConfig(config: Record<string, unknown> | undefined): WorldProfile {
   const raw = config?.world_profile;
-  return raw === "dense_coastal" ? raw : "demo";
+  return raw === "dense_coastal" || raw === "real_map" ? raw : "demo";
+}
+
+function anchorFromConfig(config: Record<string, unknown> | undefined): GeoAnchor {
+  const lat = config?.anchor_lat;
+  const lon = config?.anchor_lon;
+  if (typeof lat === "number" && Number.isFinite(lat) && typeof lon === "number" && Number.isFinite(lon)) {
+    return { lat, lon };
+  }
+  return DEFAULT_ANCHOR;
 }
 
 /**
@@ -102,6 +113,7 @@ export function useScenarioSession(clock: PlaybackClock) {
   const [params, setParamsState] = useState<PropagationParams | null>(null);
   const [durationHours, setDurationHoursState] = useState(DEFAULT_DURATION_HOURS);
   const [worldProfile, setWorldProfileState] = useState<WorldProfile>("demo");
+  const [anchor, setAnchorState] = useState<GeoAnchor>(DEFAULT_ANCHOR);
   const shore: ShoreParams = DEFAULT_SHORE;
   const [structures, setStructuresState] = useState<StructureConfig[]>([]);
   const [showStructures, setShowStructures] = useState(true);
@@ -198,6 +210,7 @@ export function useScenarioSession(clock: PlaybackClock) {
         const hours = durationFromConfig(config);
         setDurationHoursState(hours);
         setWorldProfileState(worldProfileFromConfig(config));
+        setAnchorState(anchorFromConfig(config));
         clock.setDuration(hours * 60);
         setRuns(runList);
         setSaveStatus("saved");
@@ -297,6 +310,18 @@ export function useScenarioSession(clock: PlaybackClock) {
     [persist, durationHours],
   );
 
+  /** Where the km frame's centre sits on the real earth — only meaningful
+   * once worldProfile is "real_map". Persists immediately, same as
+   * setWorldProfile. */
+  const setAnchor = useCallback(
+    (next: GeoAnchor) => {
+      setAnchorState(next);
+      latestConfig.current = { ...latestConfig.current, anchor_lat: next.lat, anchor_lon: next.lon };
+      if (paramsRef.current) void persist(paramsRef.current, durationHours);
+    },
+    [persist, durationHours],
+  );
+
   // --- structures ---------------------------------------------------------
 
   /** Live edit (drag): preview only. */
@@ -360,7 +385,7 @@ export function useScenarioSession(clock: PlaybackClock) {
   // --- creating a new test ------------------------------------------------
 
   const createTest = useCallback(
-    async (name: string, preset: DisasterPreset, worldProfile: WorldProfile = "demo") => {
+    async (name: string, preset: DisasterPreset, worldProfile: WorldProfile = "demo", anchorFor?: GeoAnchor) => {
       setCreating(true);
       try {
         const scenario_config =
@@ -369,6 +394,7 @@ export function useScenarioSession(clock: PlaybackClock) {
             : {
                 ...preset.config,
                 world_profile: worldProfile,
+                ...(worldProfile === "real_map" && anchorFor ? { anchor_lat: anchorFor.lat, anchor_lon: anchorFor.lon } : {}),
               };
         const detail = await scenarioApi.createScenario({
           name: name.trim() || preset.name,
@@ -540,6 +566,8 @@ export function useScenarioSession(clock: PlaybackClock) {
     setDurationHours,
     worldProfile,
     setWorldProfile,
+    anchor,
+    setAnchor,
     saveStatus,
     saveError,
     coastDistanceKm,
