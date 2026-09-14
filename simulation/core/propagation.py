@@ -61,12 +61,20 @@ _TOWNS_DIR = _REPO_ROOT / "shared" / "constants" / "towns"
 
 @dataclass(frozen=True)
 class ShoreParams:
-    """The shoreline's shape — the fictional demo constants by default, or a
-    curated real city's fitted curve (ADR-009). Never real lat/lon; always
-    the same 3-term-sine shape `shore_x` expects, whatever produced it."""
+    """The shoreline's shape and which side of it is land — the fictional
+    demo constants by default, or a curated real city's fitted curve
+    (ADR-009). Never real lat/lon; always the same 3-term-sine shape
+    `shore_x` expects, whatever produced it.
+
+    `land_sign` is the coast's orientation: +1 means land lies east of the
+    curve and the ocean west of it (a west-facing coast, e.g. the Arabian
+    Sea); -1 is the reverse (an east-facing coast, e.g. the Bay of Bengal).
+    It is the ONLY thing that distinguishes the two — every land test in the
+    engine is `land_sign * (x - shore_x(y))`."""
 
     base_x_km: float = SHORE_BASE_X_KM
     terms: tuple[tuple[float, float, float], ...] = SHORE_TERMS
+    land_sign: float = 1.0
 
 
 DEFAULT_SHORE = ShoreParams()
@@ -99,8 +107,15 @@ def shore_x(y_km: float, shore: ShoreParams = DEFAULT_SHORE) -> float:
     return x
 
 
+def land_depth_km(x_km: float, y_km: float, shore: ShoreParams = DEFAULT_SHORE) -> float:
+    """Signed distance inland from the shoreline in km; negative offshore.
+    Carries the coast's orientation, so this is the single place the
+    east/west facing distinction lives."""
+    return shore.land_sign * (x_km - shore_x(y_km, shore))
+
+
 def is_land(x_km: float, y_km: float, shore: ShoreParams = DEFAULT_SHORE) -> bool:
-    return x_km >= shore_x(y_km, shore)
+    return land_depth_km(x_km, y_km, shore) >= 0.0
 
 
 def heading_vector(heading_deg: float) -> tuple[float, float]:

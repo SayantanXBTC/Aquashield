@@ -32,7 +32,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-from simulation.core.propagation import DEFAULT_SHORE, ShoreParams, heading_vector, shore_x
+from simulation.core.propagation import DEFAULT_SHORE, ShoreParams, heading_vector, land_depth_km, shore_x
 
 STRUCTURE_TYPES = ("building", "hospital", "port", "power_plant", "lighthouse", "fuel_terminal")
 TSUNAMI_HALF_ANGLE_DEG = 40.0
@@ -79,8 +79,10 @@ def _clamp01(v: float) -> float:
 
 
 def inland_depth_km(x_km: float, y_km: float, shore: ShoreParams = DEFAULT_SHORE) -> float:
-    """Signed distance inland from the shoreline (negative offshore)."""
-    return x_km - shore_x(y_km, shore)
+    """Signed distance inland from the shoreline (negative offshore).
+    One definition, in propagation.py — this name is kept because the
+    exposure rules below read better with it."""
+    return land_depth_km(x_km, y_km, shore)
 
 
 def lateral_offset_km(px: float, py: float, ox: float, oy: float, heading_deg: float) -> float:
