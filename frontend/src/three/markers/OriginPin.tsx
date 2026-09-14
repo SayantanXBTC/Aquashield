@@ -17,21 +17,27 @@ interface OriginPinProps {
 /** Keep the pin at least this far offshore when dropped on land. */
 const SHORE_MARGIN_KM = 1.5;
 
+/** Clamp a dragged origin back onto the water, on whichever side of the
+ * shoreline the water is on, and keep it inside the world square. Exported
+ * so `orientation.test.ts` exercises this exact logic rather than a
+ * re-implementation of it. */
+export function clampOriginToWater(xKm: number, yKm: number, shore: ShoreParams): [number, number] {
+  let x = Math.max(0.5, Math.min(WORLD_KM - 0.5, xKm));
+  const y = Math.max(0.5, Math.min(WORLD_KM - 0.5, yKm));
+  if (isLand(x, y, shore)) {
+    const water = shoreX(y, shore) - shore.landSign * SHORE_MARGIN_KM;
+    x = Math.min(WORLD_KM - 0.5, Math.max(0.5, water));
+  }
+  return [x, y];
+}
+
 /**
  * VISUAL DEMONSTRATION MARKER — the hazard's starting origin, draggable
  * anywhere on the water (a drop on land snaps back to just offshore).
  */
 export function OriginPin({ originKm, onDrag, onDragEnd, color = "#5fd8e4", disabled = false, shore = DEFAULT_SHORE }: OriginPinProps) {
   const ringRef = useRef<Mesh>(null);
-  const clamp = useCallback(
-    (xRaw: number, yRaw: number): [number, number] => {
-      let x = Math.max(0.5, Math.min(WORLD_KM - 0.5, xRaw));
-      const y = Math.max(0.5, Math.min(WORLD_KM - 0.5, yRaw));
-      if (isLand(x, y, shore)) x = Math.max(0.5, shoreX(y, shore) - SHORE_MARGIN_KM);
-      return [x, y];
-    },
-    [shore],
-  );
+  const clamp = useCallback((xRaw: number, yRaw: number): [number, number] => clampOriginToWater(xRaw, yRaw, shore), [shore]);
   const { handlers, hovered, dragging } = useGroundDrag({ onDrag, onDragEnd, clamp, disabled });
   const [sx, sz] = kmToScene(originKm[0], originKm[1]);
 

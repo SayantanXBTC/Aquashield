@@ -14,7 +14,7 @@
  * computed separately per frame. Pure and side-effect free, so
  * buildingPlacement.test.ts can assert its shape without a GPU.
  */
-import { shoreX, WORLD_KM } from "@/propagation/world";
+import { DEFAULT_SHORE, shoreX, WORLD_KM, type ShoreParams } from "@/propagation/world";
 import { kmToScene, landDepthKm, terrainHeightKm } from "@/three/world/demoWorld";
 import { STRUCTURE_CLEARING_KM } from "@/three/vegetation/forestPlacement";
 
@@ -68,7 +68,10 @@ const CLASS_SCALE: Record<BuildingClass, [number, number]> = {
 /** Builds a deterministic, capped set of generic building placements for the
  * Dense Coastal Profile. `clearings` are placed named structures — no
  * building renders within BUILDING_CLEARING_KM of one. */
-export function buildBuildingPlacements(clearings: { xKm: number; yKm: number }[]): Record<BuildingClass, Placement[]> {
+export function buildBuildingPlacements(
+  clearings: { xKm: number; yKm: number }[],
+  shore: ShoreParams = DEFAULT_SHORE,
+): Record<BuildingClass, Placement[]> {
   const out: Record<BuildingClass, Placement[]> = { low: [], mid: [], highrise: [] };
   const columns = Math.ceil(INLAND_REACH_KM / SPACING_KM);
   const rows = Math.ceil(WORLD_KM / SPACING_KM);
@@ -80,10 +83,10 @@ export function buildBuildingPlacements(clearings: { xKm: number; yKm: number }[
       const jitterY = (cellHash(ix, iy, 2) - 0.5) * SPACING_KM * 0.85;
       const yKm = baseY + jitterY;
       if (yKm < 0 || yKm > WORLD_KM) continue;
-      const xKm = shoreX(yKm) + 1.4 + ix * SPACING_KM + jitterX;
+      const xKm = shoreX(yKm, shore) + shore.landSign * (1.4 + ix * SPACING_KM + jitterX);
       if (xKm > WORLD_KM) continue;
 
-      const depth = landDepthKm(xKm, yKm);
+      const depth = landDepthKm(xKm, yKm, shore);
       if (depth < 1.2) continue; // beach stays bare
 
       if (clearings.some((c) => Math.hypot(c.xKm - xKm, c.yKm - yKm) < STRUCTURE_CLEARING_KM)) continue;

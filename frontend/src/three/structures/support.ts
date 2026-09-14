@@ -28,11 +28,14 @@ export function shoreTangent(yKm: number, shore: ShoreParams = DEFAULT_SHORE): [
 }
 
 /** Scene-space Y rotation that aligns a model's local +X with the shore
- * tangent (so quays run along the coast) and its local -Z toward the sea. */
+ * tangent (so quays run along the coast) and its local -Z toward the sea.
+ * Which side the sea is on flips with the coast's orientation, so an
+ * east-facing coast turns the model through half a revolution. */
 export function shoreAlignedRotationY(yKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
   const [tx, ty] = shoreTangent(yKm, shore);
   // km (tx, ty) -> scene (tx, -ty); angle of that vector from +x toward +z.
-  return -Math.atan2(-ty, tx);
+  const along = -Math.atan2(-ty, tx);
+  return shore.landSign >= 0 ? along : along + Math.PI;
 }
 
 export const COASTAL_TYPES: ReadonlySet<StructureType> = new Set(["port", "lighthouse", "fuel_terminal"]);

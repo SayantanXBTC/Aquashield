@@ -39,12 +39,20 @@ function structuresFromConfig(config: Record<string, unknown> | undefined): Stru
 
 /** Default drop point for a new structure of `type`: on the shoreline
  * (port/lighthouse/terminal) or just inland (others), staggered by how many
- * already exist so they don't stack. */
-export function defaultStructurePosition(type: StructureType, existing: number, aroundYKm: number): [number, number] {
+ * already exist so they don't stack. "Inland" follows the coast's
+ * orientation, so this works on either side of the shoreline. */
+export function defaultStructurePosition(
+  type: StructureType,
+  existing: number,
+  aroundYKm: number,
+  shore: ShoreParams = DEFAULT_SHORE,
+): [number, number] {
   const y = Math.max(5, Math.min(WORLD_KM - 5, aroundYKm + ((existing % 7) - 3) * 9));
-  const shore = shoreX(y);
+  const shoreAtY = shoreX(y, shore);
   const coastal = type === "port" || type === "lighthouse" || type === "fuel_terminal";
-  return [coastal ? shore + 0.6 : shore + 4 + Math.floor(existing / 7) * 6, y];
+  const inland = coastal ? 0.6 : 4 + Math.floor(existing / 7) * 6;
+  const x = shoreAtY + shore.landSign * inland;
+  return [Math.max(2, Math.min(WORLD_KM - 2, x)), y];
 }
 
 function durationFromConfig(config: Record<string, unknown> | undefined): number {
@@ -315,7 +323,7 @@ export function useScenarioSession(clock: PlaybackClock) {
   const addStructure = useCallback(
     (type: StructureType) => {
       const existing = structuresRef.current.length;
-      const [x, y] = defaultStructurePosition(type, existing, paramsRef.current?.originYKm ?? 150);
+      const [x, y] = defaultStructurePosition(type, existing, paramsRef.current?.originYKm ?? 150, shore);
       const label = STRUCTURE_LABELS[type];
       const structure: StructureConfig = {
         id: `${type}-${Date.now().toString(36)}-${existing}`,
@@ -329,7 +337,7 @@ export function useScenarioSession(clock: PlaybackClock) {
       commitStructures();
       return structure;
     },
-    [commitStructures],
+    [commitStructures, shore],
   );
 
   const removeStructure = useCallback(

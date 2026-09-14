@@ -64,9 +64,13 @@ export function StructureModel({ structure, getSnapshot, onDrag, onDragEnd, lock
   const clamp = useCallback(
     (xRaw: number, yRaw: number): [number, number] => {
       const y = Math.max(2, Math.min(WORLD_KM - 2, yRaw));
-      const shore = shoreX(y, shoreParams);
-      if (coastal) return [shore + 0.6, y]; // snaps to the shoreline
-      return [Math.max(shore + 1.2, Math.min(WORLD_KM - 2, xRaw)), y];
+      const shoreAtY = shoreX(y, shoreParams);
+      const sign = shoreParams.landSign;
+      if (coastal) return [shoreAtY + sign * 0.6, y]; // snaps to the shoreline
+      // Keep it at least 1.2 km inland, on whichever side inland is.
+      const minInland = shoreAtY + sign * 1.2;
+      const clamped = sign >= 0 ? Math.max(minInland, xRaw) : Math.min(minInland, xRaw);
+      return [Math.max(2, Math.min(WORLD_KM - 2, clamped)), y];
     },
     [coastal, shoreParams],
   );
