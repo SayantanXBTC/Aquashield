@@ -9,13 +9,12 @@ import {
 } from "@/propagation/hazards";
 import { paramsToConfig, type PropagationParams } from "@/propagation/kinematics";
 import { assessStructures, geometryFromSnapshot } from "@/propagation/structures";
-import { DEFAULT_SHORE, distanceToCoastAlongHeading, offshoreOriginX, shoreParamsForTown, shoreX, WORLD_KM, type ShoreParams } from "@/propagation/world";
+import { DEFAULT_SHORE, distanceToCoastAlongHeading, shoreX, WORLD_KM, type ShoreParams } from "@/propagation/world";
 import { scenarioApi } from "../api/scenarioApi";
 import { simulationApi } from "../api/simulationApi";
 import type { PlaybackClock } from "../playback/playbackClock";
 import type { DisasterPreset } from "../presets";
-import { getTown, TOWNS } from "../towns";
-import type { CityId, ScenarioDetail, ScenarioListItem, SimulationRun, StructureConfig, StructureImpact, StructureType, TimelineFrame, TownProfile, WorldProfile } from "../types";
+import type { ScenarioDetail, ScenarioListItem, SimulationRun, StructureConfig, StructureImpact, StructureType, TimelineFrame, WorldProfile } from "../types";
 
 export type AsyncStatus = "idle" | "loading" | "error";
 export type SaveStatus = "saved" | "dirty" | "saving" | "error";
@@ -62,12 +61,7 @@ function durationFromConfig(config: Record<string, unknown> | undefined): number
 
 function worldProfileFromConfig(config: Record<string, unknown> | undefined): WorldProfile {
   const raw = config?.world_profile;
-  return raw === "dense_coastal" || raw === "real_city" ? raw : "demo";
-}
-
-function cityIdFromConfig(config: Record<string, unknown> | undefined): CityId | null {
-  const raw = config?.city_id;
-  return typeof raw === "string" && raw in TOWNS ? (raw as CityId) : null;
+  return raw === "dense_coastal" ? raw : "demo";
 }
 
 /**
@@ -108,9 +102,7 @@ export function useScenarioSession(clock: PlaybackClock) {
   const [params, setParamsState] = useState<PropagationParams | null>(null);
   const [durationHours, setDurationHoursState] = useState(DEFAULT_DURATION_HOURS);
   const [worldProfile, setWorldProfileState] = useState<WorldProfile>("demo");
-  const [cityId, setCityIdState] = useState<CityId | null>(null);
-  const town: TownProfile | undefined = useMemo(() => (worldProfile === "real_city" ? getTown(cityId) : undefined), [worldProfile, cityId]);
-  const shore: ShoreParams = useMemo(() => (town ? shoreParamsForTown(town) : DEFAULT_SHORE), [town]);
+  const shore: ShoreParams = DEFAULT_SHORE;
   const [structures, setStructuresState] = useState<StructureConfig[]>([]);
   const [showStructures, setShowStructures] = useState(true);
   const structuresRef = useRef<StructureConfig[]>([]);
@@ -206,7 +198,6 @@ export function useScenarioSession(clock: PlaybackClock) {
         const hours = durationFromConfig(config);
         setDurationHoursState(hours);
         setWorldProfileState(worldProfileFromConfig(config));
-        setCityIdState(cityIdFromConfig(config));
         clock.setDuration(hours * 60);
         setRuns(runList);
         setSaveStatus("saved");
@@ -300,8 +291,7 @@ export function useScenarioSession(clock: PlaybackClock) {
   const setWorldProfile = useCallback(
     (profile: WorldProfile) => {
       setWorldProfileState(profile);
-      setCityIdState(null);
-      latestConfig.current = { ...latestConfig.current, world_profile: profile === "demo" ? undefined : profile, city_id: undefined };
+      latestConfig.current = { ...latestConfig.current, world_profile: profile === "demo" ? undefined : profile };
       if (paramsRef.current) void persist(paramsRef.current, durationHours);
     },
     [persist, durationHours],
@@ -370,32 +360,15 @@ export function useScenarioSession(clock: PlaybackClock) {
   // --- creating a new test ------------------------------------------------
 
   const createTest = useCallback(
-    async (name: string, preset: DisasterPreset, worldProfile: WorldProfile = "demo", cityId: CityId | null = null) => {
+    async (name: string, preset: DisasterPreset, worldProfile: WorldProfile = "demo") => {
       setCreating(true);
       try {
-        const town = worldProfile === "real_city" ? getTown(cityId) : undefined;
-        // The preset's origin_x_km was authored for the fictional world's
-        // west-facing shore; re-anchor it to the real city's own shoreline
-        // (whichever side the water is on) at the same offshore distance,
-        // so the disaster still starts at sea rather than inland.
-        const originXKm = town
-          ? offshoreOriginX(
-              preset.config.origin_y_km,
-              Math.abs(preset.config.origin_x_km - shoreX(preset.config.origin_y_km, DEFAULT_SHORE)),
-              shoreParamsForTown(town),
-            )
-          : preset.config.origin_x_km;
         const scenario_config =
           worldProfile === "demo"
             ? preset.config
             : {
                 ...preset.config,
-                origin_x_km: originXKm,
                 world_profile: worldProfile,
-                ...(worldProfile === "real_city" && cityId ? { city_id: cityId } : {}),
-                // A real city's default coastal facing overrides the preset's
-                // generic heading, same as any other per-city default.
-                ...(town ? { heading_deg: town.heading_deg } : {}),
               };
         const detail = await scenarioApi.createScenario({
           name: name.trim() || preset.name,
@@ -567,8 +540,6 @@ export function useScenarioSession(clock: PlaybackClock) {
     setDurationHours,
     worldProfile,
     setWorldProfile,
-    cityId,
-    town,
     saveStatus,
     saveError,
     coastDistanceKm,

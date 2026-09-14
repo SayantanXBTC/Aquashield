@@ -19,20 +19,16 @@
  * The shore function comes from DEMO_WORLD_GLSL, so the canopy's waterline
  * agrees with the terrain and the water surface exactly.
  */
-import { Color, MeshStandardMaterial, Vector2, Vector3, type WebGLProgramParametersWithUniforms } from "three";
+import { Color, MeshStandardMaterial, Vector3, type WebGLProgramParametersWithUniforms } from "three";
 import { DEMO_WORLD_GLSL, shoreUniformDefaults } from "../world/demoWorld";
-import { LAND_FIELD_DUMMY_TEXTURE, landFieldUniformDefaults } from "../world/landField";
 
 // The forest only ever renders over the fictional demo world (it's
-// suppressed under Dense Coastal Profile / real-city profiles, three/core/
-// SceneRoot.tsx), so its shore uniforms are always the fictional defaults —
-// still required, though: landDepthKm() below reads the same shoreX()
-// uniforms as the water/terrain materials, and an unset uniform would break
-// the inundation waterline for every scene. Same reasoning for the land
-// field uniforms: always the disabled defaults, since a real city (the only
-// scenario with a field) never shows a forest.
+// suppressed under the Dense Coastal Profile, three/core/SceneRoot.tsx), so
+// its shore uniforms are always the fictional defaults — still required,
+// though: landDepthKm() below reads the same shoreX() uniforms as the
+// water/terrain materials, and an unset uniform would break the inundation
+// waterline for every scene.
 const SHORE_DEFAULTS = shoreUniformDefaults();
-const LAND_FIELD_DEFAULTS = landFieldUniformDefaults();
 
 export interface ForestUniforms {
   uTime: { value: number };
@@ -105,11 +101,6 @@ export function applyForestShader(material: MeshStandardMaterial, uniforms: Fore
     shader.uniforms.uShoreFreq = { value: new Vector3(...SHORE_DEFAULTS.uShoreFreq) };
     shader.uniforms.uShorePhase = { value: new Vector3(...SHORE_DEFAULTS.uShorePhase) };
     shader.uniforms.uLandSign = { value: SHORE_DEFAULTS.uLandSign };
-    shader.uniforms.uLandFieldEnabled = { value: LAND_FIELD_DEFAULTS.uLandFieldEnabled };
-    shader.uniforms.uLandFieldOrigin = { value: new Vector2(...LAND_FIELD_DEFAULTS.uLandFieldOrigin) };
-    shader.uniforms.uLandFieldSizeKm = { value: LAND_FIELD_DEFAULTS.uLandFieldSizeKm };
-    shader.uniforms.uLandFieldResolution = { value: LAND_FIELD_DEFAULTS.uLandFieldResolution };
-    shader.uniforms.uLandFieldTex = { value: LAND_FIELD_DUMMY_TEXTURE };
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",

@@ -3,7 +3,6 @@ import { extend, type ThreeElement } from "@react-three/fiber";
 import { Color, Vector2, Vector3 } from "three";
 import { waterFragmentShader, waterVertexShader } from "../shaders/water";
 import { shoreUniformDefaults } from "../world/demoWorld";
-import { LAND_FIELD_DUMMY_TEXTURE, landFieldUniformDefaults } from "../world/landField";
 
 /**
  * VISUAL DEMONSTRATION — the ocean material's palette, sun direction and
@@ -15,7 +14,6 @@ import { LAND_FIELD_DUMMY_TEXTURE, landFieldUniformDefaults } from "../world/lan
  */
 const SUN_DIRECTION = new Vector3(-48, 58, 30).normalize();
 const SHORE_DEFAULTS = shoreUniformDefaults();
-const LAND_FIELD_DEFAULTS = landFieldUniformDefaults();
 
 export const WaterMaterial = shaderMaterial(
   {
@@ -44,23 +42,14 @@ export const WaterMaterial = shaderMaterial(
     // must agree with ShorelineTerrain's terrainHeightKm(flat) so the
     // shoreline stays watertight in either mode.
     uFlatTerrain: 0,
-    // The shoreline's shape as a runtime uniform — the fictional demo curve
-    // by default, or a curated real city's fitted curve (ADR-009). Must
-    // match ShorelineTerrain's `shore` prop exactly, or the shoreline stops
-    // being watertight.
+    // The shoreline's shape as a runtime uniform — the fictional demo curve.
+    // Must match ShorelineTerrain's `shore` prop exactly, or the shoreline
+    // stops being watertight.
     uShoreBase: SHORE_DEFAULTS.uShoreBase,
     uShoreAmp: new Vector3(...SHORE_DEFAULTS.uShoreAmp),
     uShoreFreq: new Vector3(...SHORE_DEFAULTS.uShoreFreq),
     uShorePhase: new Vector3(...SHORE_DEFAULTS.uShorePhase),
     uLandSign: SHORE_DEFAULTS.uLandSign,
-    // The curated real city's rasterised coast field (ADR-009,
-    // three/world/landField.ts) — disabled defaults here; WaterSurface sets
-    // the real values (and texture) per scene.
-    uLandFieldEnabled: LAND_FIELD_DEFAULTS.uLandFieldEnabled,
-    uLandFieldOrigin: new Vector2(...LAND_FIELD_DEFAULTS.uLandFieldOrigin),
-    uLandFieldSizeKm: LAND_FIELD_DEFAULTS.uLandFieldSizeKm,
-    uLandFieldResolution: LAND_FIELD_DEFAULTS.uLandFieldResolution,
-    uLandFieldTex: LAND_FIELD_DUMMY_TEXTURE,
   },
   waterVertexShader,
   waterFragmentShader,

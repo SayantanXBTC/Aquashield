@@ -9,7 +9,7 @@
  * world's middle is the scene origin: sceneX = xKm - 150, sceneZ = -(yKm -
  * 150) (+z is south). Nothing here is GIS data or real terrain.
  */
-import { DEFAULT_SHORE, LAND_FIELD_BLEND_KM, landDepthKm, WORLD_KM, type ShoreParams } from "@/propagation/world";
+import { DEFAULT_SHORE, landDepthKm, WORLD_KM, type ShoreParams } from "@/propagation/world";
 
 export const SCENE_UNITS_PER_KM = 1;
 export const WORLD_SCENE_SIZE = WORLD_KM * SCENE_UNITS_PER_KM;
@@ -63,10 +63,9 @@ function smoothstep(e0: number, e1: number, x: number): number {
 }
 
 /** Terrain height (scene units) at world km coordinates. `flat` is the
- * Dense Coastal Profile / real-city rendering choice (CLAUDE.md §27/ADR-009)
- * — the sea-floor branch never changes; only the land-side elevation
- * flattens. `shore` is the fictional demo curve by default, or a curated
- * real city's fitted curve — the shoreline BOUNDARY this determines is what
+ * Dense Coastal Profile rendering choice (CLAUDE.md §27) — the sea-floor
+ * branch never changes; only the land-side elevation flattens. `shore` is
+ * the fictional demo curve — the shoreline BOUNDARY this determines is what
  * hazard physics and exposure key off, so it must match whatever the
  * scenario is actually using. */
 export function terrainHeightKm(xKm: number, yKm: number, flat = false, shore: ShoreParams = DEFAULT_SHORE): number {
@@ -86,10 +85,8 @@ export function terrainHeightKm(xKm: number, yKm: number, flat = false, shore: S
 
 const f = (v: number) => v.toFixed(6);
 
-/** Default GLSL shore uniform values — the fictional demo curve. A curated
- * real city (ADR-009) overrides these per-material at scenario load; the
- * shoreline shape is a runtime uniform, never baked into shader source, so
- * switching cities never requires a shader recompile. */
+/** Default GLSL shore uniform values — the fictional demo curve. The
+ * shoreline shape is a runtime uniform, never baked into shader source. */
 export function shoreUniformDefaults(shore: ShoreParams = DEFAULT_SHORE): {
   uShoreBase: number;
   uShoreAmp: [number, number, number];
@@ -111,17 +108,9 @@ export function shoreUniformDefaults(shore: ShoreParams = DEFAULT_SHORE): {
  * yKm)`, and `sceneToKm(vec2)`. The shoreline shape comes from uniforms
  * (`uShoreBase`/`uShoreAmp`/`uShoreFreq`/`uShorePhase`) — see
  * `shoreUniformDefaults()` for how a consuming material initializes them.
- *
- * `landDepthKm` prefers the curated real city's rasterised coast field
- * (`uLandFieldTex`, architecture.md ADR-009) wherever it covers the sample —
- * the ONLY way this contract can express a peninsula or lagoon, which the
- * single-valued `shoreX(yKm)` curve cannot. Outside its coverage (or when
- * `uLandFieldEnabled` is 0, the demo world's case) it falls back to the sine
- * curve unchanged — see `landFieldUniformDefaults()` in `./landField.ts` for
- * how a consuming material initializes these. NEAREST, texel-centred
- * sampling only, so the GPU lookup agrees with the unfiltered CPU twins
- * (`frontend/src/propagation/world.ts`, `simulation/core/propagation.py`)
- * to the last bit. */
+ * NEAREST, texel-centred sampling only, so the GPU lookup agrees with the
+ * unfiltered CPU twins (`frontend/src/propagation/world.ts`,
+ * `simulation/core/propagation.py`) to the last bit. */
 export const DEMO_WORLD_GLSL = /* glsl */ `
   const float WORLD_KM = ${f(WORLD_KM)};
   const float WORLD_HALF = ${f(HALF)};
@@ -132,11 +121,6 @@ export const DEMO_WORLD_GLSL = /* glsl */ `
   uniform vec3 uShoreFreq;
   uniform vec3 uShorePhase;
   uniform float uLandSign;
-  uniform float uLandFieldEnabled;
-  uniform vec2 uLandFieldOrigin;
-  uniform float uLandFieldSizeKm;
-  uniform float uLandFieldResolution;
-  uniform sampler2D uLandFieldTex;
 
   vec2 sceneToKm(vec2 sceneXZ) {
     return vec2(sceneXZ.x / SCENE_PER_KM + WORLD_HALF, -sceneXZ.y / SCENE_PER_KM + WORLD_HALF);
@@ -150,27 +134,7 @@ export const DEMO_WORLD_GLSL = /* glsl */ `
   }
 
   float landDepthKm(float xKm, float yKm) {
-    float fallback = uLandSign * (xKm - shoreX(yKm));
-    if (uLandFieldEnabled > 0.5) {
-      float u = (xKm - uLandFieldOrigin.x) / uLandFieldSizeKm;
-      float v = (yKm - uLandFieldOrigin.y) / uLandFieldSizeKm;
-      if (u >= 0.0 && u < 1.0 && v >= 0.0 && v < 1.0) {
-        float col = clamp(floor(u * uLandFieldResolution), 0.0, uLandFieldResolution - 1.0);
-        float row = clamp(floor(v * uLandFieldResolution), 0.0, uLandFieldResolution - 1.0);
-        vec2 texel = (vec2(col, row) + 0.5) / uLandFieldResolution;
-        float sampled = texture2D(uLandFieldTex, texel).r;
-        // The raster and the sine describe the same coast from different
-        // sources and disagree slightly; an abrupt switch steps the terrain
-        // into a rectangular plateau at the field's border.
-        float insetKm = min(
-          min(xKm - uLandFieldOrigin.x, uLandFieldOrigin.x + uLandFieldSizeKm - xKm),
-          min(yKm - uLandFieldOrigin.y, uLandFieldOrigin.y + uLandFieldSizeKm - yKm)
-        );
-        float weight = smoothstep(0.0, ${f(LAND_FIELD_BLEND_KM)}, insetKm);
-        return mix(fallback, sampled, weight);
-      }
-    }
-    return fallback;
+    return uLandSign * (xKm - shoreX(yKm));
   }
 
   float worldNoise(float x, float y) {

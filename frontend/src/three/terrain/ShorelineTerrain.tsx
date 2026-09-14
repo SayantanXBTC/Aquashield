@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { BufferAttribute, PlaneGeometry, type DataTexture } from "three";
+import { BufferAttribute, PlaneGeometry } from "three";
 import type { WorldProfile } from "@shared/types";
 import { DEFAULT_SHORE, type ShoreParams } from "@/propagation/world";
 import { useDiagnostics } from "../diagnostics/diagnosticStore";
@@ -16,28 +16,21 @@ import { createTerrainMaterial } from "./terrainMaterial";
  *
  * Surface colour is computed per fragment by terrainMaterial.ts (sand,
  * fields, forest and rock for the demo world; asphalt and an illustrative
- * road grid for the flat Dense Coastal Profile / Real City worlds); the
- * vertex colours here are a coarse fallback used only by the diagnostics
- * modes. No imagery, no dataset, no real street data.
+ * road grid for the flat Dense Coastal Profile world); the vertex colours
+ * here are a coarse fallback used only by the diagnostics modes. No
+ * imagery, no dataset, no real street data.
  */
 export function ShorelineTerrain({
   segments = 420,
   worldProfile,
   shore = DEFAULT_SHORE,
-  landFieldTexture,
 }: {
   segments?: number;
   worldProfile?: WorldProfile;
-  /** The fictional demo curve by default, or a curated real city's fitted
-   * curve (ADR-009) — must match WaterSurface's `shore` exactly. */
+  /** The fictional demo curve — must match WaterSurface's `shore` exactly. */
   shore?: ShoreParams;
-  /** The curated city's rasterised coast field texture (ADR-009,
-   * three/world/landField.ts), built and disposed by SceneRoot — must be
-   * the exact same texture WaterSurface was given, or the shoreline tears
-   * between land and water. */
-  landFieldTexture?: DataTexture;
 }) {
-  const flat = worldProfile === "dense_coastal" || worldProfile === "real_city";
+  const flat = worldProfile === "dense_coastal";
   const geometry = useMemo(() => {
     const geo = new PlaneGeometry(SCENE_MESH_SIZE, SCENE_MESH_SIZE, segments, segments);
     const position = geo.attributes.position as BufferAttribute;
@@ -64,9 +57,9 @@ export function ShorelineTerrain({
       } else if (d < 1.2) {
         r = 0.76; g = 0.7; b = 0.52; // wet sand
       } else if (flat) {
-        // Urban worlds (Dense Coastal Profile / Real City): a neutral
-        // asphalt/outskirt grey fallback — the real road grid only exists
-        // in terrainMaterial.ts's fragment shader, not in this coarse mesh.
+        // Dense Coastal Profile: a neutral asphalt/outskirt grey fallback —
+        // the real road grid only exists in terrainMaterial.ts's fragment
+        // shader, not in this coarse mesh.
         const t = Math.min(1, (d - 1.2) / 8);
         r = 0.42 + (0.34 - 0.42) * t;
         g = 0.4 + (0.33 - 0.4) * t;
@@ -98,7 +91,7 @@ export function ShorelineTerrain({
   }, [segments, flat, shore]);
 
   const { enabled, terrainMode } = useDiagnostics();
-  const material = useMemo(() => createTerrainMaterial(flat, shore, landFieldTexture), [flat, shore, landFieldTexture]);
+  const material = useMemo(() => createTerrainMaterial(flat, shore), [flat, shore]);
   useEffect(() => () => material.dispose(), [material]);
 
   return (

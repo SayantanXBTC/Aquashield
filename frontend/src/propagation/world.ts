@@ -11,7 +11,6 @@
  * and regenerate the fixtures (scripts/generate_propagation_fixtures.py).
  */
 import demoWorld from "@shared/constants/demo_world.json";
-import type { TownLandField, TownProfile, TownShoreTerm } from "@shared/types";
 
 export const WORLD_KM: number = demoWorld.world_km;
 export const WORLD_ID: string = demoWorld.world_id;
@@ -22,96 +21,17 @@ const MARCH_MAX_KM: number = demoWorld.march_max_km;
 
 export const WORLD_DEFAULTS = demoWorld.defaults;
 
-/** Decoded mirror of `TownLandField` — a rasterised true coastline,
- * authoritative over the sine curve wherever it covers. `data` is decoded
- * once in `shoreParamsForTown`, never per sample (this is read inside
- * `distanceToCoastAlongHeading`'s marching loop). */
-export interface LandField {
-  originXKm: number;
-  originYKm: number;
-  sizeKm: number;
-  resolution: number;
-  scaleKm: number;
-  data: Int16Array;
-}
-
 /** The shoreline's shape and which side of it is land — the fictional demo
- * constants by default, or a curated real city's fitted curve
- * (architecture.md ADR-009). `landSign` is +1 when land lies east of the
- * curve (a west-facing coast) and -1 when it lies west (east-facing); it is
- * the only thing that distinguishes the two absent a `landField`. */
+ * constants. `landSign` is +1 when land lies east of the curve (a
+ * west-facing coast) and -1 when it lies west (east-facing); it is the only
+ * thing that distinguishes the two. */
 export interface ShoreParams {
   baseXKm: number;
-  terms: ReadonlyArray<TownShoreTerm>;
+  terms: ReadonlyArray<{ amp: number; freq: number; phase: number }>;
   landSign: number;
-  landField?: LandField;
 }
 
 export const DEFAULT_SHORE: ShoreParams = { baseXKm: SHORE_BASE_X_KM, terms: SHORE_TERMS, landSign: 1 };
-
-/** Base64 -> decoded int16 little-endian samples, explicit about endianness
- * since the byte layout is a cross-language contract (Python/TS/GLSL). */
-function decodeLandField(field: TownLandField): LandField {
-  const binary = atob(field.data);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const view = new DataView(bytes.buffer);
-  const count = field.resolution * field.resolution;
-  const data = new Int16Array(count);
-  for (let i = 0; i < count; i++) data[i] = view.getInt16(i * 2, true);
-  return {
-    originXKm: field.origin_x_km,
-    originYKm: field.origin_y_km,
-    sizeKm: field.size_km,
-    resolution: field.resolution,
-    scaleKm: field.scale_km,
-    data,
-  };
-}
-
-/** The `ShoreParams` for a curated real city (architecture.md ADR-009).
- * The single place a TownProfile becomes a shoreline, so the orientation
- * cannot be dropped at one call site and kept at another. */
-export function shoreParamsForTown(town: TownProfile): ShoreParams {
-  return {
-    baseXKm: town.shore_base_x_km,
-    terms: town.shore_terms,
-    landSign: town.ocean_side === "west" ? 1 : -1,
-    landField: town.land_field ? decodeLandField(town.land_field) : undefined,
-  };
-}
-
-/** Nearest-neighbour sample of a decoded `LandField`; null outside its
- * coverage (caller falls back to the sine curve) — mirrors
- * `LandField.sample` in simulation/core/propagation.py exactly. */
-function sampleLandField(field: LandField, xKm: number, yKm: number): number | null {
-  const u = (xKm - field.originXKm) / field.sizeKm;
-  const v = (yKm - field.originYKm) / field.sizeKm;
-  if (u < 0 || u >= 1 || v < 0 || v >= 1) return null;
-  const col = Math.min(Math.max(Math.floor(u * field.resolution), 0), field.resolution - 1);
-  const row = Math.min(Math.max(Math.floor(v * field.resolution), 0), field.resolution - 1);
-  return field.data[row * field.resolution + col] * field.scaleKm;
-}
-
-/** Width of the cross-fade from a curated city's rasterised land field
- * into the analytic sine curve at the field's border. Mirror of Python's
- * LAND_FIELD_BLEND_KM; the GLSL twin uses the same value. */
-export const LAND_FIELD_BLEND_KM = 3.0;
-
-/** How much the field counts at (x, y): 1 well inside, easing to 0 at its
- * border over LAND_FIELD_BLEND_KM. Mirror of Python's `LandField.edge_weight`. */
-function landFieldEdgeWeight(field: LandField, xKm: number, yKm: number): number {
-  const insetKm = Math.min(
-    xKm - field.originXKm,
-    field.originXKm + field.sizeKm - xKm,
-    yKm - field.originYKm,
-    field.originYKm + field.sizeKm - yKm,
-  );
-  if (insetKm <= 0) return 0;
-  if (insetKm >= LAND_FIELD_BLEND_KM) return 1;
-  const t = insetKm / LAND_FIELD_BLEND_KM;
-  return t * t * (3 - 2 * t);
-}
 
 /** East-west position of the shoreline at northing `yKm`. */
 export function shoreX(yKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
@@ -123,21 +43,8 @@ export function shoreX(yKm: number, shore: ShoreParams = DEFAULT_SHORE): number 
 }
 
 /** Signed distance inland from the shoreline in km; negative offshore.
- * Carries the coast's orientation. A curated real city's `landField`
- * (ADR-009) is authoritative wherever it covers the point; the sine curve
- * is the far-field fallback outside its coverage or when there is none. */
+ * Carries the coast's orientation. */
 export function landDepthKm(xKm: number, yKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
-  if (shore.landField) {
-    const sampled = sampleLandField(shore.landField, xKm, yKm);
-    if (sampled !== null) {
-      // The raster and the sine describe the same coast from different
-      // sources and disagree slightly, so switching abruptly steps the
-      // terrain and renders a rectangular plateau at the field's border.
-      const weight = landFieldEdgeWeight(shore.landField, xKm, yKm);
-      const fallback = shore.landSign * (xKm - shoreX(yKm, shore));
-      return sampled * weight + fallback * (1 - weight);
-    }
-  }
   return shore.landSign * (xKm - shoreX(yKm, shore));
 }
 
@@ -186,13 +93,6 @@ export function nearestShoreDistance(xKm: number, yKm: number, shore: ShoreParam
     if (d < best) best = d;
   }
   return round4(best);
-}
-
-/** An offshore origin `offsetKm` out to sea from the shoreline at `yKm`,
- * on whichever side the water is. Clamped inside the world square. */
-export function offshoreOriginX(yKm: number, offsetKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
-  const x = shoreX(yKm, shore) - shore.landSign * offsetKm;
-  return Math.max(2, Math.min(WORLD_KM - 2, x));
 }
 
 export function clamp(value: number, lo: number, hi: number): number {

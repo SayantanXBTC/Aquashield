@@ -1,7 +1,6 @@
-import { MeshStandardMaterial, Vector2, Vector3, type DataTexture, type WebGLProgramParametersWithUniforms } from "three";
+import { MeshStandardMaterial, Vector3, type WebGLProgramParametersWithUniforms } from "three";
 import { DEFAULT_SHORE, type ShoreParams } from "@/propagation/world";
 import { DEMO_WORLD_GLSL, shoreUniformDefaults } from "../world/demoWorld";
-import { LAND_FIELD_DUMMY_TEXTURE, landFieldUniformDefaults } from "../world/landField";
 
 /**
  * VISUAL DEMONSTRATION — the land plate's surface. A MeshStandardMaterial
@@ -10,30 +9,21 @@ import { LAND_FIELD_DUMMY_TEXTURE, landFieldUniformDefaults } from "../world/lan
  * claim about land cover or street layout anywhere.
  *
  * Two land treatments share the same beach/sea-floor bands and branch on
- * `uFlatTerrain` (CLAUDE.md §27 / ADR-009):
+ * `uFlatTerrain` (CLAUDE.md §27):
  *  - countryside (demo world, `flat=false`): wet sand, dunes, grassland with
  *    mottled fields, forest patches and bare rock on steep faces.
- *  - urban (Dense Coastal Profile / Real City, `flat=true`): an asphalt/
- *    concrete base with an illustrative road grid (arterials + local
- *    streets) fading to a neutral outskirt tone inland. This is a texture
- *    convention, not a real street map or GIS data — it must never be
- *    presented as one.
+ *  - urban (Dense Coastal Profile, `flat=true`): an asphalt/concrete base
+ *    with an illustrative road grid (arterials + local streets) fading to a
+ *    neutral outskirt tone inland. This is a texture convention, not a real
+ *    street map or GIS data — it must never be presented as one.
  *
- * `shore` (the fictional demo curve by default, or a curated real city's
- * fitted curve, ADR-009) must be set here even though the colour logic
- * below never calls `terrainHeightKm` directly — it calls `landDepthKm`,
- * which reads the same `shoreX()` GLSL uniforms, so an unset shore would
- * silently break coastal colouring for every scene, not just real cities.
- *
- * `landFieldTexture` is the curated city's rasterised coast field
- * (architecture.md ADR-009, three/world/landField.ts) — the caller
- * (ShorelineTerrain, via SceneRoot) owns building/disposing it; this
- * material only binds whatever it's given, or the shared dummy texture when
- * there isn't one, so the sampler is never left unbound.
+ * `shore` (the fictional demo curve) must be set here even though the
+ * colour logic below never calls `terrainHeightKm` directly — it calls
+ * `landDepthKm`, which reads the same `shoreX()` GLSL uniforms, so an unset
+ * shore would silently break coastal colouring for every scene.
  */
-export function createTerrainMaterial(flat = false, shore: ShoreParams = DEFAULT_SHORE, landFieldTexture?: DataTexture): MeshStandardMaterial {
+export function createTerrainMaterial(flat = false, shore: ShoreParams = DEFAULT_SHORE): MeshStandardMaterial {
   const shoreUniforms = shoreUniformDefaults(shore);
-  const landFieldUniforms = landFieldUniformDefaults(shore.landField);
   const material = new MeshStandardMaterial({ color: "#ffffff", roughness: 0.92, metalness: 0.02 });
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     shader.uniforms.uFlatTerrain = { value: flat ? 1 : 0 };
@@ -42,11 +32,6 @@ export function createTerrainMaterial(flat = false, shore: ShoreParams = DEFAULT
     shader.uniforms.uShoreFreq = { value: new Vector3(...shoreUniforms.uShoreFreq) };
     shader.uniforms.uShorePhase = { value: new Vector3(...shoreUniforms.uShorePhase) };
     shader.uniforms.uLandSign = { value: shoreUniforms.uLandSign };
-    shader.uniforms.uLandFieldEnabled = { value: landFieldUniforms.uLandFieldEnabled };
-    shader.uniforms.uLandFieldOrigin = { value: new Vector2(...landFieldUniforms.uLandFieldOrigin) };
-    shader.uniforms.uLandFieldSizeKm = { value: landFieldUniforms.uLandFieldSizeKm };
-    shader.uniforms.uLandFieldResolution = { value: landFieldUniforms.uLandFieldResolution };
-    shader.uniforms.uLandFieldTex = { value: landFieldTexture ?? LAND_FIELD_DUMMY_TEXTURE };
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
@@ -115,9 +100,9 @@ export function createTerrainMaterial(flat = false, shore: ShoreParams = DEFAULT
             vec3 sand = mix(drySand, wetSand, (1.0 - smoothstep(0.0, 0.9, depth)) * 0.8) * (0.9 + 0.2 * micro);
             vec3 field;
             if (uFlatTerrain > 0.5) {
-              // Urban ground (Dense Coastal Profile / Real City): asphalt
-              // base + illustrative road grid, fading to a neutral outskirt
-              // tone away from the shore. Not a real street map.
+              // Urban ground (Dense Coastal Profile): asphalt base +
+              // illustrative road grid, fading to a neutral outskirt tone
+              // away from the shore. Not a real street map.
               vec3 outskirt   = vec3(0.40, 0.38, 0.33);
               vec3 asphaltMix = mix(vec3(0.30, 0.30, 0.32), vec3(0.40, 0.40, 0.42), micro) * (0.92 + 0.12 * fine);
               vec2 blockId    = floor(km / 0.5);

@@ -510,17 +510,10 @@ export interface ImpactFrame {
 // Coordinates are kilometres in the synthetic demo shoreline world
 // (shared/constants/demo_world.json) — never real-world lat/lon.
 
-/** A 3D-world/geometry choice. "demo" (or unset) and "dense_coastal" are
- * purely cosmetic rendering variants of the fictional world — never a real
- * place, never read by the simulation engine. "real_city" is the ADR-009
- * exception: a curated real coastline (see `city_id`), which the simulation
- * engine DOES read to keep recorded runs geometrically consistent with what
- * renders — the physics itself stays the same simplified model regardless. */
-export type WorldProfile = "demo" | "dense_coastal" | "real_city";
-
-/** One of the five curated real cities architecture.md ADR-009 permits —
- * never an arbitrary user-entered place. See shared/types/town.ts. */
-export type CityId = "chennai" | "mumbai" | "puri" | "visakhapatnam" | "kochi";
+/** A 3D-world/geometry choice. Both values are purely cosmetic rendering
+ * variants of the fictional world — never a real place, never read by the
+ * simulation engine. */
+export type WorldProfile = "demo" | "dense_coastal";
 
 export interface PropagationConfig {
   origin_x_km?: number;
@@ -535,8 +528,6 @@ export interface PropagationConfig {
   dispersion_rate?: number;
   duration_hours?: number;
   world_profile?: WorldProfile;
-  /** Required when world_profile === "real_city", meaningless otherwise. */
-  city_id?: CityId;
 }
 
 export type HazardPhase = "offshore" | "landfall" | "inland";
@@ -575,76 +566,6 @@ export interface StructureConfig {
   x_km: number;
   y_km: number;
   enabled: boolean;
-}
-
-// --- Curated real-city geometry (architecture.md ADR-009) -------------------
-// Built offline by scripts/build_town_data.py from real Natural Earth
-// coastline + real OpenStreetMap building footprints, committed as
-// shared/constants/towns/<city_id>.json. Read by BOTH the frontend (live
-// preview + rendering) and simulation/core/propagation.py (recorded runs) —
-// one source of truth, no hand-synced duplicate constant set. Real lat/lon
-// is used only inside the data-prep script; every number here is km-frame,
-// matching demo_world.json's existing shape. `TownPlacement.type` is the
-// existing generic StructureType only — never a real building's real name.
-
-export interface TownShoreTerm {
-  amp: number;
-  freq: number;
-  phase: number;
-}
-
-/** A rasterised signed-distance-to-coast field, authoritative over the sine
- * curve wherever it covers — the only way to express a peninsula/lagoon a
- * single `x = f(y)` curve structurally cannot. `data` is base64 of
- * `resolution*resolution` int16 little-endian samples, row-major from the SW
- * corner `(origin_x_km, origin_y_km)`, x varying fastest; each sample *
- * `scale_km` is signed land depth in km (positive inland, negative
- * offshore). Optional: a town without one falls back to `shore_terms`
- * everywhere. */
-export interface TownLandField {
-  origin_x_km: number;
-  origin_y_km: number;
-  size_km: number;
-  resolution: number;
-  scale_km: number;
-  data: string;
-}
-
-export interface TownPlacement {
-  xKm: number;
-  yKm: number;
-  cls: "low" | "mid" | "highrise";
-  scale: number;
-  rotY: number;
-  type: StructureType;
-}
-
-export interface TownProfile {
-  city_id: CityId;
-  /** City/region label only — e.g. "Chennai, Tamil Nadu". No individual
-   * building/landmark names anywhere in this shape. */
-  label: string;
-  shore_base_x_km: number;
-  shore_terms: [TownShoreTerm, TownShoreTerm, TownShoreTerm];
-  /** Which real compass side the ocean lies on. Sets the shoreline's
-   * orientation: "west" means land is east of the curve (land_sign +1),
-   * "east" the reverse. */
-  ocean_side: "east" | "west";
-  /** Real coastal facing, compass degrees — a per-city default for the
-   * existing, already-general `PropagationConfig.heading_deg`. */
-  heading_deg: number;
-  /** Present once the real coastline has been rasterised for this city;
-   * absent (older/ungenerated town JSON) means the sine curve above is used
-   * everywhere, unchanged from before this field existed. */
-  land_field?: TownLandField;
-  buildings: TownPlacement[];
-  fit_quality: { rmse_km: number; sample_count: number };
-  data_provenance: {
-    coastline_source: string;
-    buildings_source: string;
-    generated_by: string;
-    generated_at: string;
-  };
 }
 
 export type StructureStatus = "clear" | "at_risk" | "impacted" | "severe";

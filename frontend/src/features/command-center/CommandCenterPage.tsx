@@ -100,7 +100,6 @@ export function CommandCenterPage() {
         entrance={entrance}
         onEntranceComplete={handleEntranceComplete}
         worldProfile={session.worldProfile}
-        town={session.town}
         structures={{
           structures: session.structures,
           visible: session.showStructures,
@@ -172,7 +171,7 @@ export function CommandCenterPage() {
           </div>
 
           <div className={`flex w-[320px] shrink-0 flex-col gap-3 overflow-y-auto pb-1 ${hudOpen ? "" : "hidden"}`}>
-            <TelemetryPanel kind={session.kind} clock={clock} getSnapshot={session.getSnapshot} worldProfile={session.worldProfile} structures={session.structures} town={session.town} />
+            <TelemetryPanel kind={session.kind} clock={clock} getSnapshot={session.getSnapshot} worldProfile={session.worldProfile} structures={session.structures} />
             <StructuresPanel
               structures={session.structures}
               visible={session.showStructures}
@@ -219,7 +218,7 @@ export function CommandCenterPage() {
         open={newTestOpen}
         busy={session.creating}
         onClose={() => setNewTestOpen(false)}
-        onCreate={async (name, preset, worldProfile, cityId) => void (await session.createTest(name, preset, worldProfile, cityId))}
+        onCreate={async (name, preset, worldProfile) => void (await session.createTest(name, preset, worldProfile))}
       />
     </div>
   );

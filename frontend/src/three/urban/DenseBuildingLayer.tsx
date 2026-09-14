@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { BoxGeometry, Color, InstancedMesh, Matrix4, MeshStandardMaterial, Quaternion, Vector3 } from "three";
-import type { StructureConfig, TownProfile } from "@shared/types";
+import type { StructureConfig } from "@shared/types";
 import type { HazardSnapshot } from "@/propagation/hazards";
 import { exposureFor, geometryFromSnapshot, statusFor } from "@/propagation/structures";
 import type { ShoreParams } from "@/propagation/world";
 import { STATUS_COLOR } from "@/three/structures/support";
 import { buildBuildingPlacements, BUILDING_CLEARING_KM, type BuildingClass, type Placement } from "./buildingPlacement";
-import { placementsFromTown } from "./realTownPlacements";
 
 /**
  * VISUAL DEMONSTRATION — the Dense Coastal Profile's generic building field:
@@ -103,24 +102,17 @@ export interface DenseBuildingLayerProps {
    * BUILDING_CLEARING_KM of one. */
   structures?: StructureConfig[];
   getSnapshot: () => HazardSnapshot | null;
-  /** A curated real city (architecture.md ADR-009) — its real building
-   * footprints render instead of the procedural fictional field. */
-  town?: TownProfile;
-  /** The town's fitted shoreline (or the fictional demo curve) — must match
-   * whatever ShorelineTerrain/WaterSurface are using, so exposure and the
-   * rendered coastline agree. */
+  /** The fictional demo curve — must match whatever ShorelineTerrain/
+   * WaterSurface are using, so exposure and the rendered coastline agree. */
   shore?: ShoreParams;
 }
 
-export function DenseBuildingLayer({ structures, getSnapshot, town, shore }: DenseBuildingLayerProps) {
+export function DenseBuildingLayer({ structures, getSnapshot, shore }: DenseBuildingLayerProps) {
   const clearings = useMemo(
     () => (structures ?? []).filter((s) => s.enabled !== false).map((s) => ({ xKm: s.x_km, yKm: s.y_km })),
     [structures],
   );
-  const placements = useMemo(
-    () => (town ? placementsFromTown(town, clearings) : buildBuildingPlacements(clearings, shore)),
-    [town, clearings, shore],
-  );
+  const placements = useMemo(() => buildBuildingPlacements(clearings, shore), [clearings, shore]);
 
   return (
     <group>

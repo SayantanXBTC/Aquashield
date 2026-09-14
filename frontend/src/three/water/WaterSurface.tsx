@@ -1,28 +1,22 @@
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import type { DataTexture, ShaderMaterial } from "three";
+import type { ShaderMaterial } from "three";
 import type { WorldProfile } from "@shared/types";
 import "./waterMaterial";
 import { useDiagnostics } from "../diagnostics/diagnosticStore";
 import { hazardChannel } from "../hazard/hazardChannel";
 import { SCENE_MESH_SIZE, shoreUniformDefaults } from "../world/demoWorld";
-import { LAND_FIELD_DUMMY_TEXTURE, landFieldUniformDefaults } from "../world/landField";
 import { DEFAULT_SHORE, type ShoreParams } from "@/propagation/world";
 
 interface WaterSurfaceProps {
   /** Visual swell scale — a RENDERING choice, never a reported sea state. */
   amplitude?: number;
-  /** Dense Coastal Profile / real-city choice — must agree with
-   * ShorelineTerrain's `flat` so the shoreline stays watertight. */
+  /** Dense Coastal Profile choice — must agree with ShorelineTerrain's
+   * `flat` so the shoreline stays watertight. */
   worldProfile?: WorldProfile;
-  /** The fictional demo curve by default, or a curated real city's fitted
-   * curve (ADR-009) — must match ShorelineTerrain's `shore` exactly. */
+  /** The fictional demo curve — must match ShorelineTerrain's `shore`
+   * exactly. */
   shore?: ShoreParams;
-  /** The curated city's rasterised coast field texture (ADR-009,
-   * three/world/landField.ts), built and disposed by SceneRoot — must be
-   * the exact same texture ShorelineTerrain was given, or the shoreline
-   * tears between land and water. */
-  landFieldTexture?: DataTexture;
 }
 
 type WaterUniforms = ShaderMaterial & {
@@ -52,12 +46,11 @@ type WaterUniforms = ShaderMaterial & {
  * Gerstner crests and the tsunami front resolve at the camera distances
  * CameraController allows.
  */
-export function WaterSurface({ amplitude = 0.6, worldProfile, shore = DEFAULT_SHORE, landFieldTexture }: WaterSurfaceProps) {
+export function WaterSurface({ amplitude = 0.6, worldProfile, shore = DEFAULT_SHORE }: WaterSurfaceProps) {
   const materialRef = useRef<WaterUniforms>(null);
   const { enabled } = useDiagnostics();
-  const flat = worldProfile === "dense_coastal" || worldProfile === "real_city";
+  const flat = worldProfile === "dense_coastal";
   const shoreUniforms = shoreUniformDefaults(shore);
-  const landFieldUniforms = landFieldUniformDefaults(shore.landField);
 
   useFrame((_, delta) => {
     const m = materialRef.current;
@@ -93,11 +86,6 @@ export function WaterSurface({ amplitude = 0.6, worldProfile, shore = DEFAULT_SH
           uShoreFreq={shoreUniforms.uShoreFreq}
           uShorePhase={shoreUniforms.uShorePhase}
           uLandSign={shoreUniforms.uLandSign}
-          uLandFieldEnabled={landFieldUniforms.uLandFieldEnabled}
-          uLandFieldOrigin={landFieldUniforms.uLandFieldOrigin}
-          uLandFieldSizeKm={landFieldUniforms.uLandFieldSizeKm}
-          uLandFieldResolution={landFieldUniforms.uLandFieldResolution}
-          uLandFieldTex={landFieldTexture ?? LAND_FIELD_DUMMY_TEXTURE}
           transparent
           depthWrite
         />

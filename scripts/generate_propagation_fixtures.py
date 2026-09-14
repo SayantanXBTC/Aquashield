@@ -9,9 +9,9 @@ shoreline (`DEFAULT_SHORE`, land east of the curve) and once for a synthetic
 east-facing mirror (`EAST_FACING_SHORE`, land west of the curve), so a sign
 error in `land_sign`/`landSign` cannot hide behind a single orientation.
 Overriding `model.params.shore` after `model.initialize()` (see `main()`
-below) is fixture-generation-only: production resolves a scenario's shore
-from `city_id`, and this script has no city file to resolve — it just needs
-a second, deliberately different shore to exercise both signs.
+below) is fixture-generation-only: production always uses the single
+fictional demo shoreline — this script just needs a second, deliberately
+different shore to exercise both signs.
 
 Run from the repo root after any change to simulation/core/propagation.py
 or a model's formulas:
