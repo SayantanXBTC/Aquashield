@@ -9,7 +9,17 @@ import pytest
 
 from simulation.core.engine import SimulationEngine
 from simulation.core.errors import SimulationConfigError
-from simulation.core.propagation import _TOWNS_DIR, DEFAULT_SHORE, shore_params_for_city, shore_x
+from simulation.core.propagation import (
+    DEFAULT_ORIGIN_X_KM,
+    DEFAULT_ORIGIN_Y_KM,
+    _TOWNS_DIR,
+    DEFAULT_SHORE,
+    distance_to_coast_along_heading,
+    is_land,
+    land_depth_km,
+    shore_params_for_city,
+    shore_x,
+)
 
 
 def _town_ids() -> list[str]:
@@ -80,3 +90,38 @@ def test_missing_ocean_side_is_a_config_error(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("simulation.core.propagation._TOWNS_DIR", tmp_path)
     with pytest.raises(SimulationConfigError):
         shore_params_for_city("nowhere")
+
+
+@pytest.mark.parametrize("city_id", _town_ids())
+def test_every_building_is_on_land(city_id: str) -> None:
+    data = json.loads((_TOWNS_DIR / f"{city_id}.json").read_text(encoding="utf-8"))
+    shore = shore_params_for_city(city_id)
+    offshore = [b for b in data["buildings"] if not is_land(b["xKm"], b["yKm"], shore)]
+    assert offshore == [], f"{len(offshore)} of {len(data['buildings'])} buildings are offshore"
+
+
+@pytest.mark.parametrize("city_id", _town_ids())
+def test_town_default_heading_reaches_land(city_id: str) -> None:
+    """Regression: Chennai's own heading_deg (270) was the real compass
+    bearing while its geometry was mirrored, so a scenario launched with the
+    town default sent the front out of the world and never made landfall."""
+    data = json.loads((_TOWNS_DIR / f"{city_id}.json").read_text(encoding="utf-8"))
+    shore = shore_params_for_city(city_id)
+    distance = distance_to_coast_along_heading(
+        DEFAULT_ORIGIN_X_KM if shore.land_sign > 0 else 300.0 - DEFAULT_ORIGIN_X_KM,
+        DEFAULT_ORIGIN_Y_KM,
+        data["heading_deg"],
+        shore,
+    )
+    assert distance is not None, f"{city_id}: heading {data['heading_deg']} never reaches land"
+    assert distance > 0
+
+
+@pytest.mark.parametrize("city_id", _town_ids())
+def test_buildings_sit_within_a_plausible_inland_band(city_id: str) -> None:
+    """A sanity bound on the reflection: a coastal city's footprints are
+    inland, but not hundreds of km inland."""
+    data = json.loads((_TOWNS_DIR / f"{city_id}.json").read_text(encoding="utf-8"))
+    shore = shore_params_for_city(city_id)
+    depths = [land_depth_km(b["xKm"], b["yKm"], shore) for b in data["buildings"]]
+    assert max(depths) < 60.0
