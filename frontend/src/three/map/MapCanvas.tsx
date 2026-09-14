@@ -126,6 +126,11 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
   const containerRef = useRef<HTMLDivElement | null>(null);
   const matrixRef = useRef<ArrayLike<number> | null>(null);
   const [contextLost, setContextLost] = useState(false);
+  // TEMPORARY: on-screen probe while the viewport renders black. Three
+  // different renderer arrangements all went blank, which rules the overlay
+  // out and points at the basemap itself, so this reports what the map
+  // actually has: canvas size, GL liveness, load state, tile errors.
+  const [diag, setDiag] = useState<string[]>([]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -157,6 +162,26 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
     const observer = new ResizeObserver(() => map.resize());
     observer.observe(container);
 
+    const errors: string[] = [];
+    map.on("error", (ev) => {
+      const message = (ev as unknown as { error?: { message?: string } }).error?.message ?? "unknown";
+      if (errors.length < 3 && !errors.includes(message)) errors.push(message);
+    });
+
+    const probe = window.setInterval(() => {
+      const rect = container.getBoundingClientRect();
+      const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+      const overlay = container.parentElement?.querySelectorAll("canvas") ?? [];
+      setDiag([
+        `container ${Math.round(rect.width)}x${Math.round(rect.height)}`,
+        `map canvas ${canvas.width}x${canvas.height} css ${canvas.clientWidth}x${canvas.clientHeight}`,
+        `gl ${gl ? (gl.isContextLost() ? "LOST" : "live") : "none"}`,
+        `loaded ${map.loaded()} style ${map.isStyleLoaded()} matrix ${matrixRef.current ? "yes" : "no"}`,
+        `canvases on page ${overlay.length}`,
+        errors.length ? `err ${errors.join(" | ")}` : "err none",
+      ]);
+    }, 700);
+
     map.on("load", () => {
       // Liberty ships its own building extrusion; an explicit layer keeps the
       // height fallback (and any future exposure-driven styling) in code this
@@ -183,6 +208,7 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
 
     return () => {
       matrixRef.current = null;
+      window.clearInterval(probe);
       observer.disconnect();
       canvas.removeEventListener("webglcontextlost", onLost);
       canvas.removeEventListener("webglcontextrestored", onRestored);
@@ -219,6 +245,10 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
           WebGL context lost — reload the page to restore the map.
         </div>
       ) : null}
+      {/* TEMPORARY probe — removed once the basemap renders. */}
+      <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 rounded-[6px] border border-cyan-400/40 bg-[rgba(4,12,18,0.92)] px-3 py-2 font-mono text-[11px] leading-relaxed text-cyan-200">
+        {diag.length ? diag.map((line) => <div key={line}>{line}</div>) : <div>probing…</div>}
+      </div>
       <div className="pointer-events-none absolute bottom-3 left-3 rounded-[6px] border border-white/[0.08] bg-[rgba(9,14,20,0.72)] px-3 py-1.5 text-[10px] tracking-[0.08em] text-white/70 backdrop-blur-xl">
         Real basemap — simplified demonstration hazard model, not an operational forecast
       </div>
