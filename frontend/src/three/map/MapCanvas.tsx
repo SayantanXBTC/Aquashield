@@ -53,6 +53,20 @@ function MapCameraSync({ anchor, matrixRef }: { anchor: GeoAnchor; matrixRef: Ma
 /** The subset of SceneRoot's composition this profile renders: no procedural
  * terrain/water/forest — the basemap supplies land and sea — just the
  * hazard itself, plus the same origin/heading markers every profile shows. */
+/** R3F re-applies its own clear state after onCreated, which leaves this
+ * canvas opaque and hides the basemap underneath. Enforcing it from inside
+ * the tree runs after that setup. */
+function TransparentClear() {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  useEffect(() => {
+    scene.background = null;
+    gl.setClearColor(0x000000, 0);
+    gl.setClearAlpha(0);
+  }, [gl, scene]);
+  return null;
+}
+
 function MapHazardContent({ kind, originKm, headingDeg, coastDistanceKm, getSnapshot }: MapHazardContentProps) {
   const Visualizer = getDisasterVisualizer(kind);
 
@@ -182,7 +196,7 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
   return (
     <div className="absolute inset-0">
       <div ref={containerRef} className="absolute inset-0" />
-      <div className="pointer-events-none absolute inset-0">
+            <div className="pointer-events-none absolute inset-0">
         <Canvas
           dpr={[1, 2]}
           gl={{ alpha: true, antialias: true, powerPreference: "high-performance" }}
@@ -195,6 +209,7 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
             gl.setClearAlpha(0);
           }}
         >
+          <TransparentClear />
           <MapCameraSync anchor={anchor} matrixRef={matrixRef} />
           <MapHazardContent kind={kind} originKm={originKm} headingDeg={headingDeg} coastDistanceKm={coastDistanceKm} getSnapshot={getSnapshot} />
         </Canvas>
