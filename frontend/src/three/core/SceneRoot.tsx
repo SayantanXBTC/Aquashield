@@ -74,7 +74,8 @@ export function SceneRoot({
   const Visualizer = getDisasterVisualizer(kind);
   const dense = worldProfile === "dense_coastal" || worldProfile === "real_city";
   const shore: ShoreParams = useMemo(
-    () => (worldProfile === "real_city" && town ? { baseXKm: town.shore_base_x_km, terms: town.shore_terms } : DEFAULT_SHORE),
+    // TODO(Task 6): replace with the shared TownProfile-to-ShoreParams helper.
+    () => (worldProfile === "real_city" && town ? { baseXKm: town.shore_base_x_km, terms: town.shore_terms, landSign: 1 } : DEFAULT_SHORE),
     [worldProfile, town],
   );
 

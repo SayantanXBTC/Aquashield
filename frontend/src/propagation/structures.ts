@@ -6,7 +6,7 @@
  */
 import type { StructureConfig, StructureImpact, StructureStatus } from "@shared/types";
 import type { HazardKind, HazardSnapshot } from "./hazards";
-import { DEFAULT_SHORE, headingVector, shoreX, type ShoreParams } from "./world";
+import { DEFAULT_SHORE, headingVector, landDepthKm, type ShoreParams } from "./world";
 
 const TSUNAMI_HALF_ANGLE_RAD = (40 * Math.PI) / 180;
 const COASTAL_STRUCTURE_MAX_SHORE_KM = 3;
@@ -26,7 +26,7 @@ export function statusFor(exposure: number): StructureStatus {
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 export function inlandDepthKm(xKm: number, yKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
-  return xKm - shoreX(yKm, shore);
+  return landDepthKm(xKm, yKm, shore);
 }
 
 function lateralOffsetKm(px: number, py: number, ox: number, oy: number, headingDeg: number): number {

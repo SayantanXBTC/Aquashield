@@ -9,7 +9,7 @@
  * world's middle is the scene origin: sceneX = xKm - 150, sceneZ = -(yKm -
  * 150) (+z is south). Nothing here is GIS data or real terrain.
  */
-import { DEFAULT_SHORE, shoreX, WORLD_KM, type ShoreParams } from "@/propagation/world";
+import { DEFAULT_SHORE, landDepthKm, WORLD_KM, type ShoreParams } from "@/propagation/world";
 
 export const SCENE_UNITS_PER_KM = 1;
 export const WORLD_SCENE_SIZE = WORLD_KM * SCENE_UNITS_PER_KM;
@@ -32,10 +32,10 @@ export function kmToSceneUnits(km: number): number {
   return km * SCENE_UNITS_PER_KM;
 }
 
-/** Signed distance inland from the shoreline, in km (negative = offshore). */
-export function landDepthKm(xKm: number, yKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
-  return xKm - shoreX(yKm, shore);
-}
+/** Signed distance inland from the shoreline, in km (negative = offshore).
+ * Re-exported from the propagation mirror so the scene and the physics
+ * cannot disagree about which side is land. */
+export { landDepthKm } from "@/propagation/world";
 
 // --- Terrain height (JS + GLSL twins) --------------------------------------
 //

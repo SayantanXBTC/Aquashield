@@ -48,7 +48,8 @@ function fmtClock(minutes: number): string {
 export function TelemetryPanel({ kind, clock, getSnapshot, worldProfile, structures, town }: TelemetryPanelProps) {
   const [snap, setSnap] = useState<HazardSnapshot | null>(null);
   const dense = worldProfile === "dense_coastal" || worldProfile === "real_city";
-  const shore: ShoreParams = useMemo(() => (town ? { baseXKm: town.shore_base_x_km, terms: town.shore_terms } : DEFAULT_SHORE), [town]);
+  // TODO(Task 6): replace with the shared TownProfile-to-ShoreParams helper.
+  const shore: ShoreParams = useMemo(() => (town ? { baseXKm: town.shore_base_x_km, terms: town.shore_terms, landSign: 1 } : DEFAULT_SHORE), [town]);
 
   useEffect(() => {
     const id = window.setInterval(() => setSnap(getSnapshot()), 125);

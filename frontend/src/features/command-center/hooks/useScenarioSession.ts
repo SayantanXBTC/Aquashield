@@ -102,7 +102,8 @@ export function useScenarioSession(clock: PlaybackClock) {
   const [worldProfile, setWorldProfileState] = useState<WorldProfile>("demo");
   const [cityId, setCityIdState] = useState<CityId | null>(null);
   const town: TownProfile | undefined = useMemo(() => (worldProfile === "real_city" ? getTown(cityId) : undefined), [worldProfile, cityId]);
-  const shore: ShoreParams = useMemo(() => (town ? { baseXKm: town.shore_base_x_km, terms: town.shore_terms } : DEFAULT_SHORE), [town]);
+  // TODO(Task 6): replace with the shared TownProfile-to-ShoreParams helper.
+  const shore: ShoreParams = useMemo(() => (town ? { baseXKm: town.shore_base_x_km, terms: town.shore_terms, landSign: 1 } : DEFAULT_SHORE), [town]);
   const [structures, setStructuresState] = useState<StructureConfig[]>([]);
   const [showStructures, setShowStructures] = useState(true);
   const structuresRef = useRef<StructureConfig[]>([]);

@@ -21,14 +21,18 @@ const MARCH_MAX_KM: number = demoWorld.march_max_km;
 
 export const WORLD_DEFAULTS = demoWorld.defaults;
 
-/** The shoreline's shape — the fictional demo constants by default, or a
- * curated real city's fitted curve (architecture.md ADR-009). */
+/** The shoreline's shape and which side of it is land — the fictional demo
+ * constants by default, or a curated real city's fitted curve
+ * (architecture.md ADR-009). `landSign` is +1 when land lies east of the
+ * curve (a west-facing coast) and -1 when it lies west (east-facing); it is
+ * the only thing that distinguishes the two. */
 export interface ShoreParams {
   baseXKm: number;
   terms: ReadonlyArray<TownShoreTerm>;
+  landSign: number;
 }
 
-export const DEFAULT_SHORE: ShoreParams = { baseXKm: SHORE_BASE_X_KM, terms: SHORE_TERMS };
+export const DEFAULT_SHORE: ShoreParams = { baseXKm: SHORE_BASE_X_KM, terms: SHORE_TERMS, landSign: 1 };
 
 /** East-west position of the shoreline at northing `yKm`. */
 export function shoreX(yKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
@@ -39,8 +43,14 @@ export function shoreX(yKm: number, shore: ShoreParams = DEFAULT_SHORE): number 
   return x;
 }
 
+/** Signed distance inland from the shoreline in km; negative offshore.
+ * Carries the coast's orientation. */
+export function landDepthKm(xKm: number, yKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
+  return shore.landSign * (xKm - shoreX(yKm, shore));
+}
+
 export function isLand(xKm: number, yKm: number, shore: ShoreParams = DEFAULT_SHORE): boolean {
-  return xKm >= shoreX(yKm, shore);
+  return landDepthKm(xKm, yKm, shore) >= 0;
 }
 
 /** Compass heading -> unit (dx, dy): 0° = +y (north), 90° = +x (east). */
