@@ -103,42 +103,45 @@ export interface MapCanvasProps extends MapHazardContentProps {
  * camera is driven by the map's own per-frame projection matrix. Sharing one
  * canvas between the two renderers was tried first and left the map blank —
  * both cache GL state and neither tolerates the other mutating it.
+ *
+ * The root must be absolutely positioned, not `h-full`: every child here is
+ * absolute, so in normal flow the element collapses to zero height and
+ * MapLibre silently falls back to a 300px canvas and never finishes loading.
  */
 export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnapshot, anchor }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const matrixRef = useRef<ArrayLike<number> | null>(null);
-  const [diagnostic, setDiagnostic] = useState("creating map…");
+  const [contextLost, setContextLost] = useState(false);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const box = container.getBoundingClientRect();
-    setDiagnostic(`container ${Math.round(box.width)}x${Math.round(box.height)} — loading style…`);
-    if (box.height < 1 || box.width < 1) {
-      setDiagnostic(`container has no size (${Math.round(box.width)}x${Math.round(box.height)}) — map cannot render`);
-      return;
-    }
 
-    let map: MaplibreMap;
-    try {
-      map = new MaplibreMap({
-        container,
-        style: OPENFREEMAP_STYLE_URL,
-        center: [anchor.lon, anchor.lat],
-        zoom: 13,
-        pitch: 60,
-        bearing: -20,
-      });
-    } catch (err) {
-      setDiagnostic(`map constructor threw: ${err instanceof Error ? err.message : String(err)}`);
-      return;
-    }
-
-    map.on("error", (e) => {
-      setDiagnostic(`map error: ${e.error?.message ?? "unknown"}`);
+    const map = new MaplibreMap({
+      container,
+      style: OPENFREEMAP_STYLE_URL,
+      center: [anchor.lon, anchor.lat],
+      zoom: 13,
+      pitch: 60,
+      bearing: -20,
     });
-    map.on("styledata", () => setDiagnostic((d) => (d.startsWith("map error") ? d : "style loaded, waiting for tiles…")));
-    map.on("idle", () => setDiagnostic((d) => (d.startsWith("map error") ? d : `rendering — ${map.getStyle()?.layers?.length ?? 0} layers`)));
+
+    // A lost context is silent on MapLibre's own error channel — the map just
+    // stops painting — and browsers cap how many live contexts a page may
+    // hold, so this is worth naming rather than debugging as "blank map".
+    const canvas = map.getCanvas();
+    const onLost = (ev: Event) => {
+      ev.preventDefault();
+      setContextLost(true);
+    };
+    const onRestored = () => setContextLost(false);
+    canvas.addEventListener("webglcontextlost", onLost);
+    canvas.addEventListener("webglcontextrestored", onRestored);
+
+    // The container is sized by its parent, which can settle after MapLibre
+    // first measures it.
+    const observer = new ResizeObserver(() => map.resize());
+    observer.observe(container);
 
     map.on("load", () => {
       // Liberty ships its own building extrusion; an explicit layer keeps the
@@ -166,6 +169,9 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
 
     return () => {
       matrixRef.current = null;
+      observer.disconnect();
+      canvas.removeEventListener("webglcontextlost", onLost);
+      canvas.removeEventListener("webglcontextrestored", onRestored);
       map.remove();
     };
     // The anchor is baked into the model matrix; changing it recreates the
@@ -174,22 +180,30 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
   }, [anchor.lat, anchor.lon]);
 
   return (
-    <div className="relative h-full w-full">
-      <div ref={containerRef} className="absolute inset-0 bg-[#0b1520]" />
+    <div className="absolute inset-0">
+      <div ref={containerRef} className="absolute inset-0" />
       <div className="pointer-events-none absolute inset-0">
         <Canvas
           dpr={[1, 2]}
           gl={{ alpha: true, antialias: true, powerPreference: "high-performance" }}
           camera={{ manual: true }}
           style={{ background: "transparent" }}
+          onCreated={({ gl }) => {
+            // Must clear fully transparent: this canvas sits over the
+            // basemap and any alpha here hides the map.
+            gl.setClearColor(0x000000, 0);
+            gl.setClearAlpha(0);
+          }}
         >
           <MapCameraSync anchor={anchor} matrixRef={matrixRef} />
           <MapHazardContent kind={kind} originKm={originKm} headingDeg={headingDeg} coastDistanceKm={coastDistanceKm} getSnapshot={getSnapshot} />
         </Canvas>
       </div>
-      <div className="pointer-events-none absolute top-3 left-3 max-w-[520px] rounded-[6px] border border-amber-400/40 bg-[rgba(20,14,4,0.86)] px-3 py-1.5 font-mono text-[11px] text-amber-200/90">
-        map status: {diagnostic}
-      </div>
+      {contextLost ? (
+        <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-[6px] border border-amber-400/50 bg-[rgba(20,14,4,0.9)] px-4 py-2 text-[12px] text-amber-200">
+          WebGL context lost — reload the page to restore the map.
+        </div>
+      ) : null}
       <div className="pointer-events-none absolute bottom-3 left-3 rounded-[6px] border border-white/[0.08] bg-[rgba(9,14,20,0.72)] px-3 py-1.5 text-[10px] tracking-[0.08em] text-white/70 backdrop-blur-xl">
         Real basemap — simplified demonstration hazard model, not an operational forecast
       </div>
