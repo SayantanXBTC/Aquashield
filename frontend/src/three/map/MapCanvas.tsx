@@ -1,5 +1,6 @@
 import { createElement, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { WebGLRenderer } from "three";
 import { Map as MaplibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { HazardKind, HazardSnapshot } from "@/propagation/hazards";
@@ -126,6 +127,9 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
   const containerRef = useRef<HTMLDivElement | null>(null);
   const matrixRef = useRef<ArrayLike<number> | null>(null);
   const [contextLost, setContextLost] = useState(false);
+  // ?nohazard leaves the canvas empty — keeps the basemap-only view one URL
+  // away if the scene ever needs isolating again.
+  const showHazard = !new URLSearchParams(window.location.search).has("nohazard");
 
   useEffect(() => {
     const container = containerRef.current;
@@ -199,7 +203,19 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
             <div className="pointer-events-none absolute inset-0">
         <Canvas
           dpr={[1, 2]}
-          gl={{ alpha: true, antialias: true, powerPreference: "high-performance" }}
+          // A renderer factory, not a props object: the context must be
+          // CREATED with alpha, since a context created opaque can never be
+          // made transparent afterwards — setClearAlpha(0) is a no-op on it,
+          // and the canvas then hides the basemap underneath.
+          gl={(props) =>
+            new WebGLRenderer({
+              ...(props as object),
+              alpha: true,
+              antialias: true,
+              premultipliedAlpha: false,
+              powerPreference: "high-performance",
+            })
+          }
           camera={{ manual: true }}
           style={{ background: "transparent" }}
           onCreated={({ gl }) => {
@@ -210,8 +226,12 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
           }}
         >
           <TransparentClear />
-          <MapCameraSync anchor={anchor} matrixRef={matrixRef} />
-          <MapHazardContent kind={kind} originKm={originKm} headingDeg={headingDeg} coastDistanceKm={coastDistanceKm} getSnapshot={getSnapshot} />
+          {showHazard ? (
+            <>
+              <MapCameraSync anchor={anchor} matrixRef={matrixRef} />
+              <MapHazardContent kind={kind} originKm={originKm} headingDeg={headingDeg} coastDistanceKm={coastDistanceKm} getSnapshot={getSnapshot} />
+            </>
+          ) : null}
         </Canvas>
       </div>
       {contextLost ? (
