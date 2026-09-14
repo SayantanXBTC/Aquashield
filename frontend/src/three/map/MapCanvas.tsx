@@ -1,4 +1,5 @@
-import { createElement, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { createElement, Suspense, useEffect, useMemo, useRef } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Map as MaplibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { HazardKind, HazardSnapshot } from "@/propagation/hazards";
@@ -9,10 +10,10 @@ import { clearHazardChannel } from "@/three/hazard/hazardChannel";
 import { HeadingGuide } from "@/three/markers/HeadingGuide";
 import { OriginPin } from "@/three/markers/OriginPin";
 import type { GeoAnchor } from "./geoAnchor";
-import { createThreeMapLayer, type ThreeMapLayerHandle } from "./threeMapLayer";
+import { buildModelMatrix, createMapMatrixTap, type MapMatrixRef } from "./threeMapLayer";
 
 const OPENFREEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
-const HAZARD_LAYER_ID = "aquashield-hazard-layer";
+const MATRIX_TAP_LAYER_ID = "aquashield-matrix-tap";
 const BUILDINGS_LAYER_ID = "aquashield-3d-buildings";
 
 interface MapHazardContentProps {
@@ -21,6 +22,32 @@ interface MapHazardContentProps {
   headingDeg: number;
   coastDistanceKm: number | null;
   getSnapshot: () => HazardSnapshot | null;
+}
+
+/** Drives the overlay camera from the map's own projection matrix, so the
+ * scene sits on the earth wherever the user pans, zooms, pitches or rotates.
+ * The technique needs an identity view matrix — every transform lives in the
+ * map matrix combined with the anchor's model matrix. */
+function MapCameraSync({ anchor, matrixRef }: { anchor: GeoAnchor; matrixRef: MapMatrixRef }) {
+  const camera = useThree((s) => s.camera);
+  const model = useMemo(() => buildModelMatrix(anchor), [anchor]);
+
+  useEffect(() => {
+    camera.matrixAutoUpdate = false;
+    camera.matrixWorld.identity();
+    camera.matrixWorldInverse.identity();
+  }, [camera]);
+
+  useFrame(() => {
+    const mapMatrix = matrixRef.current;
+    if (!mapMatrix) return;
+    camera.projectionMatrix.fromArray(Array.from(mapMatrix)).multiply(model);
+    camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+    camera.matrixWorld.identity();
+    camera.matrixWorldInverse.identity();
+  });
+
+  return null;
 }
 
 /** The subset of SceneRoot's composition this profile renders: no procedural
@@ -48,12 +75,11 @@ function MapHazardContent({ kind, originKm, headingDeg, coastDistanceKm, getSnap
   return (
     <Suspense fallback={null}>
       <LightingSystem />
-      {/* No EnvironmentSystem/Sky here: its dome is an opaque backdrop that
-          would paint over the real basemap tiles sharing this canvas. */}
+      {/* No EnvironmentSystem/Sky: its dome is an opaque backdrop that would
+          paint over the basemap showing through this transparent canvas. */}
       <HeadingGuide originKm={originKm} landfallKm={landfallKm} fallbackEndKm={fallbackEndKm} />
-      {/* No pointer-event manager is installed on this shared canvas (it
-          would fight MapLibre's own drag/pan/rotate handlers), so the pin
-          is shown for orientation only, not draggable, in this profile. */}
+      {/* The overlay canvas takes no pointer events (they belong to
+          MapLibre's pan/rotate), so the pin orients rather than drags here. */}
       <OriginPin originKm={originKm} onDrag={() => {}} onDragEnd={() => {}} disabled />
       {/* createElement, not JSX: Visualizer is a stable module-level
           component resolved from the registry, not one created in render
@@ -70,73 +96,77 @@ export interface MapCanvasProps extends MapHazardContentProps {
 /**
  * The "real_map" world profile's viewport: a real MapLibre basemap (real
  * coastline, real 3D buildings) with the existing Three.js hazard scene
- * camera-synced on top via threeMapLayer.ts. Deliberately not <AquaCanvas> —
- * see threeMapLayer.ts's header for why this is still only one Three.js
- * renderer at a time, never a second alongside <AquaCanvas>'s <Canvas>.
+ * aligned on top.
+ *
+ * Two stacked canvases, each owning its own WebGL context: MapLibre's, and a
+ * transparent R3F one above it. They stay locked together because the scene
+ * camera is driven by the map's own per-frame projection matrix. Sharing one
+ * canvas between the two renderers was tried first and left the map blank —
+ * both cache GL state and neither tolerates the other mutating it.
  */
 export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnapshot, anchor }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const layerRef = useRef<ThreeMapLayerHandle | null>(null);
-  const [ready, setReady] = useState(false);
+  const matrixRef = useRef<ArrayLike<number> | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    setReady(false);
     const map = new MaplibreMap({
       container,
       style: OPENFREEMAP_STYLE_URL,
       center: [anchor.lon, anchor.lat],
-      zoom: 15.5,
+      zoom: 13,
       pitch: 60,
       bearing: -20,
-      canvasContextAttributes: { antialias: true },
     });
 
     map.on("load", () => {
-      // Liberty already ships its own building extrusion; adding an
-      // explicit one keeps the height fallback (and any future
-      // exposure-driven styling) in code this project owns rather than
-      // upstream style internals.
-      map.addLayer({
-        id: BUILDINGS_LAYER_ID,
-        type: "fill-extrusion",
-        source: "openmaptiles",
-        "source-layer": "building",
-        minzoom: 14,
-        paint: {
-          "fill-extrusion-color": "#9aa5b1",
-          "fill-extrusion-height": ["coalesce", ["get", "render_height"], ["get", "height"], 6],
-          "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], ["get", "min_height"], 0],
-          "fill-extrusion-opacity": 0.85,
-        },
-      });
-
-      const layer = createThreeMapLayer(HAZARD_LAYER_ID, anchor);
-      layerRef.current = layer;
-      map.addLayer(layer);
-      setReady(true);
+      // Liberty ships its own building extrusion; an explicit layer keeps the
+      // height fallback (and any future exposure-driven styling) in code this
+      // project owns rather than upstream style internals.
+      if (!map.getLayer(BUILDINGS_LAYER_ID)) {
+        map.addLayer({
+          id: BUILDINGS_LAYER_ID,
+          type: "fill-extrusion",
+          source: "openmaptiles",
+          "source-layer": "building",
+          minzoom: 13,
+          paint: {
+            "fill-extrusion-color": "#9aa5b1",
+            "fill-extrusion-height": ["coalesce", ["get", "render_height"], ["get", "height"], 6],
+            "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], ["get", "min_height"], 0],
+            "fill-extrusion-opacity": 0.85,
+          },
+        });
+      }
+      if (!map.getLayer(MATRIX_TAP_LAYER_ID)) {
+        map.addLayer(createMapMatrixTap(MATRIX_TAP_LAYER_ID, matrixRef));
+      }
     });
 
     return () => {
-      setReady(false);
-      layerRef.current = null;
+      matrixRef.current = null;
       map.remove();
     };
-    // The anchor is baked once into the custom layer's model matrix
-    // (threeMapLayer.ts); changing it recreates the whole map rather than
-    // trying to rescale that matrix in place.
+    // The anchor is baked into the model matrix; changing it recreates the
+    // map rather than rescaling that matrix in place.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchor.lat, anchor.lon]);
-
-  useEffect(() => {
-    if (!ready || !layerRef.current) return;
-    layerRef.current.setContent(<MapHazardContent kind={kind} originKm={originKm} headingDeg={headingDeg} coastDistanceKm={coastDistanceKm} getSnapshot={getSnapshot} />);
-  }, [ready, kind, originKm, headingDeg, coastDistanceKm, getSnapshot]);
 
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="absolute inset-0" />
+      <div className="pointer-events-none absolute inset-0">
+        <Canvas
+          dpr={[1, 2]}
+          gl={{ alpha: true, antialias: true, powerPreference: "high-performance" }}
+          camera={{ manual: true }}
+          style={{ background: "transparent" }}
+        >
+          <MapCameraSync anchor={anchor} matrixRef={matrixRef} />
+          <MapHazardContent kind={kind} originKm={originKm} headingDeg={headingDeg} coastDistanceKm={coastDistanceKm} getSnapshot={getSnapshot} />
+        </Canvas>
+      </div>
       <div className="pointer-events-none absolute bottom-3 left-3 rounded-[6px] border border-white/[0.08] bg-[rgba(9,14,20,0.72)] px-3 py-1.5 text-[10px] tracking-[0.08em] text-white/70 backdrop-blur-xl">
         Real basemap — simplified demonstration hazard model, not an operational forecast
       </div>
