@@ -1,6 +1,5 @@
-import { createElement, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useThree } from "@react-three/fiber";
-import { WebGLRenderer } from "three";
+import { createElement, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Map as MaplibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { HazardKind, HazardSnapshot } from "@/propagation/hazards";
@@ -11,18 +10,11 @@ import { clearHazardChannel } from "@/three/hazard/hazardChannel";
 import { HeadingGuide } from "@/three/markers/HeadingGuide";
 import { OriginPin } from "@/three/markers/OriginPin";
 import type { GeoAnchor } from "./geoAnchor";
-import { buildModelMatrix, createThreeMapLayer, type SceneRenderRef } from "./threeMapLayer";
+import { buildModelMatrix, createMapMatrixTap, type MapMatrixRef } from "./threeMapLayer";
 
 const OPENFREEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
-const THREE_LAYER_ID = "aquashield-three-overlay";
+const MATRIX_TAP_LAYER_ID = "aquashield-matrix-tap";
 const BUILDINGS_LAYER_ID = "aquashield-3d-buildings";
-
-/** What the scene needs from the map before it can build its renderer: the
- * map's canvas and the map's GL context, both owned by MapLibre. */
-interface MapGpu {
-  map: MaplibreMap;
-  gl: WebGL2RenderingContext | WebGLRenderingContext;
-}
 
 interface MapHazardContentProps {
   kind: HazardKind | null;
@@ -32,52 +24,28 @@ interface MapHazardContentProps {
   getSnapshot: () => HazardSnapshot | null;
 }
 
-/**
- * Drives the scene from inside MapLibre's render pass.
- *
- * The camera takes the map's own projection matrix, so the scene sits on the
- * earth wherever the user pans, zooms, pitches or rotates. The technique needs
- * an identity view matrix — every transform lives in the map matrix combined
- * with the anchor's model matrix.
- *
- * `resetState()` before each draw is mandatory: Three and MapLibre share one
- * context and each caches GL state the other changes.
- */
-function MapSceneBridge({ anchor, gpu, renderRef }: { anchor: GeoAnchor; gpu: MapGpu; renderRef: SceneRenderRef }) {
-  const gl = useThree((s) => s.gl);
+/** Drives the overlay camera from the map's own projection matrix, so the
+ * scene sits on the earth wherever the user pans, zooms, pitches or rotates.
+ * The technique needs an identity view matrix — every transform lives in the
+ * map matrix combined with the anchor's model matrix. */
+function MapCameraSync({ anchor, matrixRef }: { anchor: GeoAnchor; matrixRef: MapMatrixRef }) {
   const camera = useThree((s) => s.camera);
-  const scene = useThree((s) => s.scene);
-  const advance = useThree((s) => s.advance);
   const model = useMemo(() => buildModelMatrix(anchor), [anchor]);
 
   useEffect(() => {
-    // Never clear: the basemap has already drawn into this framebuffer.
-    gl.autoClear = false;
-    scene.background = null;
     camera.matrixAutoUpdate = false;
     camera.matrixWorld.identity();
     camera.matrixWorldInverse.identity();
+  }, [camera]);
 
-    const canvas = gpu.map.getCanvas();
-    renderRef.current = (matrix) => {
-      camera.projectionMatrix.fromArray(Array.from(matrix)).multiply(model);
-      camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
-      camera.matrixWorld.identity();
-      camera.matrixWorldInverse.identity();
-      gl.resetState();
-      // setSize is neutered (MapLibre owns the canvas), so the viewport has to
-      // come from the canvas itself. Its width/height are already device
-      // pixels, and the renderer's pixel ratio stays 1 for that reason.
-      gl.setViewport(0, 0, canvas.width, canvas.height);
-      gl.setScissorTest(false);
-      // R3F's loop is "never": this is the only thing that runs useFrame
-      // subscribers and draws, and it runs inside MapLibre's own frame.
-      advance(performance.now());
-    };
-    return () => {
-      renderRef.current = null;
-    };
-  }, [gl, camera, scene, advance, model, gpu, renderRef]);
+  useFrame(() => {
+    const mapMatrix = matrixRef.current;
+    if (!mapMatrix) return;
+    camera.projectionMatrix.fromArray(Array.from(mapMatrix)).multiply(model);
+    camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+    camera.matrixWorld.identity();
+    camera.matrixWorldInverse.identity();
+  });
 
   return null;
 }
@@ -85,6 +53,20 @@ function MapSceneBridge({ anchor, gpu, renderRef }: { anchor: GeoAnchor; gpu: Ma
 /** The subset of SceneRoot's composition this profile renders: no procedural
  * terrain/water/forest — the basemap supplies land and sea — just the
  * hazard itself, plus the same origin/heading markers every profile shows. */
+/** R3F re-applies its own clear state after onCreated, which leaves this
+ * canvas opaque and hides the basemap underneath. Enforcing it from inside
+ * the tree runs after that setup. */
+function TransparentClear() {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  useEffect(() => {
+    scene.background = null;
+    gl.setClearColor(0x000000, 0);
+    gl.setClearAlpha(0);
+  }, [gl, scene]);
+  return null;
+}
+
 function MapHazardContent({ kind, originKm, headingDeg, coastDistanceKm, getSnapshot }: MapHazardContentProps) {
   const Visualizer = getDisasterVisualizer(kind);
 
@@ -108,10 +90,10 @@ function MapHazardContent({ kind, originKm, headingDeg, coastDistanceKm, getSnap
     <Suspense fallback={null}>
       <LightingSystem />
       {/* No EnvironmentSystem/Sky: its dome is an opaque backdrop that would
-          paint over the basemap this scene draws on top of. */}
+          paint over the basemap showing through this transparent canvas. */}
       <HeadingGuide originKm={originKm} landfallKm={landfallKm} fallbackEndKm={fallbackEndKm} />
-      {/* Pointer events belong to MapLibre's pan/rotate, so the pin orients
-          rather than drags here. */}
+      {/* The overlay canvas takes no pointer events (they belong to
+          MapLibre's pan/rotate), so the pin orients rather than drags here. */}
       <OriginPin originKm={originKm} onDrag={() => {}} onDragEnd={() => {}} disabled />
       {/* createElement, not JSX: Visualizer is a stable module-level
           component resolved from the registry, not one created in render
@@ -127,14 +109,14 @@ export interface MapCanvasProps extends MapHazardContentProps {
 
 /**
  * The "real_map" world profile's viewport: a real MapLibre basemap (real
- * coastline, real 3D buildings) with the existing Three.js hazard scene drawn
- * into the same canvas.
+ * coastline, real 3D buildings) with the existing Three.js hazard scene
+ * aligned on top.
  *
- * One WebGL context for both renderers. R3F still owns the scene graph, but
- * its renderer is built on MapLibre's canvas and context, its frameloop is
- * "never", and MapSceneBridge draws it from inside MapLibre's render pass.
- * R3F's own <canvas> element stays blank and unused — it exists only because
- * <Canvas> creates one.
+ * Two stacked canvases, each owning its own WebGL context: MapLibre's, and a
+ * transparent R3F one above it. They stay locked together because the scene
+ * camera is driven by the map's own per-frame projection matrix. Sharing one
+ * canvas between the two renderers was tried first and left the map blank —
+ * both cache GL state and neither tolerates the other mutating it.
  *
  * The root must be absolutely positioned, not `h-full`: every child here is
  * absolute, so in normal flow the element collapses to zero height and
@@ -142,8 +124,7 @@ export interface MapCanvasProps extends MapHazardContentProps {
  */
 export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnapshot, anchor }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const renderRef = useRef<((matrix: ArrayLike<number>) => void) | null>(null);
-  const [gpu, setGpu] = useState<MapGpu | null>(null);
+  const matrixRef = useRef<ArrayLike<number> | null>(null);
   const [contextLost, setContextLost] = useState(false);
 
   useEffect(() => {
@@ -160,8 +141,8 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
     });
 
     // A lost context is silent on MapLibre's own error channel — the map just
-    // stops painting — so it is worth naming rather than debugging as "blank
-    // map". Sharing one context with Three.js is what keeps this rare.
+    // stops painting — and browsers cap how many live contexts a page may
+    // hold, so this is worth naming rather than debugging as "blank map".
     const canvas = map.getCanvas();
     const onLost = (ev: Event) => {
       ev.preventDefault();
@@ -195,19 +176,13 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
           },
         });
       }
-      if (!map.getLayer(THREE_LAYER_ID)) {
-        map.addLayer(
-          createThreeMapLayer(THREE_LAYER_ID, {
-            onContext: (mapInstance, gl) => setGpu({ map: mapInstance, gl }),
-            renderRef,
-          }),
-        );
+      if (!map.getLayer(MATRIX_TAP_LAYER_ID)) {
+        map.addLayer(createMapMatrixTap(MATRIX_TAP_LAYER_ID, matrixRef));
       }
     });
 
     return () => {
-      renderRef.current = null;
-      setGpu(null);
+      matrixRef.current = null;
       observer.disconnect();
       canvas.removeEventListener("webglcontextlost", onLost);
       canvas.removeEventListener("webglcontextrestored", onRestored);
@@ -218,32 +193,27 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchor.lat, anchor.lon]);
 
-  /** Build the scene's renderer on the map's canvas and context instead of a
-   * second one. setSize/setPixelRatio/forceContextLoss are neutered because
-   * MapLibre owns the canvas and its context — R3F calls all three on resize
-   * and unmount, and any of them would resize or destroy the map. */
-  const makeRenderer = useCallback(() => {
-    if (!gpu) throw new Error("map GL context not ready");
-    const renderer = new WebGLRenderer({ canvas: gpu.map.getCanvas(), context: gpu.gl, antialias: true });
-    renderer.autoClear = false;
-    renderer.setPixelRatio(1);
-    renderer.setSize = () => {};
-    renderer.setPixelRatio = () => {};
-    renderer.forceContextLoss = () => {};
-    return renderer;
-  }, [gpu]);
-
   return (
     <div className="absolute inset-0">
       <div ref={containerRef} className="absolute inset-0" />
-      {gpu ? (
-        <div className="pointer-events-none absolute inset-0">
-          <Canvas frameloop="never" gl={makeRenderer} camera={{ manual: true }}>
-            <MapSceneBridge anchor={anchor} gpu={gpu} renderRef={renderRef} />
-            <MapHazardContent kind={kind} originKm={originKm} headingDeg={headingDeg} coastDistanceKm={coastDistanceKm} getSnapshot={getSnapshot} />
-          </Canvas>
-        </div>
-      ) : null}
+            <div className="pointer-events-none absolute inset-0">
+        <Canvas
+          dpr={[1, 2]}
+          gl={{ alpha: true, antialias: true, powerPreference: "high-performance" }}
+          camera={{ manual: true }}
+          style={{ background: "transparent" }}
+          onCreated={({ gl }) => {
+            // Must clear fully transparent: this canvas sits over the
+            // basemap and any alpha here hides the map.
+            gl.setClearColor(0x000000, 0);
+            gl.setClearAlpha(0);
+          }}
+        >
+          <TransparentClear />
+          <MapCameraSync anchor={anchor} matrixRef={matrixRef} />
+          <MapHazardContent kind={kind} originKm={originKm} headingDeg={headingDeg} coastDistanceKm={coastDistanceKm} getSnapshot={getSnapshot} />
+        </Canvas>
+      </div>
       {contextLost ? (
         <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-[6px] border border-amber-400/50 bg-[rgba(20,14,4,0.9)] px-4 py-2 text-[12px] text-amber-200">
           WebGL context lost — reload the page to restore the map.

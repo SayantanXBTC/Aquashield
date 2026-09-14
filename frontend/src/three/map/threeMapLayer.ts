@@ -1,21 +1,20 @@
 /**
- * Camera + render bridge between a MapLibre basemap and the existing Three.js
- * scene (the "real_map" world profile).
+ * Camera bridge between a MapLibre basemap and the existing Three.js scene
+ * (the "real_map" world profile).
  *
- * MapLibre supplies a mercator projection matrix every frame. Folding a model
- * matrix into it (translate to the anchor, swap Y-up for mercator's
+ * MapLibre supplies a mercator projection matrix every frame. Folding a
+ * model matrix into it (translate to the anchor, swap Y-up for mercator's
  * altitude-up, scale km -> mercator units) yields a camera projection that
  * places scene content, still expressed in the simulation's own kilometre
  * coordinates, correctly on the earth.
  *
- * ONE WebGL context. The scene draws into MapLibre's own canvas through this
- * custom layer. Stacking a second canvas over the map was tried first: a page
- * that holds two contexts loses one of them whenever the browser's context
- * budget is reached, and the symptom is a silently black map rather than an
- * error. Sharing the context needs `renderer.resetState()` before every draw
- * (Three and MapLibre each cache GL state and neither expects the other to
- * change it) — the earlier shared-canvas attempt failed for want of exactly
- * that call.
+ * The scene is NOT drawn into MapLibre's own canvas. An earlier attempt
+ * shared the canvas and GL context via a custom layer that rendered
+ * directly; both renderers then cached conflicting GL state and the map
+ * stopped painting entirely. Instead this layer only TAPS the matrix and
+ * draws nothing, while the scene renders in its own transparent canvas
+ * stacked over the map. Each renderer owns its context, and the two stay
+ * aligned because they share the same per-frame matrix.
  */
 import * as THREE from "three";
 import { MercatorCoordinate, type CustomLayerInterface, type CustomRenderMethodInput, type Map as MapLibreMap } from "maplibre-gl";
@@ -38,39 +37,31 @@ export function buildModelMatrix(anchor: GeoAnchor): THREE.Matrix4 {
     .multiply(new THREE.Matrix4().makeScale(kmScale, kmScale, kmScale));
 }
 
-/** Set by the scene once its renderer exists; called by the layer on every
- * map frame with that frame's projection matrix. Null before the scene mounts
- * and after it unmounts — the layer simply draws nothing then. */
-export type SceneRenderRef = { current: ((matrix: ArrayLike<number>) => void) | null };
-
-export interface ThreeMapLayerHandlers {
-  /** The map's own GL context, handed over once the layer is added. The scene
-   * builds its renderer on this context rather than creating a second one. */
-  onContext: (map: MapLibreMap, gl: WebGL2RenderingContext | WebGLRenderingContext) => void;
-  renderRef: SceneRenderRef;
-}
+/** Latest map projection matrix, or null before the first frame. Written by
+ * the tap layer, read by the overlay canvas's camera each frame. */
+export type MapMatrixRef = { current: ArrayLike<number> | null };
 
 /**
- * A custom layer that hands MapLibre's GL context to the scene and calls it
- * back inside MapLibre's own render pass. `triggerRepaint` keeps the map
- * redrawing so the hazard shaders keep animating while nothing else moves.
+ * A custom layer that renders nothing and exists only to observe MapLibre's
+ * per-frame projection matrix. `repaint` keeps the map redrawing so the tap
+ * keeps firing while the hazard shaders animate.
  */
-export function createThreeMapLayer(id: string, handlers: ThreeMapLayerHandlers): CustomLayerInterface {
+export function createMapMatrixTap(id: string, matrixRef: MapMatrixRef, repaint = true): CustomLayerInterface {
   let map: MapLibreMap | null = null;
   return {
     id,
     type: "custom",
     renderingMode: "3d",
-    onAdd(mapInstance: MapLibreMap, gl: WebGL2RenderingContext | WebGLRenderingContext) {
+    onAdd(mapInstance: MapLibreMap) {
       map = mapInstance;
-      handlers.onContext(mapInstance, gl);
     },
     render(_gl: WebGLRenderingContext | WebGL2RenderingContext, options: CustomRenderMethodInput) {
-      handlers.renderRef.current?.(options.defaultProjectionData.mainMatrix);
-      map?.triggerRepaint();
+      matrixRef.current = options.defaultProjectionData.mainMatrix;
+      if (repaint) map?.triggerRepaint();
     },
     onRemove() {
       map = null;
+      matrixRef.current = null;
     },
   };
 }
