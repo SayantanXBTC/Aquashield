@@ -100,6 +100,7 @@ export function applyForestShader(material: MeshStandardMaterial, uniforms: Fore
     shader.uniforms.uShoreAmp = { value: new Vector3(...SHORE_DEFAULTS.uShoreAmp) };
     shader.uniforms.uShoreFreq = { value: new Vector3(...SHORE_DEFAULTS.uShoreFreq) };
     shader.uniforms.uShorePhase = { value: new Vector3(...SHORE_DEFAULTS.uShorePhase) };
+    shader.uniforms.uLandSign = { value: SHORE_DEFAULTS.uLandSign };
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",

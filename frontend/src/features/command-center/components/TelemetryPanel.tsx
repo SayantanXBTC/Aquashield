@@ -65,8 +65,8 @@ export function TelemetryPanel({ kind, clock, getSnapshot, worldProfile, structu
     [structures],
   );
   const buildingPlacements = useMemo(
-    () => (worldProfile === "real_city" && town ? placementsFromTown(town, clearings) : dense ? buildBuildingPlacements(clearings) : null),
-    [worldProfile, town, dense, clearings],
+    () => (worldProfile === "real_city" && town ? placementsFromTown(town, clearings) : dense ? buildBuildingPlacements(clearings, shore) : null),
+    [worldProfile, town, dense, clearings, shore],
   );
   const buildingStats = useMemo(() => {
     if (!buildingPlacements || !snap) return null;

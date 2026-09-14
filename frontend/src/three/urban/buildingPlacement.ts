@@ -84,7 +84,7 @@ export function buildBuildingPlacements(
       const yKm = baseY + jitterY;
       if (yKm < 0 || yKm > WORLD_KM) continue;
       const xKm = shoreX(yKm, shore) + shore.landSign * (1.4 + ix * SPACING_KM + jitterX);
-      if (xKm > WORLD_KM) continue;
+      if (xKm < 0 || xKm > WORLD_KM) continue;
 
       const depth = landDepthKm(xKm, yKm, shore);
       if (depth < 1.2) continue; // beach stays bare

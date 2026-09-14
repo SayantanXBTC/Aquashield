@@ -117,7 +117,10 @@ export function DenseBuildingLayer({ structures, getSnapshot, town, shore }: Den
     () => (structures ?? []).filter((s) => s.enabled !== false).map((s) => ({ xKm: s.x_km, yKm: s.y_km })),
     [structures],
   );
-  const placements = useMemo(() => (town ? placementsFromTown(town, clearings) : buildBuildingPlacements(clearings)), [town, clearings]);
+  const placements = useMemo(
+    () => (town ? placementsFromTown(town, clearings) : buildBuildingPlacements(clearings, shore)),
+    [town, clearings, shore],
+  );
 
   return (
     <group>

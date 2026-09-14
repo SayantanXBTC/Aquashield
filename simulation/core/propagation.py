@@ -3,7 +3,8 @@ model. SIMPLIFIED DEMONSTRATION geometry — not a coastline, not bathymetry,
 not a transport model (CLAUDE.md §26).
 
 THE WORLD. A 300 km x 300 km square, coordinates in kilometres with +x east
-and +y north. Ocean lies west of the shoreline, land east of it. The
+and +y north. By default ocean lies west of the shoreline and land east of
+it; `land_sign` (+1 = land east, -1 = land west) selects which. The
 shoreline is an analytic curve `shore_x(y)`: a base longitude plus three
 sine terms (constants in `SHORE_TERMS`). Nothing about it is random — the
 same function is mirrored line-for-line in

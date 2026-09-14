@@ -681,7 +681,8 @@ Full detail: docs/development/scenarios.md. Architecture: architecture.md §26.
 - Adding a common propagation field: update `PropagationConfig` (`backend/app/schemas/scenario_config.py`),
   `simulation/core/propagation.py`, `frontend/src/propagation/kinematics.ts`, and regenerate the fixtures. A
   field that affects world geometry also needs the GLSL twin in `frontend/src/three/world/demoWorld.ts`,
-  `shoreUniformDefaults()`, and the uniform blocks in `waterMaterial.ts` and `terrainMaterial.ts`.
+  `shoreUniformDefaults()`, and the uniform blocks in `waterMaterial.ts`, `terrainMaterial.ts`, and
+  `forestMaterial.ts`.
 - Structures (`scenario_config.structures`) are assessed by `simulation/core/structures.py` and mirrored in
   `frontend/src/propagation/structures.ts`; a new structure type is added to `STRUCTURE_TYPES` (both
   schema and core), `shared/types` `StructureType`, `STRUCTURE_LABELS`, and `three/structures/models`.

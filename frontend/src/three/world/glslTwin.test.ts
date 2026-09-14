@@ -4,9 +4,21 @@
  * uniform the shader source declares is produced by shoreUniformDefaults,
  * and the sign it carries matches the ShoreParams it came from.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SHORE, type ShoreParams } from "@/propagation/world";
 import { DEMO_WORLD_GLSL, shoreUniformDefaults } from "./demoWorld";
+
+// The three materials that inject DEMO_WORLD_GLSL and must initialize every
+// shore uniform it declares (water.ts's fragment/vertex shaders are plain
+// GLSL strings, not a separate uniform-setting call site — waterMaterial.ts
+// is the one place that sets its uniforms). Paths are relative to this file.
+const CONSUMING_MATERIALS = [
+  "../terrain/terrainMaterial.ts",
+  "../water/waterMaterial.ts",
+  "../vegetation/forestMaterial.ts",
+];
 
 const EAST_FACING: ShoreParams = {
   baseXKm: 300 - DEFAULT_SHORE.baseXKm,
@@ -37,5 +49,20 @@ describe("GLSL shore uniforms", () => {
     const declared = [...DEMO_WORLD_GLSL.matchAll(/uniform \w+ (u\w+);/g)].map((m) => m[1]).filter((n) => n !== "uFlatTerrain");
     const produced = Object.keys(shoreUniformDefaults());
     expect(new Set(produced)).toEqual(new Set(declared));
+  });
+});
+
+describe("shore uniforms are set by every consuming material", () => {
+  // Data-driven off shoreUniformDefaults()'s own keys, so a sixth shore
+  // uniform added later fails this test for any material that forgets to
+  // set it, instead of silently reading as 0 on the GPU (the forestMaterial
+  // uLandSign regression this test was added to catch).
+  const keys = Object.keys(shoreUniformDefaults());
+
+  it.each(CONSUMING_MATERIALS)("%s assigns every shore uniform", (relPath) => {
+    const source = readFileSync(fileURLToPath(new URL(relPath, import.meta.url)), "utf-8");
+    for (const key of keys) {
+      expect(source).toMatch(new RegExp(`\\b${key}\\s*[:=]`));
+    }
   });
 });

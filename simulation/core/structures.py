@@ -32,7 +32,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-from simulation.core.propagation import DEFAULT_SHORE, ShoreParams, heading_vector, land_depth_km, shore_x
+from simulation.core.propagation import DEFAULT_SHORE, ShoreParams, heading_vector, land_depth_km
 
 STRUCTURE_TYPES = ("building", "hospital", "port", "power_plant", "lighthouse", "fuel_terminal")
 TSUNAMI_HALF_ANGLE_DEG = 40.0
