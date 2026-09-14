@@ -1,4 +1,4 @@
-import { createElement, Suspense, useEffect, useMemo, useRef } from "react";
+import { createElement, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Map as MaplibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -107,18 +107,38 @@ export interface MapCanvasProps extends MapHazardContentProps {
 export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnapshot, anchor }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const matrixRef = useRef<ArrayLike<number> | null>(null);
+  const [diagnostic, setDiagnostic] = useState("creating map…");
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const map = new MaplibreMap({
-      container,
-      style: OPENFREEMAP_STYLE_URL,
-      center: [anchor.lon, anchor.lat],
-      zoom: 13,
-      pitch: 60,
-      bearing: -20,
+    const box = container.getBoundingClientRect();
+    setDiagnostic(`container ${Math.round(box.width)}x${Math.round(box.height)} — loading style…`);
+    if (box.height < 1 || box.width < 1) {
+      setDiagnostic(`container has no size (${Math.round(box.width)}x${Math.round(box.height)}) — map cannot render`);
+      return;
+    }
+
+    let map: MaplibreMap;
+    try {
+      map = new MaplibreMap({
+        container,
+        style: OPENFREEMAP_STYLE_URL,
+        center: [anchor.lon, anchor.lat],
+        zoom: 13,
+        pitch: 60,
+        bearing: -20,
+      });
+    } catch (err) {
+      setDiagnostic(`map constructor threw: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+
+    map.on("error", (e) => {
+      setDiagnostic(`map error: ${e.error?.message ?? "unknown"}`);
     });
+    map.on("styledata", () => setDiagnostic((d) => (d.startsWith("map error") ? d : "style loaded, waiting for tiles…")));
+    map.on("idle", () => setDiagnostic((d) => (d.startsWith("map error") ? d : `rendering — ${map.getStyle()?.layers?.length ?? 0} layers`)));
 
     map.on("load", () => {
       // Liberty ships its own building extrusion; an explicit layer keeps the
@@ -155,7 +175,7 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
 
   return (
     <div className="relative h-full w-full">
-      <div ref={containerRef} className="absolute inset-0" />
+      <div ref={containerRef} className="absolute inset-0 bg-[#0b1520]" />
       <div className="pointer-events-none absolute inset-0">
         <Canvas
           dpr={[1, 2]}
@@ -166,6 +186,9 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
           <MapCameraSync anchor={anchor} matrixRef={matrixRef} />
           <MapHazardContent kind={kind} originKm={originKm} headingDeg={headingDeg} coastDistanceKm={coastDistanceKm} getSnapshot={getSnapshot} />
         </Canvas>
+      </div>
+      <div className="pointer-events-none absolute top-3 left-3 max-w-[520px] rounded-[6px] border border-amber-400/40 bg-[rgba(20,14,4,0.86)] px-3 py-1.5 font-mono text-[11px] text-amber-200/90">
+        map status: {diagnostic}
       </div>
       <div className="pointer-events-none absolute bottom-3 left-3 rounded-[6px] border border-white/[0.08] bg-[rgba(9,14,20,0.72)] px-3 py-1.5 text-[10px] tracking-[0.08em] text-white/70 backdrop-blur-xl">
         Real basemap — simplified demonstration hazard model, not an operational forecast
