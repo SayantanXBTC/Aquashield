@@ -9,7 +9,7 @@ import {
 } from "@/propagation/hazards";
 import { paramsToConfig, type PropagationParams } from "@/propagation/kinematics";
 import { assessStructures, geometryFromSnapshot } from "@/propagation/structures";
-import { DEFAULT_SHORE, distanceToCoastAlongHeading, shoreParamsForTown, shoreX, WORLD_KM, type ShoreParams } from "@/propagation/world";
+import { DEFAULT_SHORE, distanceToCoastAlongHeading, offshoreOriginX, shoreParamsForTown, shoreX, WORLD_KM, type ShoreParams } from "@/propagation/world";
 import { scenarioApi } from "../api/scenarioApi";
 import { simulationApi } from "../api/simulationApi";
 import type { PlaybackClock } from "../playback/playbackClock";
@@ -374,11 +374,23 @@ export function useScenarioSession(clock: PlaybackClock) {
       setCreating(true);
       try {
         const town = worldProfile === "real_city" ? getTown(cityId) : undefined;
+        // The preset's origin_x_km was authored for the fictional world's
+        // west-facing shore; re-anchor it to the real city's own shoreline
+        // (whichever side the water is on) at the same offshore distance,
+        // so the disaster still starts at sea rather than inland.
+        const originXKm = town
+          ? offshoreOriginX(
+              preset.config.origin_y_km,
+              Math.abs(preset.config.origin_x_km - shoreX(preset.config.origin_y_km, DEFAULT_SHORE)),
+              shoreParamsForTown(town),
+            )
+          : preset.config.origin_x_km;
         const scenario_config =
           worldProfile === "demo"
             ? preset.config
             : {
                 ...preset.config,
+                origin_x_km: originXKm,
                 world_profile: worldProfile,
                 ...(worldProfile === "real_city" && cityId ? { city_id: cityId } : {}),
                 // A real city's default coastal facing overrides the preset's

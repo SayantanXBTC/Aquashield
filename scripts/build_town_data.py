@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import time
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -45,8 +46,17 @@ TOWNS_DIR = REPO_ROOT / "shared" / "constants" / "towns"
 
 NATURAL_EARTH_10M_COASTLINE_URL = "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_coastline.zip"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_ENDPOINTS = (
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.osm.ch/api/interpreter",
+)
 
 WORLD_KM = 300.0  # must equal simulation/core/propagation.py's WORLD_KM
+# Above this share of footprints landing seaward of the fitted shoreline, the
+# 3-term sine is not describing the coast well enough to ship (ADR-009's
+# per-city fit-quality validation).
+MAX_OFFSHORE_FRACTION = 0.02
 KM_PER_DEG_LAT = 110.574
 DEG_TO_RAD = np.pi / 180.0
 
@@ -87,10 +97,10 @@ class CityDef:
 # needs the CLI arg, not new research — but are not yet validated.
 CITIES: dict[str, CityDef] = {
     "chennai": CityDef("chennai", "Chennai, Tamil Nadu", 13.0827, 80.2707, 15.0, "east", 270.0),
-    # "mumbai": CityDef("mumbai", "Mumbai, Maharashtra", 18.9750, 72.8258, 15.0, "west", 90.0),
-    # "puri": CityDef("puri", "Puri, Odisha", 19.8135, 85.8312, 15.0, "east", 270.0),
-    # "visakhapatnam": CityDef("visakhapatnam", "Visakhapatnam, Andhra Pradesh", 17.6868, 83.2185, 15.0, "east", 270.0),
-    # "kochi": CityDef("kochi", "Kochi, Kerala", 9.9312, 76.2673, 15.0, "west", 90.0),
+    "mumbai": CityDef("mumbai", "Mumbai, Maharashtra", 18.9750, 72.8258, 15.0, "west", 90.0),
+    "puri": CityDef("puri", "Puri, Odisha", 19.8135, 85.8312, 15.0, "east", 270.0),
+    "visakhapatnam": CityDef("visakhapatnam", "Visakhapatnam, Andhra Pradesh", 17.6868, 83.2185, 15.0, "east", 270.0),
+    "kochi": CityDef("kochi", "Kochi, Kerala", 9.9312, 76.2673, 15.0, "west", 90.0),
 }
 
 
@@ -176,10 +186,21 @@ def fetch_buildings(city: CityDef) -> list[dict]:
     deg_margin = city.bbox_km / KM_PER_DEG_LAT
     south, west = city.center_lat - deg_margin, city.center_lon - deg_margin
     north, east = city.center_lat + deg_margin, city.center_lon + deg_margin
-    query = f'[out:json][timeout:90];way["building"]({south},{west},{north},{east});out geom tags;'
-    resp = httpx.get(OVERPASS_URL, params={"data": query}, timeout=120, headers={"Accept": "*/*", "User-Agent": "aquashield-build-town-data/1.0"})
-    resp.raise_for_status()
-    return resp.json().get("elements", [])
+    query = f'[out:json][timeout:180];way["building"]({south},{west},{north},{east});out geom tags;'
+    headers = {"Accept": "*/*", "User-Agent": "aquashield-build-town-data/1.0"}
+    # Overpass mirrors rate-limit and time out under load; rotate and retry
+    # rather than losing a whole multi-city run to one 504.
+    last: Exception | None = None
+    for attempt, endpoint in enumerate(OVERPASS_ENDPOINTS * 3):
+        try:
+            resp = httpx.get(endpoint, params={"data": query}, timeout=300, headers=headers)
+            resp.raise_for_status()
+            return resp.json().get("elements", [])
+        except Exception as exc:  # noqa: BLE001 - any transport/status failure is retryable here
+            last = exc
+            print(f"[{city.city_id}]   {endpoint.split('/')[2]} failed ({type(exc).__name__}); retrying", file=sys.stderr)
+            time.sleep(5 + 5 * attempt)
+    raise RuntimeError(f"All Overpass endpoints failed for {city.city_id}") from last
 
 
 def classify(height_m: float | None, tags: dict) -> tuple[str, str]:
@@ -261,6 +282,29 @@ def build_city(city_id: str) -> None:
     placements = buildings_to_placements(elements, city)
     print(f"[{city_id}] {len(placements)} building placements from {len(elements)} OSM ways")
 
+    # A 3-term sine can describe a broadly straight coast but not a peninsula
+    # or a lagoon. When the fit is poor the city's real footprints end up on
+    # the seaward side of the fitted curve, which would render a city floating
+    # in the ocean. Measure it and refuse to ship such a city rather than
+    # committing data we know is wrong.
+    land_sign = 1.0 if city.ocean_side == "west" else -1.0
+
+    def _shore_at(y_km: float) -> float:
+        x = base_x_km
+        for amp, freq, phase in terms:
+            x += amp * np.sin(2.0 * np.pi * freq * y_km / WORLD_KM + phase)
+        return float(x)
+
+    offshore = sum(1 for p in placements if land_sign * (p["xKm"] - _shore_at(p["yKm"])) < 0)
+    offshore_fraction = offshore / len(placements) if placements else 1.0
+    print(f"[{city_id}] {offshore} of {len(placements)} placements fall offshore ({offshore_fraction:.1%})")
+    if offshore_fraction > MAX_OFFSHORE_FRACTION:
+        raise RuntimeError(
+            f"{city_id}: {offshore_fraction:.1%} of buildings fall on the seaward side of the fitted "
+            f"shoreline (limit {MAX_OFFSHORE_FRACTION:.0%}, fit rmse {rmse:.2f}km). The 3-term sine cannot "
+            f"describe this coastline — not writing data that would render a city in the sea."
+        )
+
     profile = {
         "city_id": city.city_id,
         "label": city.label,
@@ -269,7 +313,11 @@ def build_city(city_id: str) -> None:
         "shore_terms": [{"amp": round(a, 4), "freq": round(f, 4), "phase": round(p, 4)} for a, f, p in terms],
         "heading_deg": city.heading_deg,
         "buildings": placements,
-        "fit_quality": {"rmse_km": round(rmse, 3), "sample_count": len(points)},
+        "fit_quality": {
+            "rmse_km": round(rmse, 3),
+            "sample_count": len(points),
+            "offshore_placements": offshore,
+        },
         "data_provenance": {
             "coastline_source": "Natural Earth 10m coastline (naturalearthdata.com)",
             "buildings_source": "OpenStreetMap via Overpass API, (c) OpenStreetMap contributors, ODbL",
@@ -289,5 +337,12 @@ if __name__ == "__main__":
         if cid not in CITIES:
             print(f"Unknown or not-yet-defined city_id={cid!r}. Known: {list(CITIES)}", file=sys.stderr)
             sys.exit(1)
+    failed: list[str] = []
     for cid in ids:
-        build_city(cid)
+        try:
+            build_city(cid)
+        except Exception as exc:  # noqa: BLE001 - one city's failure must not lose the others
+            print(f"[{cid}] FAILED: {exc}", file=sys.stderr)
+            failed.append(cid)
+    if failed:
+        print(f"failed: {', '.join(failed)}", file=sys.stderr)

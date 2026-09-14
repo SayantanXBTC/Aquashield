@@ -45,6 +45,10 @@ export interface SceneRootProps {
 /** Fallback framing radius in scene units when nothing is placed. */
 const DEFAULT_FRAME_RADIUS = 95;
 const MIN_FRAME_RADIUS = 55;
+/** A real city's footprint is a small fraction of the 300km world (CLAUDE.md
+ * §27) — the camera frames the metro area, not the whole square. */
+const REAL_CITY_FRAME_PAD = 1.6;
+const REAL_CITY_MIN_HALF_SPAN_KM = 8;
 
 /**
  * The scene graph every AQUASHIELD view shares: atmosphere, lighting, the
@@ -94,7 +98,44 @@ export function SceneRoot({
     return [originKm[0] + dx * 120, originKm[1] + dy * 120];
   }, [originKm, headingDeg]);
 
+  const townBoundsKm = useMemo(() => {
+    if (!town || town.buildings.length === 0) return null;
+    let minXKm = Infinity;
+    let maxXKm = -Infinity;
+    let minYKm = Infinity;
+    let maxYKm = -Infinity;
+    for (const b of town.buildings) {
+      if (b.xKm < minXKm) minXKm = b.xKm;
+      if (b.xKm > maxXKm) maxXKm = b.xKm;
+      if (b.yKm < minYKm) minYKm = b.yKm;
+      if (b.yKm > maxYKm) maxYKm = b.yKm;
+    }
+    return { minXKm, maxXKm, minYKm, maxYKm };
+  }, [town]);
+
   const { focus, frameRadius } = useMemo(() => {
+    if (worldProfile === "real_city" && townBoundsKm) {
+      let { minXKm, maxXKm, minYKm, maxYKm } = townBoundsKm;
+      if (landfallKm) {
+        const centerXKm = (minXKm + maxXKm) / 2;
+        const centerYKm = (minYKm + maxYKm) / 2;
+        const spanKm = Math.max(maxXKm - minXKm, maxYKm - minYKm);
+        const landfallDistKm = Math.hypot(landfallKm[0] - centerXKm, landfallKm[1] - centerYKm);
+        // Only pull a nearby landfall into shot — a far-offshore origin must
+        // not widen the frame back toward the whole world.
+        if (landfallDistKm <= spanKm * 2) {
+          minXKm = Math.min(minXKm, landfallKm[0]);
+          maxXKm = Math.max(maxXKm, landfallKm[0]);
+          minYKm = Math.min(minYKm, landfallKm[1]);
+          maxYKm = Math.max(maxYKm, landfallKm[1]);
+        }
+      }
+      const centerXKm = (minXKm + maxXKm) / 2;
+      const centerYKm = (minYKm + maxYKm) / 2;
+      const halfSpanKm = Math.max(REAL_CITY_MIN_HALF_SPAN_KM, Math.max(maxXKm - minXKm, maxYKm - minYKm) / 2);
+      const [fx, fz] = kmToScene(centerXKm, centerYKm);
+      return { focus: [fx, 0, fz] as [number, number, number], frameRadius: kmToSceneUnits(halfSpanKm) * REAL_CITY_FRAME_PAD };
+    }
     const [ox, oz] = kmToScene(originKm[0], originKm[1]);
     if (!landfallKm) return { focus: [ox, 0, oz] as [number, number, number], frameRadius: DEFAULT_FRAME_RADIUS };
     const [lx, lz] = kmToScene(landfallKm[0], landfallKm[1]);
@@ -102,7 +143,7 @@ export function SceneRoot({
     // and frame a little tighter than the full origin→coast segment.
     const radius = Math.max(MIN_FRAME_RADIUS, kmToSceneUnits(coastDistanceKm ?? 0) * 0.5);
     return { focus: [ox + (lx - ox) * 0.62, 0, oz + (lz - oz) * 0.62] as [number, number, number], frameRadius: radius };
-  }, [originKm, landfallKm, coastDistanceKm]);
+  }, [worldProfile, townBoundsKm, originKm, landfallKm, coastDistanceKm]);
 
   return (
     <Suspense fallback={null}>

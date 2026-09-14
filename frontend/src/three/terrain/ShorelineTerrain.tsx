@@ -15,8 +15,10 @@ import { createTerrainMaterial } from "./terrainMaterial";
  * cannot exist where this surface is above sea level.
  *
  * Surface colour is computed per fragment by terrainMaterial.ts (sand,
- * fields, forest, rock by depth/slope/noise); the vertex colours here are a
- * coarse fallback used only by the diagnostics modes. No imagery, no dataset.
+ * fields, forest and rock for the demo world; asphalt and an illustrative
+ * road grid for the flat Dense Coastal Profile / Real City worlds); the
+ * vertex colours here are a coarse fallback used only by the diagnostics
+ * modes. No imagery, no dataset, no real street data.
  */
 export function ShorelineTerrain({
   segments = 420,
@@ -55,6 +57,14 @@ export function ShorelineTerrain({
         b = 0.3 - 0.16 * t;
       } else if (d < 1.2) {
         r = 0.76; g = 0.7; b = 0.52; // wet sand
+      } else if (flat) {
+        // Urban worlds (Dense Coastal Profile / Real City): a neutral
+        // asphalt/outskirt grey fallback — the real road grid only exists
+        // in terrainMaterial.ts's fragment shader, not in this coarse mesh.
+        const t = Math.min(1, (d - 1.2) / 8);
+        r = 0.42 + (0.34 - 0.42) * t;
+        g = 0.4 + (0.33 - 0.4) * t;
+        b = 0.35 + (0.3 - 0.35) * t;
       } else if (d < 4) {
         const t = (d - 1.2) / 2.8;
         r = 0.76 + (0.42 - 0.76) * t;

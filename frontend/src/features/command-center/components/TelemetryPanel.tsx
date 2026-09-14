@@ -159,13 +159,28 @@ export function TelemetryPanel({ kind, clock, getSnapshot, worldProfile, structu
               tone={buildingStats && buildingStats.impacted > 0 ? "warning" : "default"}
             />
           ) : null}
-          <p className="text-ink-faint col-span-2 text-[10px] leading-relaxed tracking-[0.06em] uppercase">
-            {worldProfile === "real_city" && town
-              ? `${town.label} · real coastline & buildings, simplified physics · not an operational forecast`
-              : dense
-                ? "Dense Coastal Profile · potentially exposed, not damage · illustrative"
-                : "Simplified demonstration model — not an official forecast"}
-          </p>
+          {worldProfile === "real_city" && town ? (
+            <div className="text-ink-faint col-span-2 space-y-1 text-[10px] leading-relaxed">
+              <p className="text-ink-soft tracking-[0.06em] uppercase">
+                {town.label} · real coastline &amp; OSM buildings, simplified physics · not an operational forecast
+              </p>
+              <p>
+                {buildingPlacements ? buildingPlacements.low.length + buildingPlacements.mid.length + buildingPlacements.highrise.length : "—"} buildings
+                rendered — a capped sample of real OpenStreetMap footprints (per scripts/build_town_data.py), not this city&apos;s complete building
+                inventory.
+              </p>
+              <p>
+                Coastline: {town.data_provenance?.coastline_source ?? "—"} · Buildings: {town.data_provenance?.buildings_source ?? "—"}
+              </p>
+              <p>
+                Coastline fit: {town.fit_quality ? `±${town.fit_quality.rmse_km.toFixed(2)} km RMSE across ${town.fit_quality.sample_count} samples` : "—"}
+              </p>
+            </div>
+          ) : (
+            <p className="text-ink-faint col-span-2 text-[10px] leading-relaxed tracking-[0.06em] uppercase">
+              {dense ? "Dense Coastal Profile · potentially exposed, not damage · illustrative" : "Simplified demonstration model — not an official forecast"}
+            </p>
+          )}
         </>
       )}
     </HudPanel>

@@ -108,6 +108,13 @@ export function nearestShoreDistance(xKm: number, yKm: number, shore: ShoreParam
   return round4(best);
 }
 
+/** An offshore origin `offsetKm` out to sea from the shoreline at `yKm`,
+ * on whichever side the water is. Clamped inside the world square. */
+export function offshoreOriginX(yKm: number, offsetKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
+  const x = shoreX(yKm, shore) - shore.landSign * offsetKm;
+  return Math.max(2, Math.min(WORLD_KM - 2, x));
+}
+
 export function clamp(value: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, value));
 }

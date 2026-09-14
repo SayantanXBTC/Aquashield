@@ -77,7 +77,10 @@ export function NewTestModal({ open, busy, onClose, onCreate }: NewTestModalProp
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.98 }}
             transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-            className="w-full max-w-md rounded-[10px] border border-white/[0.08] bg-[rgba(9,14,20,0.9)] p-5 shadow-[0_24px_64px_-20px_rgba(0,0,0,0.9)] backdrop-blur-2xl"
+            className={cn(
+              "w-full rounded-[10px] border border-white/[0.08] bg-[rgba(9,14,20,0.9)] p-5 shadow-[0_24px_64px_-20px_rgba(0,0,0,0.9)] backdrop-blur-2xl transition-[max-width]",
+              worldProfile === "real_city" ? "max-w-xl" : "max-w-md",
+            )}
           >
             <div className="mb-4 flex items-center justify-between">
               <h2 id="new-test-title" className="text-ink text-sm font-semibold tracking-[0.16em] uppercase">
