@@ -10,7 +10,7 @@
  * and regenerate the fixtures (scripts/generate_propagation_fixtures.py).
  */
 import demoWorld from "@shared/constants/demo_world.json";
-import type { TownShoreTerm } from "@shared/types";
+import type { TownProfile, TownShoreTerm } from "@shared/types";
 
 export const WORLD_KM: number = demoWorld.world_km;
 export const WORLD_ID: string = demoWorld.world_id;
@@ -33,6 +33,17 @@ export interface ShoreParams {
 }
 
 export const DEFAULT_SHORE: ShoreParams = { baseXKm: SHORE_BASE_X_KM, terms: SHORE_TERMS, landSign: 1 };
+
+/** The `ShoreParams` for a curated real city (architecture.md ADR-009).
+ * The single place a TownProfile becomes a shoreline, so the orientation
+ * cannot be dropped at one call site and kept at another. */
+export function shoreParamsForTown(town: TownProfile): ShoreParams {
+  return {
+    baseXKm: town.shore_base_x_km,
+    terms: town.shore_terms,
+    landSign: town.ocean_side === "west" ? 1 : -1,
+  };
+}
 
 /** East-west position of the shoreline at northing `yKm`. */
 export function shoreX(yKm: number, shore: ShoreParams = DEFAULT_SHORE): number {

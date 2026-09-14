@@ -2,6 +2,7 @@
   "city_id": "chennai",
   "label": "Chennai, Tamil Nadu",
   "shore_base_x_km": 163.906,
+  "ocean_side": "west",
   "shore_terms": [
     {
       "amp": 16.6248,

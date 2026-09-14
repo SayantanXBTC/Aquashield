@@ -8,11 +8,12 @@
  * simplified demo physics/exposure model as everywhere else in the app.
  */
 import type { TownProfile } from "@shared/types";
+import { shoreParamsForTown } from "@/propagation/world";
 import { terrainHeightKm, kmToScene } from "@/three/world/demoWorld";
 import { BUILDING_CLEARING_KM, type BuildingClass, type Placement } from "./buildingPlacement";
 
 export function placementsFromTown(town: TownProfile, clearings: { xKm: number; yKm: number }[]): Record<BuildingClass, Placement[]> {
-  const shore = { baseXKm: town.shore_base_x_km, terms: town.shore_terms, landSign: 1 };
+  const shore = shoreParamsForTown(town);
   const out: Record<BuildingClass, Placement[]> = { low: [], mid: [], highrise: [] };
   for (const b of town.buildings) {
     if (clearings.some((c) => Math.hypot(c.xKm - b.xKm, c.yKm - b.yKm) < BUILDING_CLEARING_KM)) continue;

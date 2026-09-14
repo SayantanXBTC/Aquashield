@@ -99,16 +99,12 @@ def km_per_deg_lon(lat_deg: float) -> float:
 
 
 def to_local_km(lat: float, lon: float, city: CityDef) -> tuple[float, float]:
-    """Real (lat, lon) -> local (xKm, yKm) inside the standard 300km world,
-    city center at (150, 150). Cross-shore axis is mirrored for an
-    east-facing coast so "land is x > shore_x" holds regardless of which
-    real compass direction the ocean is actually on (CLAUDE.md §26's land/
-    sea convention is fixed; only this projection step needs to know the
-    city's real facing)."""
+    """Real lat/lon to the synthetic km frame, city centre at (150, 150).
+    The cross-shore axis is NOT mirrored: orientation is carried by the
+    emitted `ocean_side` field and applied as ShoreParams.land_sign, so an
+    east-facing city keeps its real chirality."""
     dx_km = (lon - city.center_lon) * km_per_deg_lon(city.center_lat)
     dy_km = (lat - city.center_lat) * KM_PER_DEG_LAT
-    if city.ocean_side == "east":
-        dx_km = -dx_km
     return dx_km + WORLD_KM / 2, dy_km + WORLD_KM / 2
 
 
@@ -269,6 +265,7 @@ def build_city(city_id: str) -> None:
         "city_id": city.city_id,
         "label": city.label,
         "shore_base_x_km": round(base_x_km, 3),
+        "ocean_side": city.ocean_side,
         "shore_terms": [{"amp": round(a, 4), "freq": round(f, 4), "phase": round(p, 4)} for a, f, p in terms],
         "heading_deg": city.heading_deg,
         "buildings": placements,

@@ -11,7 +11,7 @@ import { ForestLayer } from "@/three/vegetation/ForestLayer";
 import { WaterSurface } from "@/three/water/WaterSurface";
 import { kmToScene, kmToSceneUnits } from "@/three/world/demoWorld";
 import type { HazardKind, HazardSnapshot } from "@/propagation/hazards";
-import { DEFAULT_SHORE, headingVector, type ShoreParams } from "@/propagation/world";
+import { DEFAULT_SHORE, headingVector, shoreParamsForTown, type ShoreParams } from "@/propagation/world";
 import { CameraController } from "./CameraController";
 import { EnvironmentSystem } from "./EnvironmentSystem";
 import { LightingSystem } from "./LightingSystem";
@@ -74,8 +74,7 @@ export function SceneRoot({
   const Visualizer = getDisasterVisualizer(kind);
   const dense = worldProfile === "dense_coastal" || worldProfile === "real_city";
   const shore: ShoreParams = useMemo(
-    // TODO(Task 6): replace with the shared TownProfile-to-ShoreParams helper.
-    () => (worldProfile === "real_city" && town ? { baseXKm: town.shore_base_x_km, terms: town.shore_terms, landSign: 1 } : DEFAULT_SHORE),
+    () => (worldProfile === "real_city" && town ? shoreParamsForTown(town) : DEFAULT_SHORE),
     [worldProfile, town],
   );
 

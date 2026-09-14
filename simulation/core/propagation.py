@@ -93,10 +93,17 @@ def shore_params_for_city(city_id: str) -> ShoreParams:
     except json.JSONDecodeError as exc:
         raise SimulationConfigError(f"Town data at {path} is not valid JSON: {exc}") from exc
     try:
+        base_x_km = data["shore_base_x_km"]
         terms = tuple((t["amp"], t["freq"], t["phase"]) for t in data["shore_terms"])
-        return ShoreParams(base_x_km=data["shore_base_x_km"], terms=terms)
+        ocean_side = data["ocean_side"]
     except (KeyError, TypeError) as exc:
-        raise SimulationConfigError(f"Town data at {path} is missing shore_base_x_km/shore_terms: {exc}") from exc
+        raise SimulationConfigError(
+            f"Town data at {path} is missing shore_base_x_km/shore_terms/ocean_side: {exc}"
+        ) from exc
+    if ocean_side not in ("east", "west"):
+        raise SimulationConfigError(f"Town data at {path} has ocean_side={ocean_side!r}; expected 'east' or 'west'.")
+    # Ocean west means land lies east of the curve, and vice versa.
+    return ShoreParams(base_x_km=base_x_km, terms=terms, land_sign=1.0 if ocean_side == "west" else -1.0)
 
 
 def shore_x(y_km: float, shore: ShoreParams = DEFAULT_SHORE) -> float:

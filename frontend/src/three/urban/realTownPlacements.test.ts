@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { TownProfile } from "@shared/types";
 import chennai from "@shared/constants/towns/chennai.json";
+import { shoreParamsForTown } from "@/propagation/world";
 import { landDepthKm, terrainHeightKm } from "@/three/world/demoWorld";
 import { placementsFromTown } from "./realTownPlacements";
 
 const CHENNAI = chennai as unknown as TownProfile;
-const SHORE = { baseXKm: CHENNAI.shore_base_x_km, terms: CHENNAI.shore_terms, landSign: 1 };
+const SHORE = shoreParamsForTown(CHENNAI);
 
 /** Real committed building data (architecture.md ADR-009) mapped through the
  * same pure, GPU-free path buildingPlacement.test.ts exercises for the

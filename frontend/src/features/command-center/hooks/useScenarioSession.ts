@@ -9,7 +9,7 @@ import {
 } from "@/propagation/hazards";
 import { paramsToConfig, type PropagationParams } from "@/propagation/kinematics";
 import { assessStructures, geometryFromSnapshot } from "@/propagation/structures";
-import { DEFAULT_SHORE, distanceToCoastAlongHeading, shoreX, WORLD_KM, type ShoreParams } from "@/propagation/world";
+import { DEFAULT_SHORE, distanceToCoastAlongHeading, shoreParamsForTown, shoreX, WORLD_KM, type ShoreParams } from "@/propagation/world";
 import { scenarioApi } from "../api/scenarioApi";
 import { simulationApi } from "../api/simulationApi";
 import type { PlaybackClock } from "../playback/playbackClock";
@@ -110,8 +110,7 @@ export function useScenarioSession(clock: PlaybackClock) {
   const [worldProfile, setWorldProfileState] = useState<WorldProfile>("demo");
   const [cityId, setCityIdState] = useState<CityId | null>(null);
   const town: TownProfile | undefined = useMemo(() => (worldProfile === "real_city" ? getTown(cityId) : undefined), [worldProfile, cityId]);
-  // TODO(Task 6): replace with the shared TownProfile-to-ShoreParams helper.
-  const shore: ShoreParams = useMemo(() => (town ? { baseXKm: town.shore_base_x_km, terms: town.shore_terms, landSign: 1 } : DEFAULT_SHORE), [town]);
+  const shore: ShoreParams = useMemo(() => (town ? shoreParamsForTown(town) : DEFAULT_SHORE), [town]);
   const [structures, setStructuresState] = useState<StructureConfig[]>([]);
   const [showStructures, setShowStructures] = useState(true);
   const structuresRef = useRef<StructureConfig[]>([]);

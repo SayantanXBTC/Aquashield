@@ -3,7 +3,7 @@ import { Activity } from "lucide-react";
 import { MetricTile } from "@/components/ui";
 import type { HazardKind, HazardSnapshot } from "@/propagation/hazards";
 import { exposureFor, geometryFromSnapshot, statusFor } from "@/propagation/structures";
-import { DEFAULT_SHORE, type ShoreParams } from "@/propagation/world";
+import { DEFAULT_SHORE, shoreParamsForTown, type ShoreParams } from "@/propagation/world";
 import { buildBuildingPlacements } from "@/three/urban/buildingPlacement";
 import { placementsFromTown } from "@/three/urban/realTownPlacements";
 import type { StructureConfig, TownProfile, WorldProfile } from "../types";
@@ -48,8 +48,7 @@ function fmtClock(minutes: number): string {
 export function TelemetryPanel({ kind, clock, getSnapshot, worldProfile, structures, town }: TelemetryPanelProps) {
   const [snap, setSnap] = useState<HazardSnapshot | null>(null);
   const dense = worldProfile === "dense_coastal" || worldProfile === "real_city";
-  // TODO(Task 6): replace with the shared TownProfile-to-ShoreParams helper.
-  const shore: ShoreParams = useMemo(() => (town ? { baseXKm: town.shore_base_x_km, terms: town.shore_terms, landSign: 1 } : DEFAULT_SHORE), [town]);
+  const shore: ShoreParams = useMemo(() => (town ? shoreParamsForTown(town) : DEFAULT_SHORE), [town]);
 
   useEffect(() => {
     const id = window.setInterval(() => setSnap(getSnapshot()), 125);

@@ -609,6 +609,10 @@ export interface TownProfile {
   label: string;
   shore_base_x_km: number;
   shore_terms: [TownShoreTerm, TownShoreTerm, TownShoreTerm];
+  /** Which real compass side the ocean lies on. Sets the shoreline's
+   * orientation: "west" means land is east of the curve (land_sign +1),
+   * "east" the reverse. */
+  ocean_side: "east" | "west";
   /** Real coastal facing, compass degrees — a per-city default for the
    * existing, already-general `PropagationConfig.heading_deg`. */
   heading_deg: number;
