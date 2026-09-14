@@ -6,7 +6,7 @@
  */
 import type { StructureConfig, StructureImpact, StructureStatus } from "@shared/types";
 import type { HazardKind, HazardSnapshot } from "./hazards";
-import { headingVector, shoreX } from "./world";
+import { DEFAULT_SHORE, headingVector, landDepthKm, type ShoreParams } from "./world";
 
 const TSUNAMI_HALF_ANGLE_RAD = (40 * Math.PI) / 180;
 const COASTAL_STRUCTURE_MAX_SHORE_KM = 3;
@@ -25,8 +25,8 @@ export function statusFor(exposure: number): StructureStatus {
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
-export function inlandDepthKm(xKm: number, yKm: number): number {
-  return xKm - shoreX(yKm);
+export function inlandDepthKm(xKm: number, yKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
+  return landDepthKm(xKm, yKm, shore);
 }
 
 function lateralOffsetKm(px: number, py: number, ox: number, oy: number, headingDeg: number): number {
@@ -92,12 +92,12 @@ function landfallPoint(g: HazardGeometry): [number, number] | null {
 }
 
 /** Returns [distance km to the hazard reference point, exposure 0-1]. */
-export function exposureFor(g: HazardGeometry, xKm: number, yKm: number): [number, number] {
+export function exposureFor(g: HazardGeometry, xKm: number, yKm: number, shore: ShoreParams = DEFAULT_SHORE): [number, number] {
   const dist = Math.hypot(xKm - g.positionXKm, yKm - g.positionYKm);
   switch (g.kind) {
     case "tsunami": {
       if (!g.arrived || landfallPoint(g) === null || g.inundationKm <= 0) return [dist, 0];
-      const depth = inlandDepthKm(xKm, yKm);
+      const depth = inlandDepthKm(xKm, yKm, shore);
       if (depth < -0.5 || depth > g.inundationKm) return [dist, 0];
       const halfWidth = Math.max(5, g.traveledKm * Math.tan(TSUNAMI_HALF_ANGLE_RAD));
       const lateral = lateralOffsetKm(xKm, yKm, g.originXKm, g.originYKm, g.headingDeg);
@@ -111,14 +111,14 @@ export function exposureFor(g: HazardGeometry, xKm: number, yKm: number): [numbe
       return [dist, clamp01(g.scale * Math.pow(1 - dist / g.radiusKm, 0.7))];
     }
     case "oil_spill": {
-      if (inlandDepthKm(xKm, yKm) > COASTAL_STRUCTURE_MAX_SHORE_KM) return [dist, 0];
+      if (inlandDepthKm(xKm, yKm, shore) > COASTAL_STRUCTURE_MAX_SHORE_KM) return [dist, 0];
       const reach = g.radiusKm + OIL_FRINGE_KM;
       if (dist > reach) return [dist, 0];
       return [dist, clamp01(g.scale * (1 - dist / reach))];
     }
     case "coastal_flood": {
       if (!g.arrived || landfallPoint(g) === null || g.inundationKm <= 0) return [dist, 0];
-      const depth = inlandDepthKm(xKm, yKm);
+      const depth = inlandDepthKm(xKm, yKm, shore);
       if (depth < -0.5 || depth > g.inundationKm) return [dist, 0];
       const lateralLimit = FLOOD_LATERAL_BASE_KM + g.spreadRadiusKm;
       const lateral = lateralOffsetKm(xKm, yKm, g.originXKm, g.originYKm, g.headingDeg);
@@ -130,11 +130,11 @@ export function exposureFor(g: HazardGeometry, xKm: number, yKm: number): [numbe
   }
 }
 
-export function assessStructures(structures: StructureConfig[], geometry: HazardGeometry): StructureImpact[] {
+export function assessStructures(structures: StructureConfig[], geometry: HazardGeometry, shore: ShoreParams = DEFAULT_SHORE): StructureImpact[] {
   const impacts: StructureImpact[] = [];
   for (const s of structures) {
     if (s.enabled === false) continue;
-    const [distance, exposure] = exposureFor(geometry, s.x_km, s.y_km);
+    const [distance, exposure] = exposureFor(geometry, s.x_km, s.y_km, shore);
     impacts.push({ structure_id: s.id, structure_type: s.type, name: s.name, distance_km: distance, exposure, status: statusFor(exposure) });
   }
   return impacts;

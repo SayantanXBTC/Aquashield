@@ -7,10 +7,24 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from agents.schemas.evidence import DataLimitation, EvidenceRef
+from agents.schemas.evidence import RESOURCE_DATA_UNAVAILABLE, DataLimitation, EvidenceRef
+from agents.tools.retrieval.evidence_retriever import ClaimMapping, EvidenceItem
 from agents.schemas.outputs import ExposureFinding, GroundedStatement, Priority, RecommendedAction
 
-AgentExecutionStatus = Literal["PENDING", "RUNNING", "COMPLETED", "FAILED"]
+AgentExecutionStatus = Literal["PENDING", "RUNNING", "COMPLETED", "FAILED", "UNAVAILABLE", "SKIPPED"]
+
+
+class AgentRun(BaseModel):
+    """One node's execution record — what the Agent Execution HUD renders.
+
+    Purely an audit of the graph run: which agent, whether it completed, how
+    long it took and a one-line factual summary. Never chain-of-thought."""
+
+    agent: str
+    label: str
+    status: AgentExecutionStatus = "PENDING"
+    summary: str | None = None
+    duration_ms: float = 0.0
 
 
 class CommandBrief(BaseModel):
@@ -23,8 +37,20 @@ class CommandBrief(BaseModel):
     hazard_progression: list[GroundedStatement] = Field(default_factory=list)
     key_exposures: list[ExposureFinding] = Field(default_factory=list)
     priorities: list[Priority] = Field(default_factory=list)
+    precautions: list[RecommendedAction] = Field(default_factory=list)
     recommended_actions: list[RecommendedAction] = Field(default_factory=list)
+    resource_status: str = Field(default=RESOURCE_DATA_UNAVAILABLE, description="No verified resource inventory exists; never an estimate.")
+    agent_runs: list[AgentRun] = Field(default_factory=list, description="Per-agent execution record for the Agent Execution HUD.")
     evidence_references: list[EvidenceRef] = Field(default_factory=list)
+    # Authoritative-source citations actually used somewhere in this brief
+    # (agents/agents/command/synthesis.py resolves `RecommendedAction.
+    # citations` ids against the role's EvidencePack and only keeps the ones
+    # that exist there) — an id in a citations list always resolves to one
+    # of these, never to nothing.
+    evidence_citations: list[EvidenceItem] = Field(default_factory=list)
+    claim_mappings: list[ClaimMapping] = Field(
+        default_factory=list, description="Audit: which claims are grounded in which evidence, built by the validator, never by an agent."
+    )
     data_limitations: list[DataLimitation] = Field(default_factory=list)
     uncertainties: list[str] = Field(default_factory=list)
     human_review_required: Literal[True] = True

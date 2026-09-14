@@ -77,5 +77,22 @@ class Settings(BaseSettings):
         repo_root = Path(__file__).resolve().parents[3]
         return str(repo_root / "simulation" / "outputs")
 
+    # --- RAG (rag/) ---
+    # "none" (default) keeps the pre-RAG posture: EvidenceRetriever returns
+    # NOT_CONFIGURED and the Command Brief records that as a data limitation
+    # — the same behaviour as before this layer existed. "chroma" wires the
+    # real hybrid retriever in; it needs sources actually ingested
+    # (`python -m rag ingest`) to return anything but INSUFFICIENT_EVIDENCE.
+    rag_provider: str = Field(default="none", validation_alias="RAG_PROVIDER")
+    rag_embedding_provider: str = Field(default="local", validation_alias="RAG_EMBEDDING_PROVIDER")
+    rag_relevance_threshold: float = Field(default=0.15, validation_alias="RAG_RELEVANCE_THRESHOLD")
+    # Defaults to the gitignored rag/vectorstore/data/ directory (see
+    # rag/vectorstore/README.md) — override only for a non-default location.
+    rag_vectorstore_dir_override: str | None = Field(default=None, validation_alias="RAG_VECTORSTORE_DIR")
+
+    @property
+    def rag_vectorstore_dir(self) -> str | None:
+        return self.rag_vectorstore_dir_override
+
 
 settings = Settings()

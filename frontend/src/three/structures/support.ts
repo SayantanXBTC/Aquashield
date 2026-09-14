@@ -6,7 +6,8 @@
  */
 import { CanvasTexture, Color, MeshStandardMaterial, RepeatWrapping, SRGBColorSpace } from "three";
 import type { StructureType } from "@shared/types";
-import { shoreX } from "@/propagation/world";
+import { DEFAULT_SHORE, shoreX, type ShoreParams } from "@/propagation/world";
+import { terrainHeightKm } from "@/three/world/demoWorld";
 
 /** Deterministic 0-1 hash of a string + salt — stable per structure id. */
 export function hash01(seed: string, salt = 0): number {
@@ -20,21 +21,61 @@ export function hash01(seed: string, salt = 0): number {
 
 /** Shoreline tangent direction at northing yKm, in world km: (dx, dy),
  * unit length, pointing north-ish. */
-export function shoreTangent(yKm: number): [number, number] {
-  const dxdy = (shoreX(yKm + 0.5) - shoreX(yKm - 0.5)) / 1.0;
+export function shoreTangent(yKm: number, shore: ShoreParams = DEFAULT_SHORE): [number, number] {
+  const dxdy = (shoreX(yKm + 0.5, shore) - shoreX(yKm - 0.5, shore)) / 1.0;
   const len = Math.hypot(dxdy, 1);
   return [dxdy / len, 1 / len];
 }
 
 /** Scene-space Y rotation that aligns a model's local +X with the shore
- * tangent (so quays run along the coast) and its local -Z toward the sea. */
-export function shoreAlignedRotationY(yKm: number): number {
-  const [tx, ty] = shoreTangent(yKm);
+ * tangent (so quays run along the coast) and its local -Z toward the sea.
+ * Which side the sea is on flips with the coast's orientation, so an
+ * east-facing coast turns the model through half a revolution. */
+export function shoreAlignedRotationY(yKm: number, shore: ShoreParams = DEFAULT_SHORE): number {
+  const [tx, ty] = shoreTangent(yKm, shore);
   // km (tx, ty) -> scene (tx, -ty); angle of that vector from +x toward +z.
-  return -Math.atan2(-ty, tx);
+  const along = -Math.atan2(-ty, tx);
+  return shore.landSign >= 0 ? along : along + Math.PI;
 }
 
 export const COASTAL_TYPES: ReadonlySet<StructureType> = new Set(["port", "lighthouse", "fuel_terminal"]);
+
+export interface FootprintGround {
+  /** Where the model's base sits: the HIGHEST terrain under its footprint,
+   * so no corner of the plate pokes up through the building. */
+  baseY: number;
+  /** Highest minus lowest terrain under the footprint — how deep the
+   * foundation has to reach on the downhill side to close the gap. */
+  reliefY: number;
+}
+
+/**
+ * Fits a structure to uneven ground.
+ *
+ * Sampling the terrain at the structure's centre alone leaves a building
+ * floating on its downhill corner (and buried on its uphill one) wherever
+ * the plate is not flat. Sampling a ring around the footprint gives both
+ * numbers needed to seat it: the base goes at the high point, and a
+ * foundation skirt of `reliefY` (plus a margin) closes the gap underneath.
+ *
+ * Reads the same `terrainHeightKm` the land mesh is built from, so the seam
+ * is exact rather than approximately right.
+ */
+export function footprintGround(xKm: number, yKm: number, radiusKm: number, flat = false): FootprintGround {
+  let min = terrainHeightKm(xKm, yKm, flat);
+  let max = min;
+  const samples = 12;
+  for (let ring = 0; ring < 2; ring++) {
+    const r = radiusKm * (ring === 0 ? 0.6 : 1);
+    for (let i = 0; i < samples; i++) {
+      const a = (i / samples) * Math.PI * 2;
+      const h = terrainHeightKm(xKm + Math.cos(a) * r, yKm + Math.sin(a) * r, flat);
+      if (h < min) min = h;
+      if (h > max) max = h;
+    }
+  }
+  return { baseY: Math.max(0.05, max), reliefY: Math.max(0, max - min) };
+}
 
 let windowTexture: CanvasTexture | null = null;
 

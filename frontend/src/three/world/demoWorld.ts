@@ -9,8 +9,7 @@
  * world's middle is the scene origin: sceneX = xKm - 150, sceneZ = -(yKm -
  * 150) (+z is south). Nothing here is GIS data or real terrain.
  */
-import demoWorld from "@shared/constants/demo_world.json";
-import { shoreX, WORLD_KM } from "@/propagation/world";
+import { DEFAULT_SHORE, landDepthKm, WORLD_KM, type ShoreParams } from "@/propagation/world";
 
 export const SCENE_UNITS_PER_KM = 1;
 export const WORLD_SCENE_SIZE = WORLD_KM * SCENE_UNITS_PER_KM;
@@ -33,10 +32,10 @@ export function kmToSceneUnits(km: number): number {
   return km * SCENE_UNITS_PER_KM;
 }
 
-/** Signed distance inland from the shoreline, in km (negative = offshore). */
-export function landDepthKm(xKm: number, yKm: number): number {
-  return xKm - shoreX(yKm);
-}
+/** Signed distance inland from the shoreline, in km (negative = offshore).
+ * Re-exported from the propagation mirror so the scene and the physics
+ * cannot disagree about which side is land. */
+export { landDepthKm } from "@/propagation/world";
 
 // --- Terrain height (JS + GLSL twins) --------------------------------------
 //
@@ -63,43 +62,78 @@ function smoothstep(e0: number, e1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** Terrain height (scene units) at world km coordinates. */
-export function terrainHeightKm(xKm: number, yKm: number): number {
-  const d = landDepthKm(xKm, yKm);
-  const n = vnoise(xKm, yKm);
+/** Terrain height (scene units) at world km coordinates. `flat` is the
+ * Dense Coastal Profile / real-city rendering choice (CLAUDE.md §27/ADR-009)
+ * — the sea-floor branch never changes; only the land-side elevation
+ * flattens. `shore` is the fictional demo curve by default, or a curated
+ * real city's fitted curve — the shoreline BOUNDARY this determines is what
+ * hazard physics and exposure key off, so it must match whatever the
+ * scenario is actually using. */
+export function terrainHeightKm(xKm: number, yKm: number, flat = false, shore: ShoreParams = DEFAULT_SHORE): number {
+  const d = landDepthKm(xKm, yKm, shore);
   if (d < 0) {
     // Sea floor: a shelf that shelves down over ~40 km, noise-broken.
+    const n = vnoise(xKm, yKm);
     return -0.8 - 6.0 * smoothstep(0, 40, -d) + n * 0.12 * smoothstep(0, 10, -d);
   }
+  if (flat) return 0.05;
+  const n = vnoise(xKm, yKm);
   const beach = 0.35 + 1.4 * smoothstep(0, 5, d);
   const hills = (n * 0.75 + 2.6) * smoothstep(3, 28, d);
   const ridge = 4.5 * smoothstep(40, 120, d) * (0.6 + 0.4 * Math.sin(yKm * 0.05 + n * 0.1));
   return beach + hills + ridge;
 }
 
-const terms = demoWorld.shore_terms;
 const f = (v: number) => v.toFixed(6);
 
+/** Default GLSL shore uniform values — the fictional demo curve. A curated
+ * real city (ADR-009) overrides these per-material at scenario load; the
+ * shoreline shape is a runtime uniform, never baked into shader source, so
+ * switching cities never requires a shader recompile. */
+export function shoreUniformDefaults(shore: ShoreParams = DEFAULT_SHORE): {
+  uShoreBase: number;
+  uShoreAmp: [number, number, number];
+  uShoreFreq: [number, number, number];
+  uShorePhase: [number, number, number];
+  uLandSign: number;
+} {
+  const [t0, t1, t2] = shore.terms;
+  return {
+    uShoreBase: shore.baseXKm,
+    uShoreAmp: [t0.amp, t1.amp, t2.amp],
+    uShoreFreq: [t0.freq, t1.freq, t2.freq],
+    uShorePhase: [t0.phase, t1.phase, t2.phase],
+    uLandSign: shore.landSign,
+  };
+}
+
 /** GLSL chunk: `shoreX(yKm)`, `landDepthKm(xKm, yKm)`, `terrainHeightKm(xKm,
- * yKm)`, and `sceneToKm(vec2)`. Generated from the same constants as the JS
- * functions above. */
+ * yKm)`, and `sceneToKm(vec2)`. The shoreline shape comes from uniforms
+ * (`uShoreBase`/`uShoreAmp`/`uShoreFreq`/`uShorePhase`) — see
+ * `shoreUniformDefaults()` for how a consuming material initializes them. */
 export const DEMO_WORLD_GLSL = /* glsl */ `
   const float WORLD_KM = ${f(WORLD_KM)};
   const float WORLD_HALF = ${f(HALF)};
   const float SCENE_PER_KM = ${f(SCENE_UNITS_PER_KM)};
+  uniform float uFlatTerrain;
+  uniform float uShoreBase;
+  uniform vec3 uShoreAmp;
+  uniform vec3 uShoreFreq;
+  uniform vec3 uShorePhase;
+  uniform float uLandSign;
 
   vec2 sceneToKm(vec2 sceneXZ) {
     return vec2(sceneXZ.x / SCENE_PER_KM + WORLD_HALF, -sceneXZ.y / SCENE_PER_KM + WORLD_HALF);
   }
 
   float shoreX(float yKm) {
-    return ${f(demoWorld.shore_base_x_km)}
-      + ${f(terms[0].amp)} * sin(6.28318530718 * ${f(terms[0].freq)} * yKm / WORLD_KM + ${f(terms[0].phase)})
-      + ${f(terms[1].amp)} * sin(6.28318530718 * ${f(terms[1].freq)} * yKm / WORLD_KM + ${f(terms[1].phase)})
-      + ${f(terms[2].amp)} * sin(6.28318530718 * ${f(terms[2].freq)} * yKm / WORLD_KM + ${f(terms[2].phase)});
+    return uShoreBase
+      + uShoreAmp.x * sin(6.28318530718 * uShoreFreq.x * yKm / WORLD_KM + uShorePhase.x)
+      + uShoreAmp.y * sin(6.28318530718 * uShoreFreq.y * yKm / WORLD_KM + uShorePhase.y)
+      + uShoreAmp.z * sin(6.28318530718 * uShoreFreq.z * yKm / WORLD_KM + uShorePhase.z);
   }
 
-  float landDepthKm(float xKm, float yKm) { return xKm - shoreX(yKm); }
+  float landDepthKm(float xKm, float yKm) { return uLandSign * (xKm - shoreX(yKm)); }
 
   float worldNoise(float x, float y) {
     return 2.2 * sin(0.021 * x + 0.9 * sin(0.017 * y))
@@ -111,10 +145,12 @@ export const DEMO_WORLD_GLSL = /* glsl */ `
 
   float terrainHeightKm(float xKm, float yKm) {
     float d = landDepthKm(xKm, yKm);
-    float n = worldNoise(xKm, yKm);
     if (d < 0.0) {
+      float n = worldNoise(xKm, yKm);
       return -0.8 - 6.0 * smoothstep(0.0, 40.0, -d) + n * 0.12 * smoothstep(0.0, 10.0, -d);
     }
+    if (uFlatTerrain > 0.5) { return 0.05; }
+    float n = worldNoise(xKm, yKm);
     float beach = 0.35 + 1.4 * smoothstep(0.0, 5.0, d);
     float hills = (n * 0.75 + 2.6) * smoothstep(3.0, 28.0, d);
     float ridge = 4.5 * smoothstep(40.0, 120.0, d) * (0.6 + 0.4 * sin(yKm * 0.05 + n * 0.1));

@@ -32,7 +32,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-from simulation.core.propagation import heading_vector, shore_x
+from simulation.core.propagation import DEFAULT_SHORE, ShoreParams, heading_vector, land_depth_km
 
 STRUCTURE_TYPES = ("building", "hospital", "port", "power_plant", "lighthouse", "fuel_terminal")
 TSUNAMI_HALF_ANGLE_DEG = 40.0
@@ -78,9 +78,11 @@ def _clamp01(v: float) -> float:
     return max(0.0, min(1.0, v))
 
 
-def inland_depth_km(x_km: float, y_km: float) -> float:
-    """Signed distance inland from the shoreline (negative offshore)."""
-    return x_km - shore_x(y_km)
+def inland_depth_km(x_km: float, y_km: float, shore: ShoreParams = DEFAULT_SHORE) -> float:
+    """Signed distance inland from the shoreline (negative offshore).
+    One definition, in propagation.py — this name is kept because the
+    exposure rules below read better with it."""
+    return land_depth_km(x_km, y_km, shore)
 
 
 def lateral_offset_km(px: float, py: float, ox: float, oy: float, heading_deg: float) -> float:
@@ -116,14 +118,14 @@ def _landfall_point(g: HazardGeometry) -> tuple[float, float] | None:
     return g.origin_x_km + dx * g.coast_distance_total_km, g.origin_y_km + dy * g.coast_distance_total_km
 
 
-def exposure_for(g: HazardGeometry, x_km: float, y_km: float) -> tuple[float, float]:
+def exposure_for(g: HazardGeometry, x_km: float, y_km: float, shore: ShoreParams = DEFAULT_SHORE) -> tuple[float, float]:
     """Returns (distance_km to the hazard reference point, exposure 0-1)."""
     if g.kind == "tsunami":
         landfall = _landfall_point(g)
         dist = math.hypot(x_km - g.position_x_km, y_km - g.position_y_km)
         if not g.arrived or landfall is None or g.inundation_km <= 0:
             return dist, 0.0
-        depth = inland_depth_km(x_km, y_km)
+        depth = inland_depth_km(x_km, y_km, shore)
         if depth < -0.5 or depth > g.inundation_km:
             return dist, 0.0
         half_width = max(5.0, g.traveled_km * math.tan(math.radians(TSUNAMI_HALF_ANGLE_DEG)))
@@ -142,7 +144,7 @@ def exposure_for(g: HazardGeometry, x_km: float, y_km: float) -> tuple[float, fl
 
     if g.kind == "oil_spill":
         dist = math.hypot(x_km - g.position_x_km, y_km - g.position_y_km)
-        if inland_depth_km(x_km, y_km) > COASTAL_STRUCTURE_MAX_SHORE_KM:
+        if inland_depth_km(x_km, y_km, shore) > COASTAL_STRUCTURE_MAX_SHORE_KM:
             return dist, 0.0  # oil only touches the coast
         reach = g.radius_km + OIL_FRINGE_KM
         if dist > reach:
@@ -154,7 +156,7 @@ def exposure_for(g: HazardGeometry, x_km: float, y_km: float) -> tuple[float, fl
         dist = math.hypot(x_km - g.position_x_km, y_km - g.position_y_km)
         if not g.arrived or landfall is None or g.inundation_km <= 0:
             return dist, 0.0
-        depth = inland_depth_km(x_km, y_km)
+        depth = inland_depth_km(x_km, y_km, shore)
         if depth < -0.5 or depth > g.inundation_km:
             return dist, 0.0
         lateral_limit = FLOOD_LATERAL_BASE_KM + g.spread_radius_km
@@ -168,7 +170,7 @@ def exposure_for(g: HazardGeometry, x_km: float, y_km: float) -> tuple[float, fl
     return 0.0, 0.0
 
 
-def assess_structures(structures: list[dict[str, Any]] | None, geometry: HazardGeometry) -> list[StructureImpact]:
+def assess_structures(structures: list[dict[str, Any]] | None, geometry: HazardGeometry, shore: ShoreParams = DEFAULT_SHORE) -> list[StructureImpact]:
     impacts: list[StructureImpact] = []
     for raw in structures or []:
         if not isinstance(raw, dict) or raw.get("enabled", True) is False:
@@ -178,7 +180,7 @@ def assess_structures(structures: list[dict[str, Any]] | None, geometry: HazardG
             y = float(raw["y_km"])
         except (KeyError, TypeError, ValueError):
             continue
-        dist, exposure = exposure_for(geometry, x, y)
+        dist, exposure = exposure_for(geometry, x, y, shore)
         impacts.append(
             StructureImpact(
                 structure_id=str(raw.get("id", "")),

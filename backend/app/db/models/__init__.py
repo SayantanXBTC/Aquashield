@@ -7,6 +7,7 @@ from app.db.models.geographic_dataset import GeographicDataset
 from app.db.models.geographic_feature import GeographicFeature
 from app.db.models.incident_action_plan import IncidentActionPlan
 from app.db.models.infrastructure_asset import InfrastructureAsset
+from app.db.models.rag_source import RagIngestionLog, RagSource
 from app.db.models.response_recommendation import ResponseRecommendation
 from app.db.models.risk_assessment import RiskAssessment
 from app.db.models.scenario import Scenario

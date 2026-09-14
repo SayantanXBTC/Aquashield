@@ -118,22 +118,25 @@ The graph is a starting shape and can evolve. Agents read structured simulation 
 ## 10. RAG Architecture
 
 ```
-Documents
+Documents (rag/sources/ — real authoritative sources only; rag/tests/fixtures/ for TEST_FIXTURE material)
   ↓
-Parser
+Parser (rag/parsing/ — md frontmatter, txt/pdf + sidecar .meta.json)
   ↓
-Chunker
+Chunker (rag/chunking/ — 500-1000 "tokens", section/page-aware, never spans a section change)
   ↓
-Embedding
+Embedding (rag/embeddings/ — DeterministicHashEmbedding by default, no network/credits)
   ↓
-ChromaDB
+ChromaDB (rag/vectorstore/ — one `aquashield_evidence` collection, cosine distance)
   ↓
-Retriever
+Hybrid Retriever (rag/retrieval/ — role-scoped query + disaster-type metadata filter + relevance threshold)
   ↓
-Regulatory/Knowledge Agent
+evidence_retrieval graph node (agents/graph/workflow/graph.py) → Precaution / Response agents
 ```
 
-The knowledge base is organized by disaster category (flood, cyclone, tsunami, oil spill, pollution, search & rescue, general disaster-management SOPs) so retrieval can be scoped by active scenario type, not just free-text similarity.
+Implemented (Prompt 16): §30b, docs/rag/pipeline.md. The knowledge base is organized by disaster category
+(flood, cyclone, tsunami, oil_spill, pollution, search_rescue, environmental, general — matching
+`rag/sources/`'s folder taxonomy) so retrieval is scoped by the active scenario's disaster type, plus
+"general" cross-cutting guidance, never just free-text similarity across every source.
 
 ## 11. Closed-Loop Scenario System
 
@@ -291,9 +294,74 @@ explainability requires an evidence chain; development and CI must not need paid
 Alternatives: free-form LLM chat over raw JSON (rejected — ungrounded numbers), agents with write access
 to recommendations tables (deferred — every output is human-gated first), a single-agent prompt (rejected —
 the parallel analyst/advisor split keeps impact facts and operational advice separately auditable).
-Consequences: synchronous execution per request (same prototype choice as simulation); no RAG yet
-(`EvidenceRetriever` stub → `NOT_CONFIGURED`); UI only gains an additive brief panel. See
-docs/agents/ai-layer.md.
+Consequences: synchronous execution per request (same prototype choice as simulation); UI only gains an
+additive brief panel. RAG was deliberately deferred at this decision point and landed later as its own
+package (§30b, ADR-008) behind the same `EvidenceRetriever` Protocol this ADR defines — `NOT_CONFIGURED` is
+still the default (`RAG_PROVIDER=none`) until an operator ingests real sources. See docs/agents/ai-layer.md.
+
+### ADR-008: Standalone `rag/` package with a deterministic local embedding provider, wired in as one graph node
+
+Decision: `rag/` (parser → chunker → embedder → ChromaDB → hybrid retriever) is standalone, on the same
+architectural footing as `simulation/` and `agents/` — no FastAPI/SQLAlchemy import anywhere in it. The
+analysis graph gains one node, `evidence_retrieval`, between Tier 1 and Tier 2, producing a role-scoped
+`EvidencePack` for the Precaution and Response agents each. `EmbeddingProvider` mirrors `LLMProvider`'s shape
+(ADR-006): `DeterministicHashEmbedding` — a bag-of-hashed-words vector, no network, no credits — is the
+default and what every test runs against; a hosted embeddings API is a documented gap, not an invented
+integration (Anthropic has no embeddings endpoint). The Postgres source registry (`rag_sources`,
+`rag_ingestion_log`) is bridged by one backend service (`RagIngestionService`), the same pattern
+`ai_data_access.py`/`simulation_service.py` already establish.
+Reason: CLAUDE.md §11/§26b — the knowledge base must be disaster-aware, never fabricate a citation, and the
+existing domain-isolation and offline-by-default conventions (ADR-002, ADR-006) should not be broken to add
+it.
+Alternatives: embedding RAG logic inside `agents/` (rejected — rag/README.md's stated boundary, and it would
+give the AI layer an implicit second data-access path outside `AnalysisDataAccess`); a hosted embeddings API
+as the only provider (rejected — blocks offline development and CI on a paid, networked dependency); scoring
+citations by trusting whatever an LLM returns (rejected — `SafetyValidator.validate_citations` re-checks
+every id against the actual `EvidencePack`, the same evidence-gate discipline as simulation facts).
+Consequences: retrieval quality is bounded by the local hash embedding's crude bag-of-words semantics until
+a real embedding model is wired in; `RAG_PROVIDER=none` keeps every existing AI-layer behaviour and test
+unchanged until an operator explicitly opts in and ingests sources. See §30b, docs/rag/pipeline.md.
+
+### ADR-009: A narrow, curated exception to "no real place names" for genuinely real coastline/building geometry
+
+Decision: exactly five curated Indian coastal cities (Chennai, Mumbai, Puri, Visakhapatnam, Kochi) may be
+selected as a scenario's `world_profile: "real_city"` + `city_id` (`PropagationConfig`, both optional,
+cross-validated: one implies the other). Selecting one swaps the fictional demo shoreline's sine-curve
+constants and generic building field for that city's real Natural Earth coastline (curve-fit into the
+*same* 3-term-sine `shore_x` parametrization every consumer already expects, never a polyline rewrite) and
+real OpenStreetMap building footprints (generic `StructureType`s only — a real hospital's OSM tag becomes
+the type `"hospital"`, never its real name). Physics is unchanged: the same simplified propagation/exposure
+model as every other scenario, explicitly not extended to bathymetry-driven solvers in this phase. Every
+`real_city` scene carries a persistent label: "Real coastline & building geometry. Simplified demonstration
+physics — not an operational forecast" (`TelemetryPanel`). See §28c.
+Reason: CLAUDE.md §25/§27 and ADR-005 forbid a real place name/coordinate on the fictional world because
+simplified-demo-physics + a real named place reads as a real risk assessment — a genuine liability concern
+specific to *fictional* geometry wearing a real name. Once the geometry (coastline shape, building
+positions) is genuinely real and the UI discloses that physics stays simplified, naming the city stops
+being that harm.
+Alternatives: keep the blanket ban (rejected — unreachable without some exception); allow an arbitrary
+user-entered city/coordinate (rejected — reopens the original liability concern for any place, not five
+reviewed ones, and skips fit-quality review); real geometry under a generic/fictional name (rejected — this
+is exactly what §28b's Dense Coastal Profile already is; doesn't meet the actual requirement).
+Consequences: `scripts/build_town_data.py` and its output (`shared/constants/towns/*.json`) are the only
+path real lat/lon or real building data enters the repo — never fetched at runtime, always a reviewed,
+committed data change. Both `frontend/src/propagation/*` (live preview) and `simulation/core/propagation.py`
+(the authoritative recorded-run engine) read the same per-scenario shore override, so a recorded run's
+physics stays geometrically consistent with what renders — this took real code changes on both sides
+(§25/§26's mirroring discipline extends to a per-scenario shoreline, not just the one fixed constant set).
+Phase 1 ships Chennai only; the other four cities are commented into the script's `CITIES` table with real,
+verifiable centers, pending their own fit-quality validation before being committed.
+
+Update (2026-09-14): coastal orientation is now a property of the world model, not of data preparation.
+`simulation/core/propagation.py`'s `ShoreParams` gained `land_sign` (+1 land east of the shoreline curve,
+−1 land west), and every land test on both sides of the mirror routes through a signed `land_depth_km`.
+Phase 1's original approach instead mirrored the cross-shore axis in `build_town_data.py` so an east-facing
+city (Chennai, Bay of Bengal) would still satisfy the engine's hard-coded "land is east" rule — this rendered
+the city as a mirror image, and left `TownProfile.heading_deg` (a real compass bearing) pointing away from
+the now-mirrored land, so a scenario using the town's own default heading never made landfall and never
+exposed a structure. Every `TownProfile` now declares `ocean_side`; a missing value is a config error, not a
+guessed orientation. `scripts/migrate_town_orientation.py` reflected Chennai's committed geometry back to its
+real chirality one time; it is a migration of already-fetched data, not a data source.
 
 ## 14. Data Sources
 
@@ -517,8 +585,7 @@ manifests (`frontend/package.json`, root `requirements.txt`) are the source of t
   the React → R3F → Three.js pipeline works; it is not an AQUASHIELD scene.
 - Anime.js — one `useFadeIn` micro-interaction hook proves the import/integration works; no disaster animation.
 - NumPy, SciPy, xarray, Shapely, GeoPandas — import-verified in the venv; no simulation model uses them yet.
-- LangGraph, langchain-core — import-verified; no agent graph exists yet.
-- ChromaDB — import-verified; no ingestion/retrieval pipeline exists yet.
+- LangGraph, langchain-core — BOOTSTRAPPED (Prompt 14/15, §30/§30a): the 9-node analysis graph.
 
 **PLANNED** (not installed):
 
@@ -876,6 +943,80 @@ statement of what the console actually contains (CLAUDE.md §12/§26/§27). The 
 modes are rendered as explicitly unavailable (`aria-disabled`, muted, "planned" tooltip) rather than as live
 tabs that would do nothing.
 
+### 28a. World scenery: vegetation and structural response
+
+`three/vegetation/` plants ~4,000 instanced trees on the land plate, placed by a JS twin of the noise the
+terrain material paints its forest patches with, and animated entirely in the vertex shader (sway, and a
+laid-over desaturated canopy inside a hazard's current inland reach). Six draw calls; one module-level
+uniform block, the same pattern as `hazardChannel`.
+
+`three/structures/support.ts`'s `footprintGround` seats a structure on the highest ground under its footprint
+with a foundation reaching past the lowest, so nothing floats or buries on the sloping plate.
+
+`three/structures/collapse.ts` draws the exposure band as structural failure: lean through `at_risk`, pieces
+failing and crumbling across `impacted`, the structure down inside `severe`, toppled downstream of the
+hazard. It is an **illustration of the band, not a damage model** —
+AQUASHIELD has none — it is a pure function of the current exposure (so it reverses when the timeline is
+scrubbed back), it imports its thresholds from `propagation/structures.ts`, and the UI states the caveat
+alongside the statuses (CLAUDE.md §25). Detail: docs/development/command-center.md.
+
+### 28b. Dense Coastal Profile — a flat-canvas world variant
+
+`scenario_config.world_profile` (`"demo" | "dense_coastal"`, `PropagationConfig`, optional, defaults to
+`None`/"demo") is a purely cosmetic 3D-rendering choice — never a real place, never read by the Python
+simulation engine (CLAUDE.md §25/§27). `"dense_coastal"` flattens the land-side branch of
+`terrainHeightKm`/`DEMO_WORLD_GLSL` (`three/world/demoWorld.ts`) to a constant, leaving the sea-floor branch
+and `landDepthKm`/`shoreX` (the land/sea boundary) untouched — hazard physics is provably identical between
+profiles. `ForestLayer` is suppressed and replaced with `three/urban/DenseBuildingLayer.tsx`, a fictional,
+procedurally generated instanced-building field (`buildingPlacement.ts`, same deterministic-grid technique
+as `forestPlacement.ts`) whose exposure tint (Clear/Amber/Red) reuses the exact
+`exposureFor()`/`statusFor()` functions and `STATUS_COLOR` palette named structures already use — no second
+exposure model. Toggled from the "New test" modal or the TopBar (`TopBar.tsx`'s world-profile button),
+persisted as an ordinary `scenario_config` edit like every other parameter. RAG grounding for this profile
+needed no code changes — real NDMA/IMD sources were added to the existing `rag/sources/` categories
+(tsunami/cyclone/flood), surfacing via the existing disaster-type-filtered retrieval for any matching
+scenario, dense-canvas or not.
+
+### 28c. Real City mode — curated real coastline/buildings (ADR-009, phase 1: Chennai)
+
+`scenario_config.world_profile: "real_city"` + `city_id` (one of the five curated cities) swaps the
+fictional shoreline/buildings for a real one. Data flow: `scripts/build_town_data.py` (a one-time,
+rerunnable developer tool, network access at prep time only) fetches Natural Earth's 10m coastline for a
+bbox around the city, resamples and fits it to `shore_base_x_km` + three `{amp, freq, phase}` sine terms
+via `scipy.optimize.curve_fit` (Chennai: 0.52 km RMSE over 134 resampled points — a close-to-straight coast
+is the best fit candidate; the fit is deliberately frequency-bounded to approximate general curvature, not
+trace every inlet), and fetches OpenStreetMap building footprints via Overpass (`way["building"]` in the
+same bbox; height from `height`/`building:levels` tags with a documented fallback table; footprint
+orientation from the polygon's minimum-rotated-rectangle axis, not random). Output:
+`shared/constants/towns/<city_id>.json` (`TownProfile` — `shared/types/index.ts`), containing only km-frame
+numbers and generic `StructureType`s, never real lat/lon or a real building's name.
+
+Both consumers read the same file directly, one source of truth (no hand-synced duplicate constant set like
+the fictional world's Python/TS pair): `frontend/src/features/command-center/towns.ts` bundles it at build
+time via `import.meta.glob` (auto-discovers whichever cities are actually committed, so a partial rollout
+never breaks the build); `simulation/core/propagation.py`'s `shore_params_for_city()` `json.load()`s it
+directly from `shared/constants/towns/` at run time, raising `SimulationConfigError` rather than silently
+falling back to the fictional shoreline if the file is missing.
+
+Every function keyed on shoreline position gained an optional `shore`/`ShoreParams` override, defaulting to
+the fictional constants, so every existing call site is provably unaffected: `shore_x`/`is_land`/
+`distance_to_coast_along_heading`/`nearest_shore_distance`/`PropagationParams` (Python and the TS mirror),
+`terrainHeightKm`/`landDepthKm` and their GLSL twin in `DEMO_WORLD_GLSL` (the shoreline's sine terms became
+GLSL *uniforms* — `uShoreBase`/`uShoreAmp`/`uShoreFreq`/`uShorePhase` — rather than baked shader-source
+constants, so switching cities never needs a shader recompile), `exposureFor`/`assessStructures`/
+`inlandDepthKm`, and the origin-pin/structure drag-clamps. `three/urban/DenseBuildingLayer.tsx` renders a
+real city's buildings via `realTownPlacements.ts`'s `placementsFromTown()` (maps each committed
+`TownPlacement` through the same instancing/exposure-tint path §28b's fictional `buildingPlacement.ts`
+already established) instead of the procedural generator.
+
+UI: a third "Real City" option in `NewTestModal.tsx`'s world radiogroup opens `CityPicker.tsx` (a
+decorative, schematic India outline with pins — not GIS data — only cities with committed data are
+selectable); `TelemetryPanel.tsx` renders the mandatory ADR-009 disclosure label and a real, computed
+impacted/total building count using the same `exposureFor()`/`statusFor()` functions.
+
+Orientation convention: `ShoreParams.land_sign` is +1 when land lies east of the shoreline curve and −1 when
+it lies west — the only difference between a west-facing and an east-facing city's geometry.
+
 ## 29. Authenticated Interactive Console (Prompt 12)
 
 The console was rebuilt around three decisions: Firebase Authentication with per-user data isolation
@@ -918,17 +1059,89 @@ Backend: `app/core/auth.py`, `app/api/routes/auth.py` (`GET /auth/me`), owner sc
 rewritten on `simulation/core/propagation.py` (`*-demo-v2` identifiers). `search_rescue` keeps its v1
 model (no shoreline visual, not offered as a preset).
 
-## 30. AI Intelligence Layer (Prompt 14)
+## 30. AI Intelligence Layer (Prompt 14, extended in Prompt 15)
 
 ```
-POST /ai/analyze ──► AIAnalysisService ──► run_analysis(GraphDeps)
+POST /ai/analyze-frame ──► AIAnalysisService ──► run_analysis(GraphDeps)
                          │                      │
-                         │   START → context_collector → { impact_analyst ‖ tactical_advisor } → synthesis_safety → END
+                         │   START → context_collector
+                         │              ├─(conditional: no analysable frame → safety_validator)
+                         │              └─► { hazard_agent ‖ damage_agent ‖ risk_agent }
+                         │                        └─► evidence_retrieval ──► rag/ (role-scoped EvidencePack, READ)
+                         │                                  └─► { precaution_agent ‖ response_agent }
+                         │                                            └─► safety_validator → command_synthesizer → END
                          │                      │
                          │   Agent → ToolRunner → BackendAnalysisDataAccess → Scenario/Simulation/Footprint/Exposure services → repositories → PostGIS/DB (READ)
+                         ├──► AIEventBus (per-owner, in-process) ──► /ws/ai ──► Agent Execution HUD
                          └──► ai_requests row (status, provider, model, prompt/agent versions, tools called, execution_ms, CommandBrief)   (the only WRITE)
 ```
 
 Detail and guardrails: docs/agents/ai-layer.md. Contracts: `agents/schemas/*.py` (Python source of truth),
-`shared/types/index.ts` (`CommandBrief`, `AIRequestOut`, …).
+`shared/types/index.ts` (`CommandBrief`, `AIRequestOut`, `AIEvent`, …).
+
+### 30a. Frame-synchronised analysis (Prompt 15)
+
+The deterministic layer updates every frame; the agent graph must not. Three mechanisms keep the two in step
+without freezing the UI or spending a graph run per frame:
+
+| Concern | Where it lives | Rule |
+|---|---|---|
+| Pacing | `frontend/src/features/command-center/ai/analysisScheduler.ts` | playback: ≤ 1 analysis per `AI_UPDATE_INTERVAL_MS` (5 s); scrub: debounced `AI_SCRUB_DEBOUNCE_MS` (600 ms); pause / run-complete / manual: immediate |
+| Caching | same file | key `(scenario_version_id, simulation_run_id, frame_index)`; the whole cache is dropped when the scope (scenario + version + run) changes |
+| Staleness | scheduler (client) + `AIAnalysisService` (server) | a response whose scope changed, or which a newer frame's request has superseded, is discarded; a request naming a version the run was not produced from is refused `409 AI_ANALYSIS_STALE` |
+
+Execution stays synchronous (§27's prototype choice). Liveness comes from `AIEventBus` — an in-process,
+per-owner, best-effort fan-out of milestones (`AI_ANALYSIS_STARTED`, `AGENT_STARTED`, `AGENT_COMPLETED`,
+`AI_ANALYSIS_COMPLETED`, `AI_ANALYSIS_FAILED`, `AI_ANALYSIS_STALE`) to `/ws/ai`. Events are a progress view
+only: the Command Brief always arrives over HTTP, so a dropped socket costs liveness and nothing else. One
+uvicorn worker is assumed; a multi-worker deployment needs a real broker (open follow-up).
+
+Fail-safe partial runs: a non-critical agent that raises is recorded `FAILED` with an `AGENT_FAILED`
+`DataLimitation`; the graph continues and the brief loses only that agent's section. Conditional routing skips
+the analysis tiers entirely when the Context Collector finds no analysable frame, so an empty frame costs no
+LLM call.
+
+UI mount points (`frontend/src/features/command-center/`, `CommandCenterPage.tsx`): left rail →
+`components/AgentExecutionHud.tsx` (a chip per graph node, grouped by superstep so the parallel branches read
+as parallel); right rail → `components/IntelligencePanel.tsx` (hazard, potentially-exposed table, priorities,
+precautions, actions, limitations & audit). Both are ordinary HUD panels in the existing mission-control
+layout — no chatbot surface. The pre-Prompt-15 `CommandBriefPanel` is superseded and removed.
+
+`HudPanel` carries `shrink-0`: the rails are flex columns, so without it a rail with several panels squashes
+each one and clips its body mid-line (which reads as panels overlapping). Panels keep their natural height and
+the rail scrolls.
+
+### 30b. RAG evidence layer (Prompt 16)
+
+`rag/` is a standalone package (parser → chunker → embedder → ChromaDB → hybrid retriever), the same
+isolation discipline as `simulation/` and `agents/`. The graph gains one node, `evidence_retrieval`, between
+Tier 1 and Tier 2 (§30's diagram): it builds a role-scoped `RetrievalQuery` for `precaution` and `response`
+(architecture.md §10's role phrasing) and calls the injected `EvidenceRetriever` — `NotConfiguredEvidenceRetriever`
+(default, `RAG_PROVIDER=none`) or `HybridRetriever` (`RAG_PROVIDER=chroma`) over the real `aquashield_evidence`
+collection.
+
+**Citations are never trusted, only verified.** A Precaution/Response action may put a retrieved
+`EvidenceItem.evidence_id` in its `citations`; `SafetyValidator.validate_citations`
+(agents/agents/command/synthesis.py) keeps only ids that literally exist in the `EvidencePack` that node was
+actually given — a hallucinated or injected id is dropped and recorded in `validation_notes`, exactly like an
+unknown simulation evidence id. Retrieved `text_snippet` content is treated as quoted data throughout, never
+as an instruction (`RAG_GUARDRAILS`, agents/prompts/versions.py) — the same untrusted-input discipline as the
+sanitized `operator_question`.
+
+**Registry split**, mirroring `SimulationArtifact` (§14a): ChromaDB holds chunks and embeddings;
+`rag_sources`/`rag_ingestion_log` (Postgres, `backend/app/db/models/rag_source.py`) hold metadata, checksum
+and an append-only ingestion audit. `RagIngestionService` (`backend/app/services/`) is the idempotency
+boundary — a source whose checksum is unchanged is a `skipped` log row, not a re-embed.
+
+**Endpoints:** `POST /rag/retrieve` (auth required — exercises the retriever directly), `GET /rag/sources`,
+`GET /rag/sources/{source_id}`, `GET /rag/health` (unauthenticated, like `/disaster-types` — the source
+registry is shared knowledge, not user data). **Events:** `RAG_RETRIEVAL_STARTED`, `RAG_RETRIEVAL_COMPLETED`,
+`AGENT_EVIDENCE_ATTACHED` ride the existing `/ws/ai` bus (§30a) — no second socket.
+
+**CLI:** `python -m rag ingest|validate|list-sources` (`rag/__main__.py`) — argparse subcommands, not
+`python -m rag.ingest`, because `list-sources` is not a valid Python module identifier; documented deviation
+from the literal request. It is the one file in `rag/` allowed to import `backend.app`, bridging the two
+domains exactly as `backend/app/main.py` bridges the other direction for `simulation.*`.
+
+Detail: docs/rag/pipeline.md. See ADR-008.
 

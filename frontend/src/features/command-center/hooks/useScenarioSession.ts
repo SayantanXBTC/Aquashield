@@ -9,12 +9,13 @@ import {
 } from "@/propagation/hazards";
 import { paramsToConfig, type PropagationParams } from "@/propagation/kinematics";
 import { assessStructures, geometryFromSnapshot } from "@/propagation/structures";
-import { distanceToCoastAlongHeading, shoreX, WORLD_KM } from "@/propagation/world";
+import { DEFAULT_SHORE, distanceToCoastAlongHeading, offshoreOriginX, shoreParamsForTown, shoreX, WORLD_KM, type ShoreParams } from "@/propagation/world";
 import { scenarioApi } from "../api/scenarioApi";
 import { simulationApi } from "../api/simulationApi";
 import type { PlaybackClock } from "../playback/playbackClock";
 import type { DisasterPreset } from "../presets";
-import type { ScenarioDetail, ScenarioListItem, SimulationRun, StructureConfig, StructureImpact, StructureType, TimelineFrame } from "../types";
+import { getTown, TOWNS } from "../towns";
+import type { CityId, ScenarioDetail, ScenarioListItem, SimulationRun, StructureConfig, StructureImpact, StructureType, TimelineFrame, TownProfile, WorldProfile } from "../types";
 
 export type AsyncStatus = "idle" | "loading" | "error";
 export type SaveStatus = "saved" | "dirty" | "saving" | "error";
@@ -38,17 +39,35 @@ function structuresFromConfig(config: Record<string, unknown> | undefined): Stru
 
 /** Default drop point for a new structure of `type`: on the shoreline
  * (port/lighthouse/terminal) or just inland (others), staggered by how many
- * already exist so they don't stack. */
-export function defaultStructurePosition(type: StructureType, existing: number, aroundYKm: number): [number, number] {
+ * already exist so they don't stack. "Inland" follows the coast's
+ * orientation, so this works on either side of the shoreline. */
+export function defaultStructurePosition(
+  type: StructureType,
+  existing: number,
+  aroundYKm: number,
+  shore: ShoreParams = DEFAULT_SHORE,
+): [number, number] {
   const y = Math.max(5, Math.min(WORLD_KM - 5, aroundYKm + ((existing % 7) - 3) * 9));
-  const shore = shoreX(y);
+  const shoreAtY = shoreX(y, shore);
   const coastal = type === "port" || type === "lighthouse" || type === "fuel_terminal";
-  return [coastal ? shore + 0.6 : shore + 4 + Math.floor(existing / 7) * 6, y];
+  const inland = coastal ? 0.6 : 4 + Math.floor(existing / 7) * 6;
+  const x = shoreAtY + shore.landSign * inland;
+  return [Math.max(2, Math.min(WORLD_KM - 2, x)), y];
 }
 
 function durationFromConfig(config: Record<string, unknown> | undefined): number {
   const raw = config?.duration_hours;
   return typeof raw === "number" && raw > 0 ? raw : DEFAULT_DURATION_HOURS;
+}
+
+function worldProfileFromConfig(config: Record<string, unknown> | undefined): WorldProfile {
+  const raw = config?.world_profile;
+  return raw === "dense_coastal" || raw === "real_city" ? raw : "demo";
+}
+
+function cityIdFromConfig(config: Record<string, unknown> | undefined): CityId | null {
+  const raw = config?.city_id;
+  return typeof raw === "string" && raw in TOWNS ? (raw as CityId) : null;
 }
 
 /**
@@ -88,6 +107,10 @@ export function useScenarioSession(clock: PlaybackClock) {
 
   const [params, setParamsState] = useState<PropagationParams | null>(null);
   const [durationHours, setDurationHoursState] = useState(DEFAULT_DURATION_HOURS);
+  const [worldProfile, setWorldProfileState] = useState<WorldProfile>("demo");
+  const [cityId, setCityIdState] = useState<CityId | null>(null);
+  const town: TownProfile | undefined = useMemo(() => (worldProfile === "real_city" ? getTown(cityId) : undefined), [worldProfile, cityId]);
+  const shore: ShoreParams = useMemo(() => (town ? shoreParamsForTown(town) : DEFAULT_SHORE), [town]);
   const [structures, setStructuresState] = useState<StructureConfig[]>([]);
   const [showStructures, setShowStructures] = useState(true);
   const structuresRef = useRef<StructureConfig[]>([]);
@@ -106,6 +129,8 @@ export function useScenarioSession(clock: PlaybackClock) {
   const [runs, setRuns] = useState<SimulationRun[]>([]);
   const [recording, setRecording] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
+  const [lastRecordedRun, setLastRecordedRun] = useState<{ frameCount: number; durationMs: number } | null>(null);
+  const lastRecordedRunTimer = useRef<number | null>(null);
   const [replayRunId, setReplayRunId] = useState<string | null>(null);
   const [replayFrames, setReplayFrames] = useState<TimelineFrame[]>([]);
   const [replayStatus, setReplayStatus] = useState<AsyncStatus>("idle");
@@ -180,6 +205,8 @@ export function useScenarioSession(clock: PlaybackClock) {
         setStructuresState(structuresFromConfig(config));
         const hours = durationFromConfig(config);
         setDurationHoursState(hours);
+        setWorldProfileState(worldProfileFromConfig(config));
+        setCityIdState(cityIdFromConfig(config));
         clock.setDuration(hours * 60);
         setRuns(runList);
         setSaveStatus("saved");
@@ -241,6 +268,7 @@ export function useScenarioSession(clock: PlaybackClock) {
   useEffect(
     () => () => {
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
+      if (lastRecordedRunTimer.current) window.clearTimeout(lastRecordedRunTimer.current);
     },
     [],
   );
@@ -266,6 +294,19 @@ export function useScenarioSession(clock: PlaybackClock) {
     [clock, scheduleSave],
   );
 
+  /** A purely cosmetic 3D-rendering choice (CLAUDE.md §25/§27) — persists
+   * immediately (not debounced like a slider drag) as its own version, the
+   * same as every other scenario_config edit. */
+  const setWorldProfile = useCallback(
+    (profile: WorldProfile) => {
+      setWorldProfileState(profile);
+      setCityIdState(null);
+      latestConfig.current = { ...latestConfig.current, world_profile: profile === "demo" ? undefined : profile, city_id: undefined };
+      if (paramsRef.current) void persist(paramsRef.current, durationHours);
+    },
+    [persist, durationHours],
+  );
+
   // --- structures ---------------------------------------------------------
 
   /** Live edit (drag): preview only. */
@@ -281,7 +322,7 @@ export function useScenarioSession(clock: PlaybackClock) {
   const addStructure = useCallback(
     (type: StructureType) => {
       const existing = structuresRef.current.length;
-      const [x, y] = defaultStructurePosition(type, existing, paramsRef.current?.originYKm ?? 150);
+      const [x, y] = defaultStructurePosition(type, existing, paramsRef.current?.originYKm ?? 150, shore);
       const label = STRUCTURE_LABELS[type];
       const structure: StructureConfig = {
         id: `${type}-${Date.now().toString(36)}-${existing}`,
@@ -295,7 +336,7 @@ export function useScenarioSession(clock: PlaybackClock) {
       commitStructures();
       return structure;
     },
-    [commitStructures],
+    [commitStructures, shore],
   );
 
   const removeStructure = useCallback(
@@ -329,13 +370,37 @@ export function useScenarioSession(clock: PlaybackClock) {
   // --- creating a new test ------------------------------------------------
 
   const createTest = useCallback(
-    async (name: string, preset: DisasterPreset) => {
+    async (name: string, preset: DisasterPreset, worldProfile: WorldProfile = "demo", cityId: CityId | null = null) => {
       setCreating(true);
       try {
+        const town = worldProfile === "real_city" ? getTown(cityId) : undefined;
+        // The preset's origin_x_km was authored for the fictional world's
+        // west-facing shore; re-anchor it to the real city's own shoreline
+        // (whichever side the water is on) at the same offshore distance,
+        // so the disaster still starts at sea rather than inland.
+        const originXKm = town
+          ? offshoreOriginX(
+              preset.config.origin_y_km,
+              Math.abs(preset.config.origin_x_km - shoreX(preset.config.origin_y_km, DEFAULT_SHORE)),
+              shoreParamsForTown(town),
+            )
+          : preset.config.origin_x_km;
+        const scenario_config =
+          worldProfile === "demo"
+            ? preset.config
+            : {
+                ...preset.config,
+                origin_x_km: originXKm,
+                world_profile: worldProfile,
+                ...(worldProfile === "real_city" && cityId ? { city_id: cityId } : {}),
+                // A real city's default coastal facing overrides the preset's
+                // generic heading, same as any other per-city default.
+                ...(town ? { heading_deg: town.heading_deg } : {}),
+              };
         const detail = await scenarioApi.createScenario({
           name: name.trim() || preset.name,
           disaster_type: preset.disasterType,
-          scenario_config: preset.config,
+          scenario_config,
           version_label: `Preset: ${preset.name}`,
         });
         await loadScenarios(detail.id);
@@ -364,8 +429,15 @@ export function useScenarioSession(clock: PlaybackClock) {
 
   const recordRun = useCallback(async () => {
     if (!selectedScenarioId) return;
+    if (lastRecordedRunTimer.current) window.clearTimeout(lastRecordedRunTimer.current);
+    setLastRecordedRun(null);
     setRecording(true);
     setRunError(null);
+    // The live preview may be mid-playback when Record is clicked; entering
+    // replay must always start paused, never carry over a stale "playing"
+    // state the transport controls (and the operator) don't expect.
+    clock.pause();
+    const startedAt = performance.now();
     try {
       // Make sure the version being run is the one on screen.
       if (saveTimer.current) {
@@ -380,12 +452,14 @@ export function useScenarioSession(clock: PlaybackClock) {
       const merged: SimulationRun = { ...created, ...executed };
       setRuns((prev) => [merged, ...prev]);
       setReplayRunId(merged.id);
+      setLastRecordedRun({ frameCount: merged.frame_count ?? 0, durationMs: Math.round(performance.now() - startedAt) });
+      lastRecordedRunTimer.current = window.setTimeout(() => setLastRecordedRun(null), 6000);
     } catch (err) {
       setRunError(errorMessage(err, "Recording failed"));
     } finally {
       setRecording(false);
     }
-  }, [selectedScenarioId, params, durationHours, persist]);
+  }, [selectedScenarioId, params, durationHours, persist, clock]);
 
   useEffect(() => {
     if (!replayRunId) {
@@ -400,6 +474,12 @@ export function useScenarioSession(clock: PlaybackClock) {
         if (cancelled) return;
         setReplayFrames(timeline.frames);
         setReplayStatus("idle");
+        // A recorded run's own length, not whatever the live scenario's
+        // duration slider happened to say — otherwise the scrubber range
+        // doesn't match the frames actually available and playback clamps
+        // to the last frame almost immediately, reading as frozen.
+        const lastFrame = timeline.frames.at(-1);
+        if (lastFrame) clock.setDuration(lastFrame.timestep * RECORDED_TIMESTEP_MINUTES);
         clock.restart();
       } catch (err) {
         if (cancelled) return;
@@ -412,29 +492,43 @@ export function useScenarioSession(clock: PlaybackClock) {
     };
   }, [replayRunId, clock]);
 
-  const exitReplay = useCallback(() => setReplayRunId(null), []);
+  const exitReplay = useCallback(() => {
+    setReplayRunId(null);
+    // Restore the live scenario's own duration/position — replay just left
+    // the clock set to the recorded run's length, not the live preview's.
+    clock.pause();
+    clock.setDuration(durationHours * 60);
+    clock.restart();
+  }, [clock, durationHours]);
 
   // --- the per-frame snapshot accessor -----------------------------------
 
   const coastDistanceKm = useMemo(
-    () => (params ? distanceToCoastAlongHeading(params.originXKm, params.originYKm, params.headingDeg) : null),
-    [params],
+    () => (params ? distanceToCoastAlongHeading(params.originXKm, params.originYKm, params.headingDeg, shore) : null),
+    [params, shore],
   );
 
   const snapshotCache = useRef<{ key: string; elapsed: number; snapshot: HazardSnapshot | null }>({ key: "", elapsed: -1, snapshot: null });
-  const frameSource = useRef<{ kind: HazardKind | null; params: PropagationParams | null; frames: TimelineFrame[]; replay: boolean; structures: StructureConfig[] }>({ kind: null, params: null, frames: [], replay: false, structures: [] });
+  const frameSource = useRef<{ kind: HazardKind | null; params: PropagationParams | null; frames: TimelineFrame[]; replay: boolean; structures: StructureConfig[]; shore: ShoreParams }>({
+    kind: null,
+    params: null,
+    frames: [],
+    replay: false,
+    structures: [],
+    shore: DEFAULT_SHORE,
+  });
   useEffect(() => {
-    frameSource.current = { kind, params, frames: replayFrames, replay: replayRunId !== null && replayFrames.length > 0, structures };
-  }, [kind, params, replayFrames, replayRunId, structures]);
+    frameSource.current = { kind, params, frames: replayFrames, replay: replayRunId !== null && replayFrames.length > 0, structures, shore };
+  }, [kind, params, replayFrames, replayRunId, structures, shore]);
 
   const getSnapshot = useCallback((): HazardSnapshot | null => {
-    const { kind: k, params: p, frames, replay, structures: placed } = frameSource.current;
+    const { kind: k, params: p, frames, replay, structures: placed, shore: activeShore } = frameSource.current;
     if (!k || !p) return null;
     const elapsed = clock.elapsedMinutes;
     const structureKey = placed.map((s) => `${s.id}:${s.x_km.toFixed(2)},${s.y_km.toFixed(2)},${s.enabled ? 1 : 0}`).join("|");
     const key = replay
       ? `replay:${frames.length}`
-      : `live:${p.originXKm},${p.originYKm},${p.headingDeg},${p.speedKmh},${p.intensity},${p.spreadRadiusKm},${p.dispersionRate}|${structureKey}`;
+      : `live:${p.originXKm},${p.originYKm},${p.headingDeg},${p.speedKmh},${p.intensity},${p.spreadRadiusKm},${p.dispersionRate}|${structureKey}|shore:${activeShore.baseXKm}`;
     const cache = snapshotCache.current;
     if (cache.key === key && cache.elapsed === elapsed) return cache.snapshot;
     let snapshot: HazardSnapshot | null;
@@ -447,8 +541,8 @@ export function useScenarioSession(clock: PlaybackClock) {
       // structures that existed when it was recorded — never re-derived.
       snapshot.impacts = state.infrastructure_impacts ?? [];
     } else {
-      snapshot = computeHazard(k, p, elapsed);
-      snapshot.impacts = assessStructures(placed, geometryFromSnapshot(snapshot));
+      snapshot = computeHazard(k, p, elapsed, activeShore);
+      snapshot.impacts = assessStructures(placed, geometryFromSnapshot(snapshot), activeShore);
     }
     snapshotCache.current = { key, elapsed, snapshot };
     return snapshot;
@@ -471,6 +565,10 @@ export function useScenarioSession(clock: PlaybackClock) {
     commitParams,
     durationHours,
     setDurationHours,
+    worldProfile,
+    setWorldProfile,
+    cityId,
+    town,
     saveStatus,
     saveError,
     coastDistanceKm,
@@ -494,6 +592,7 @@ export function useScenarioSession(clock: PlaybackClock) {
     recording,
     recordRun,
     runError,
+    lastRecordedRun,
     replayRunId,
     replayStatus,
     replayFrames,

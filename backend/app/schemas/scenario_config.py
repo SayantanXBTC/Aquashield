@@ -14,9 +14,9 @@ direction outside 0-360°). See docs/development/scenarios.md.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from app.db.models.enums import DisasterType
 
@@ -33,6 +33,13 @@ class _CommonWindow(BaseModel):
 # Edge length of the demo shoreline world, in km — must equal
 # simulation/core/propagation.py's WORLD_KM (and the frontend mirror).
 DEMO_WORLD_KM = 300.0
+
+# The five curated real cities architecture.md ADR-009 permits — real
+# coastline/building geometry (shared/constants/towns/<id>.json, built
+# offline by scripts/build_town_data.py), simplified demo physics still.
+# Never an arbitrary user-entered place: adding a city is a deliberate,
+# reviewed repo change (a new committed town JSON), not a runtime input.
+CITY_IDS = ("chennai", "mumbai", "puri", "visakhapatnam", "kochi")
 
 
 class PropagationConfig(BaseModel):
@@ -53,6 +60,27 @@ class PropagationConfig(BaseModel):
     intensity: float | None = Field(default=None, ge=0, le=1)
     spread_radius_km: float | None = Field(default=None, ge=0, le=150)
     dispersion_rate: float | None = Field(default=None, ge=0, le=1)
+    # A 3D-world/geometry choice. "demo"/"dense_coastal" are purely cosmetic
+    # rendering variants of the fictional world — never read by the Python
+    # simulation engine. "real_city" is the ADR-009 exception: it selects a
+    # curated real coastline (city_id below), which the simulation engine
+    # DOES read (PropagationParams.from_config) to keep the recorded run's
+    # geometry consistent with what's rendered — physics itself stays the
+    # same simplified model regardless. `None` (not a "demo" default) so
+    # is_config_populated() below is unaffected for scenarios that never
+    # touch this field (see docs/development/scenarios.md).
+    world_profile: Literal["demo", "dense_coastal", "real_city"] | None = None
+    # Which curated town (architecture.md ADR-009) — required when
+    # world_profile == "real_city", meaningless otherwise.
+    city_id: Literal["chennai", "mumbai", "puri", "visakhapatnam", "kochi"] | None = None
+
+    @model_validator(mode="after")
+    def _city_requires_real_city_profile(self) -> "PropagationConfig":
+        if self.city_id is not None and self.world_profile != "real_city":
+            raise ValueError("city_id requires world_profile='real_city'")
+        if self.world_profile == "real_city" and self.city_id is None:
+            raise ValueError("world_profile='real_city' requires city_id")
+        return self
 
 
 class FloodConfig(BaseModel):

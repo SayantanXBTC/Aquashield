@@ -9,6 +9,12 @@ export const aiApi = {
   analyze(data: AIAnalyzeRequest): Promise<AIRequestOut> {
     return request("/ai/analyze", { method: "POST", body: JSON.stringify(data) });
   },
+  /** Frame-synchronised analysis (Prompt 15): carries the scenario version
+   * on screen and what triggered the run. A version that no longer matches
+   * the recorded run is refused with 409 rather than answered. */
+  analyzeFrame(data: AIAnalyzeRequest): Promise<AIRequestOut> {
+    return request("/ai/analyze-frame", { method: "POST", body: JSON.stringify(data) });
+  },
   getRequest(id: string): Promise<AIRequestOut> {
     return request(`/ai/requests/${id}`);
   },

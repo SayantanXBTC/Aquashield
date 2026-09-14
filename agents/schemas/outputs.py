@@ -57,7 +57,12 @@ class RecommendedAction(BaseModel):
     risks: list[str] = Field(default_factory=list)
     resources: str = Field(default=RESOURCE_DATA_UNAVAILABLE)
     requires_human_approval: Literal[True] = True
-    evidence_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list, description="Simulation evidence ids (E1, E2, ...) from the Context Collector.")
+    citations: list[str] = Field(
+        default_factory=list,
+        description="Authoritative-source evidence ids (RAG-...) from the role's EvidencePack. Never invented — "
+        "the Safety Validator drops any id that isn't in the pack it was actually given.",
+    )
 
     @field_validator("resources")
     @classmethod
@@ -80,3 +85,47 @@ class SituationNarrative(BaseModel):
 
     situation: str = Field(max_length=1200)
     current_hazard: str = Field(max_length=800)
+
+
+# --- Prompt 15: one closed output schema per specialised agent ---------------
+# The graph splits the former Impact Analyst / Tactical Advisor pair into six
+# specialised agents. Each still returns ONLY the shapes below, and every
+# claim still carries evidence ids — the Safety Validator treats them all
+# identically.
+
+
+class HazardAssessment(BaseModel):
+    """Hazard Agent output — how the hazard is progressing across the frame
+    window. Never a prediction of its own; a restatement of frame evidence."""
+
+    hazard_progression: HazardProgression = Field(default_factory=HazardProgression)
+    uncertainties: list[str] = Field(default_factory=list)
+
+
+class DamageAssessment(BaseModel):
+    """Damage / Impact Agent output — which assets and structures the
+    deterministic layer reports as POTENTIALLY EXPOSED. Never destroyed."""
+
+    exposures: list[ExposureFinding] = Field(default_factory=list)
+    uncertainties: list[str] = Field(default_factory=list)
+
+
+class RiskAssessment(BaseModel):
+    """Risk / Vulnerability Agent output — criticality-ranked priorities."""
+
+    priorities: list[Priority] = Field(default_factory=list)
+    uncertainties: list[str] = Field(default_factory=list)
+
+
+class PrecautionSet(BaseModel):
+    """Precaution Agent output — protective measures taken before impact."""
+
+    precautions: list[RecommendedAction] = Field(default_factory=list)
+    uncertainties: list[str] = Field(default_factory=list)
+
+
+class ResponsePlan(BaseModel):
+    """Tactical Response Agent output — targeted actions per exposed subject."""
+
+    actions: list[RecommendedAction] = Field(default_factory=list)
+    uncertainties: list[str] = Field(default_factory=list)

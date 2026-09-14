@@ -6,7 +6,7 @@
  * Python original when a run is recorded.
  */
 import type { PropagationConfig } from "@shared/types";
-import { WORLD_DEFAULTS, WORLD_KM, clamp, distanceToCoastAlongHeading, headingVector, round4 } from "./world";
+import { DEFAULT_SHORE, WORLD_DEFAULTS, WORLD_KM, clamp, distanceToCoastAlongHeading, headingVector, round4, type ShoreParams } from "./world";
 
 const MARCH_MAX_KM = WORLD_KM * 1.5;
 
@@ -69,9 +69,9 @@ export interface FrontState {
 
 /** Advance the hazard front `elapsedMinutes` from the origin. `stopAtCoast`
  * pins the position at the shoreline once reached. */
-export function frontState(params: PropagationParams, elapsedMinutes: number, stopAtCoast: boolean): FrontState {
+export function frontState(params: PropagationParams, elapsedMinutes: number, stopAtCoast: boolean, shore: ShoreParams = DEFAULT_SHORE): FrontState {
   const hours = Math.max(0, elapsedMinutes) / 60;
-  const total = distanceToCoastAlongHeading(params.originXKm, params.originYKm, params.headingDeg);
+  const total = distanceToCoastAlongHeading(params.originXKm, params.originYKm, params.headingDeg, shore);
   const traveled = params.speedKmh * hours;
   const [dx, dy] = headingVector(params.headingDeg);
 

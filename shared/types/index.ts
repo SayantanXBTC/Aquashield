@@ -510,6 +510,18 @@ export interface ImpactFrame {
 // Coordinates are kilometres in the synthetic demo shoreline world
 // (shared/constants/demo_world.json) — never real-world lat/lon.
 
+/** A 3D-world/geometry choice. "demo" (or unset) and "dense_coastal" are
+ * purely cosmetic rendering variants of the fictional world — never a real
+ * place, never read by the simulation engine. "real_city" is the ADR-009
+ * exception: a curated real coastline (see `city_id`), which the simulation
+ * engine DOES read to keep recorded runs geometrically consistent with what
+ * renders — the physics itself stays the same simplified model regardless. */
+export type WorldProfile = "demo" | "dense_coastal" | "real_city";
+
+/** One of the five curated real cities architecture.md ADR-009 permits —
+ * never an arbitrary user-entered place. See shared/types/town.ts. */
+export type CityId = "chennai" | "mumbai" | "puri" | "visakhapatnam" | "kochi";
+
 export interface PropagationConfig {
   origin_x_km?: number;
   origin_y_km?: number;
@@ -522,6 +534,9 @@ export interface PropagationConfig {
   /** 0-1. */
   dispersion_rate?: number;
   duration_hours?: number;
+  world_profile?: WorldProfile;
+  /** Required when world_profile === "real_city", meaningless otherwise. */
+  city_id?: CityId;
 }
 
 export type HazardPhase = "offshore" | "landfall" | "inland";
@@ -560,6 +575,55 @@ export interface StructureConfig {
   x_km: number;
   y_km: number;
   enabled: boolean;
+}
+
+// --- Curated real-city geometry (architecture.md ADR-009) -------------------
+// Built offline by scripts/build_town_data.py from real Natural Earth
+// coastline + real OpenStreetMap building footprints, committed as
+// shared/constants/towns/<city_id>.json. Read by BOTH the frontend (live
+// preview + rendering) and simulation/core/propagation.py (recorded runs) —
+// one source of truth, no hand-synced duplicate constant set. Real lat/lon
+// is used only inside the data-prep script; every number here is km-frame,
+// matching demo_world.json's existing shape. `TownPlacement.type` is the
+// existing generic StructureType only — never a real building's real name.
+
+export interface TownShoreTerm {
+  amp: number;
+  freq: number;
+  phase: number;
+}
+
+export interface TownPlacement {
+  xKm: number;
+  yKm: number;
+  cls: "low" | "mid" | "highrise";
+  scale: number;
+  rotY: number;
+  type: StructureType;
+}
+
+export interface TownProfile {
+  city_id: CityId;
+  /** City/region label only — e.g. "Chennai, Tamil Nadu". No individual
+   * building/landmark names anywhere in this shape. */
+  label: string;
+  shore_base_x_km: number;
+  shore_terms: [TownShoreTerm, TownShoreTerm, TownShoreTerm];
+  /** Which real compass side the ocean lies on. Sets the shoreline's
+   * orientation: "west" means land is east of the curve (land_sign +1),
+   * "east" the reverse. */
+  ocean_side: "east" | "west";
+  /** Real coastal facing, compass degrees — a per-city default for the
+   * existing, already-general `PropagationConfig.heading_deg`. */
+  heading_deg: number;
+  buildings: TownPlacement[];
+  fit_quality: { rmse_km: number; sample_count: number };
+  data_provenance: {
+    coastline_source: string;
+    buildings_source: string;
+    generated_by: string;
+    generated_at: string;
+  };
 }
 
 export type StructureStatus = "clear" | "at_risk" | "impacted" | "severe";
@@ -632,7 +696,51 @@ export interface AIRecommendedAction {
   /** Always RESOURCE_DATA_UNAVAILABLE until a resource inventory exists. */
   resources: string;
   requires_human_approval: true;
+  /** Simulation evidence ids (E1, E2, ...) from the Context Collector. */
   evidence_ids: string[];
+  /** Authoritative-source evidence ids ("RAG-...") — always resolvable
+   * against the brief's own `evidence_citations`, never invented. */
+  citations: string[];
+}
+
+// --- RAG evidence (Prompt 16) -----------------------------------------------
+// Disaster-aware retrieval-augmented generation: authoritative-document
+// excerpts a Precaution/Response action may cite. Mirrors rag/schemas/models.py.
+
+export type AITrustLevel = "TIER_1" | "TIER_2" | "TIER_3" | "TIER_4";
+export type AIEvidenceStatus = "SUPPORTED" | "INSUFFICIENT_EVIDENCE" | "UNAVAILABLE";
+export type AIClaimStatus = "SUPPORTED" | "PARTIAL" | "UNSUPPORTED";
+export type AIClaimTypeRag = "OBSERVED" | "CALCULATED" | "EVIDENCE_GROUNDED" | "RECOMMENDED";
+
+export interface AIEvidenceItem {
+  evidence_id: string;
+  source_id: string;
+  authority: string;
+  title: string;
+  trust_level: AITrustLevel;
+  section?: string | null;
+  page?: number | null;
+  url?: string | null;
+  relevance_score: number;
+  text_snippet: string;
+}
+
+export interface AIClaimMapping {
+  claim_text: string;
+  claim_type: AIClaimTypeRag;
+  supported_by: string[];
+  validation_status: AIClaimStatus;
+}
+
+/** One graph node's execution record — what the Agent Execution HUD shows. */
+export type AIAgentExecutionStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "UNAVAILABLE" | "SKIPPED";
+
+export interface AIAgentRun {
+  agent: string;
+  label: string;
+  status: AIAgentExecutionStatus;
+  summary?: string | null;
+  duration_ms: number;
 }
 
 export interface CommandBrief {
@@ -645,8 +753,18 @@ export interface CommandBrief {
   hazard_progression: AIGroundedStatement[];
   key_exposures: AIExposureFinding[];
   priorities: AIPriority[];
+  /** Protective measures proposed before impact (Precaution Agent). */
+  precautions: AIRecommendedAction[];
+  /** Targeted actions per exposed subject (Tactical Response Agent). */
   recommended_actions: AIRecommendedAction[];
+  /** Always RESOURCE_DATA_UNAVAILABLE until a verified inventory exists. */
+  resource_status: string;
+  agent_runs: AIAgentRun[];
   evidence_references: AIEvidenceRef[];
+  /** Every authoritative-source citation actually used somewhere in this
+   * brief — a `citations` id on an action always resolves to one of these. */
+  evidence_citations: AIEvidenceItem[];
+  claim_mappings: AIClaimMapping[];
   data_limitations: AIDataLimitation[];
   uncertainties: string[];
   human_review_required: true;
@@ -654,10 +772,16 @@ export interface CommandBrief {
   disclaimer: string;
 }
 
+/** What triggered an analysis — recorded so throttling stays auditable. */
+export type AIRequestType = "playback" | "scrub" | "paused" | "complete" | "manual";
+
 export interface AIAnalyzeRequest {
   scenario_id: string;
   simulation_run_id: string;
   frame_index: number;
+  /** The configuration version on screen; a mismatch is refused as stale (409). */
+  scenario_version_id?: string | null;
+  request_type?: AIRequestType | null;
   user_question?: string | null;
 }
 
@@ -665,7 +789,9 @@ export interface AIRequestOut {
   id: string;
   scenario_id: string;
   simulation_run_id: string;
+  scenario_version_id?: string | null;
   frame_index: number;
+  request_type?: AIRequestType | null;
   user_question?: string | null;
   status: AIRequestStatus;
   provider?: string | null;
@@ -692,4 +818,44 @@ export interface AIRequestResultOut {
   status: AIRequestStatus;
   result: CommandBrief | null;
   error?: string | null;
+}
+
+// --- AI milestone events (`/ws/ai`) -----------------------------------------
+// A live view of the analysis graph while the synchronous /ai/analyze-frame
+// call is in flight. Events are best effort: the Command Brief always comes
+// back over HTTP, so a client that misses events still renders correctly.
+
+export type AIEventType =
+  | "AI_EVENTS_READY"
+  | "heartbeat"
+  | "AI_ANALYSIS_STARTED"
+  | "AGENT_STARTED"
+  | "AGENT_COMPLETED"
+  | "AI_ANALYSIS_COMPLETED"
+  | "AI_ANALYSIS_FAILED"
+  | "AI_ANALYSIS_STALE"
+  | "RAG_RETRIEVAL_STARTED"
+  | "RAG_RETRIEVAL_COMPLETED"
+  | "AGENT_EVIDENCE_ATTACHED";
+
+export interface AIEvent {
+  type: AIEventType;
+  request_id?: string;
+  scenario_id?: string;
+  simulation_run_id?: string;
+  scenario_version_id?: string;
+  frame_index?: number;
+  agent_name?: string;
+  label?: string;
+  status?: AIAgentExecutionStatus;
+  summary?: string | null;
+  duration_ms?: number;
+  execution_ms?: number | null;
+  command_brief?: CommandBrief | null;
+  error?: string | null;
+  /** RAG_RETRIEVAL_* / AGENT_EVIDENCE_ATTACHED only. */
+  role?: string;
+  evidence_status?: AIEvidenceStatus;
+  item_count?: number;
+  evidence_ids?: string[];
 }

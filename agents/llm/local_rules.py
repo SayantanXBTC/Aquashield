@@ -114,17 +114,33 @@ def impact_analysis(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def tactical_plan(payload: dict[str, Any]) -> dict[str, Any]:
+def _top_citation(evidence: dict[str, Any] | None) -> list[str]:
+    """Deterministic citation rule: when the role's retrieval actually
+    supported something, cite the single most relevant item. Never invents
+    an id — it can only ever be one already present in `evidence.items`, and
+    the Safety Validator re-checks that independently."""
+
+    if not evidence or evidence.get("evidence_status") != "SUPPORTED":
+        return []
+    items = evidence.get("items") or []
+    if not items:
+        return []
+    return [items[0]["evidence_id"]]
+
+
+def _tactical(payload: dict[str, Any], *, evidence: dict[str, Any] | None = None) -> dict[str, Any]:
     cur = payload.get("current_frame") or {}
     hz = cur.get("hazard_state", {}) if cur else {}
     e_cur = _frame_evidence(payload, "current_frame")
     disaster = payload.get("disaster_type", "hazard")
+    citation = _top_citation(evidence)
 
     priorities: list[dict[str, Any]] = []
     actions: list[dict[str, Any]] = []
+    precautions: list[dict[str, Any]] = []
 
-    def add_action(action: str, priority: str, evidence_ids: list[str], prerequisites: list[str], risks: list[str]) -> None:
-        actions.append(
+    def add_action(action: str, priority: str, evidence_ids: list[str], prerequisites: list[str], risks: list[str], *, precaution: bool = False) -> None:
+        (precautions if precaution else actions).append(
             {
                 "action": action,
                 "priority": priority,
@@ -133,6 +149,7 @@ def tactical_plan(payload: dict[str, Any]) -> dict[str, Any]:
                 "resources": RESOURCE_DATA_UNAVAILABLE,
                 "requires_human_approval": True,
                 "evidence_ids": evidence_ids,
+                "citations": list(citation),
             }
         )
 
@@ -170,16 +187,62 @@ def tactical_plan(payload: dict[str, Any]) -> dict[str, Any]:
     phase = hz.get("phase")
     if e_cur:
         if phase == "offshore" and hz.get("eta_minutes") is not None:
-            add_action(f"Use the remaining lead time before {disaster} landfall to brief coastal responders.", "HIGH", [e_cur["id"]], ["Command post staffed"], ["ETA comes from a simplified demonstration model"])
+            add_action(f"Use the remaining lead time before {disaster} landfall to brief coastal responders.", "HIGH", [e_cur["id"]], ["Command post staffed"], ["ETA comes from a simplified demonstration model"], precaution=True)
         elif phase in {"landfall", "inland"}:
-            add_action(f"Hold responders clear of the active {disaster} zone until the hazard recedes; verify with observations.", "HIGH", [e_cur["id"]], ["Situational reports from the field"], ["Model extent is illustrative, not measured"])
+            add_action(f"Hold responders clear of the active {disaster} zone until the hazard recedes; verify with observations.", "HIGH", [e_cur["id"]], ["Situational reports from the field"], ["Model extent is illustrative, not measured"], precaution=True)
     if not priorities:
         priorities.append({"level": "LOW", "subject": "Overall", "rationale": "No structure or asset reports exposure in the current frame; maintain monitoring.", "evidence_ids": [e_cur["id"]] if e_cur else []})
-        add_action("Maintain monitoring and re-run the brief at the next frame.", "LOW", [e_cur["id"]] if e_cur else [], [], ["Absence of exposure data is not absence of risk"])
+        add_action("Maintain monitoring and re-run the brief at the next frame.", "LOW", [e_cur["id"]] if e_cur else [], [], ["Absence of exposure data is not absence of risk"], precaution=True)
 
     priorities.sort(key=lambda p: PRIORITY_RANK[p["level"]])
     actions.sort(key=lambda a: PRIORITY_RANK[a["priority"]])
-    return {"priorities": priorities, "actions": actions, "uncertainties": [f"{lim['code']}: {lim['subject']} — {lim['detail']}" for lim in payload.get("limitations", [])]}
+    precautions.sort(key=lambda a: PRIORITY_RANK[a["priority"]])
+    return {
+        "priorities": priorities,
+        "actions": actions,
+        "precautions": precautions,
+        "uncertainties": [f"{lim['code']}: {lim['subject']} — {lim['detail']}" for lim in payload.get("limitations", [])],
+    }
+
+
+def tactical_plan(payload: dict[str, Any]) -> dict[str, Any]:
+    """Legacy composite (pre-Prompt-15 single Tactical Advisor): priorities
+    plus precautions and targeted actions in one list."""
+
+    plan = _tactical(payload)
+    merged = sorted([*plan["precautions"], *plan["actions"]], key=lambda a: PRIORITY_RANK[a["priority"]])
+    return {"priorities": plan["priorities"], "actions": merged, "uncertainties": plan["uncertainties"]}
+
+
+# --- Prompt 15: one generator per specialised agent -------------------------
+# Tier 1 agents read the context payload directly; Tier 2 agents receive
+# {"context": ..., "findings": ...}. The numbers are the same deterministic
+# frame values either way — these rules never compute physics.
+
+
+def hazard_assessment(payload: dict[str, Any]) -> dict[str, Any]:
+    analysis = impact_analysis(payload)
+    return {"hazard_progression": analysis["hazard_progression"], "uncertainties": analysis["uncertainties"]}
+
+
+def damage_assessment(payload: dict[str, Any]) -> dict[str, Any]:
+    analysis = impact_analysis(payload)
+    return {"exposures": analysis["exposures"], "uncertainties": analysis["uncertainties"]}
+
+
+def risk_assessment(payload: dict[str, Any]) -> dict[str, Any]:
+    plan = _tactical(payload)
+    return {"priorities": plan["priorities"], "uncertainties": plan["uncertainties"]}
+
+
+def precaution_set(payload: dict[str, Any]) -> dict[str, Any]:
+    plan = _tactical(payload.get("context", {}), evidence=payload.get("evidence"))
+    return {"precautions": plan["precautions"], "uncertainties": []}
+
+
+def response_plan(payload: dict[str, Any]) -> dict[str, Any]:
+    plan = _tactical(payload.get("context", {}), evidence=payload.get("evidence"))
+    return {"actions": plan["actions"], "uncertainties": []}
 
 
 def situation_narrative(payload: dict[str, Any]) -> dict[str, Any]:
@@ -221,5 +284,10 @@ def situation_narrative(payload: dict[str, Any]) -> dict[str, Any]:
 GENERATORS = {
     "impact_analysis": impact_analysis,
     "tactical_plan": tactical_plan,
+    "hazard_assessment": hazard_assessment,
+    "damage_assessment": damage_assessment,
+    "risk_assessment": risk_assessment,
+    "precaution_set": precaution_set,
+    "response_plan": response_plan,
     "situation_narrative": situation_narrative,
 }

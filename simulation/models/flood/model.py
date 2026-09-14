@@ -71,7 +71,7 @@ class FloodModel(DisasterModel):
             inundation_km=self.params.spread_radius_km * ratio,
             scale=ratio,
         )
-        return [i.to_dict() for i in assess_structures(self.config.get("structures"), geometry)]
+        return [i.to_dict() for i in assess_structures(self.config.get("structures"), geometry, self.params.shore)]
 
     def get_state(self, timestep: int) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]:
         front = self._front(timestep)

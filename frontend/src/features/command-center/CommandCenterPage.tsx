@@ -10,9 +10,11 @@ import { PlaybackBar } from "./components/PlaybackBar";
 import { RunsPanel } from "./components/RunsPanel";
 import { ScenarioTray } from "./components/ScenarioTray";
 import { StructuresPanel } from "./components/StructuresPanel";
-import { CommandBriefPanel } from "./components/CommandBriefPanel";
+import { AgentExecutionHud } from "./components/AgentExecutionHud";
+import { IntelligencePanel } from "./components/IntelligencePanel";
 import { TelemetryPanel } from "./components/TelemetryPanel";
 import { TopBar } from "./components/TopBar";
+import { useAIOrchestrator } from "./ai/useAIOrchestrator";
 import { useScenarioSession } from "./hooks/useScenarioSession";
 import { usePlaybackClock } from "./playback/usePlaybackClock";
 
@@ -28,6 +30,15 @@ const RECORDED_TIMESTEP_MINUTES = 15;
 export function CommandCenterPage() {
   const clock = usePlaybackClock();
   const session = useScenarioSession(clock);
+  // The AI layer follows the playhead on its own throttle/debounce — the
+  // deterministic readouts below keep updating every frame regardless.
+  const ai = useAIOrchestrator({
+    scenarioId: session.selectedScenarioId,
+    runs: session.runs,
+    replayRunId: session.replayRunId,
+    clock,
+    recordedTimestepMinutes: RECORDED_TIMESTEP_MINUTES,
+  });
   const location = useLocation();
   const reducedMotion = usePrefersReducedMotion();
   const [entrance] = useState(() => (location.state as { entrance?: string } | null)?.entrance === "warp" && !reducedMotion);
@@ -88,6 +99,8 @@ export function CommandCenterPage() {
         originLocked={replaying || !session.params}
         entrance={entrance}
         onEntranceComplete={handleEntranceComplete}
+        worldProfile={session.worldProfile}
+        town={session.town}
         structures={{
           structures: session.structures,
           visible: session.showStructures,
@@ -101,10 +114,16 @@ export function CommandCenterPage() {
 
       {/* HUD layer — pointer-events pass through to the canvas except on the panels themselves. */}
       <motion.div {...hudMotion} className="pointer-events-none absolute inset-0 flex flex-col gap-3 p-3">
-        <TopBar scenario={session.scenario} saveStatus={session.saveStatus} replaying={replaying} />
+        <TopBar
+          scenario={session.scenario}
+          saveStatus={session.saveStatus}
+          replaying={replaying}
+          worldProfile={session.scenario ? session.worldProfile : undefined}
+          onToggleWorldProfile={() => session.setWorldProfile(session.worldProfile === "demo" ? "dense_coastal" : "demo")}
+        />
 
         <div className="relative z-10 flex min-h-0 flex-1 gap-3">
-          <div className={`flex w-[300px] shrink-0 flex-col gap-3 overflow-y-auto ${hudOpen ? "" : "hidden"}`}>
+          <div className={`flex w-[300px] shrink-0 flex-col gap-3 overflow-y-auto pb-1 ${hudOpen ? "" : "hidden"}`}>
             <ScenarioTray
               scenarios={session.scenarios}
               status={session.scenariosStatus}
@@ -125,6 +144,15 @@ export function CommandCenterPage() {
               onCommit={session.commitParams}
               onDurationChange={session.setDurationHours}
             />
+            <AgentExecutionHud
+              agents={ai.agents}
+              status={ai.status}
+              trigger={ai.lastTrigger}
+              frameIndex={ai.targetRun ? ai.frameIndex : null}
+              error={ai.error}
+              onAnalyseNow={ai.analyseNow}
+              disabled={!ai.targetRun}
+            />
           </div>
 
           <div className="flex min-w-0 flex-1 flex-col justify-end">
@@ -143,8 +171,8 @@ export function CommandCenterPage() {
             </div>
           </div>
 
-          <div className={`flex w-[320px] shrink-0 flex-col gap-3 overflow-y-auto ${hudOpen ? "" : "hidden"}`}>
-            <TelemetryPanel kind={session.kind} clock={clock} getSnapshot={session.getSnapshot} />
+          <div className={`flex w-[320px] shrink-0 flex-col gap-3 overflow-y-auto pb-1 ${hudOpen ? "" : "hidden"}`}>
+            <TelemetryPanel kind={session.kind} clock={clock} getSnapshot={session.getSnapshot} worldProfile={session.worldProfile} structures={session.structures} town={session.town} />
             <StructuresPanel
               structures={session.structures}
               visible={session.showStructures}
@@ -168,13 +196,15 @@ export function CommandCenterPage() {
               onRecord={() => void session.recordRun()}
               onReplay={session.setReplayRunId}
               onExitReplay={session.exitReplay}
+              lastRecordedRun={session.lastRecordedRun}
             />
-            <CommandBriefPanel
-              scenarioId={session.selectedScenarioId}
-              runs={session.runs}
-              replayRunId={session.replayRunId}
-              clock={clock}
-              recordedTimestepMinutes={RECORDED_TIMESTEP_MINUTES}
+            <IntelligencePanel
+              brief={ai.brief}
+              structures={session.structures}
+              frameIndex={ai.frameIndex}
+              briefIsBehind={ai.briefIsBehind}
+              status={ai.status}
+              provider={ai.provider}
             />
             {session.scenarioStatus === "error" && session.scenarioError ? (
               <p role="alert" className="text-status-critical pointer-events-auto rounded-[8px] border border-status-critical/40 bg-[rgba(9,14,20,0.8)] px-3 py-2 text-[11px] backdrop-blur-xl">
@@ -185,7 +215,12 @@ export function CommandCenterPage() {
         </div>
       </motion.div>
 
-      <NewTestModal open={newTestOpen} busy={session.creating} onClose={() => setNewTestOpen(false)} onCreate={async (name, preset) => void (await session.createTest(name, preset))} />
+      <NewTestModal
+        open={newTestOpen}
+        busy={session.creating}
+        onClose={() => setNewTestOpen(false)}
+        onCreate={async (name, preset, worldProfile, cityId) => void (await session.createTest(name, preset, worldProfile, cityId))}
+      />
     </div>
   );
 }

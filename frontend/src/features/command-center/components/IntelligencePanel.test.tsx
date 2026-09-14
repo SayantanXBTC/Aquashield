@@ -1,0 +1,194 @@
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { byStage, idleRoster, rosterFromBrief } from "../ai/agentRoster";
+import type { AIEvidenceItem, AIExposureFinding, CommandBrief, StructureConfig } from "../types";
+import { AgentExecutionHud } from "./AgentExecutionHud";
+import { IntelligencePanel } from "./IntelligencePanel";
+
+const STRUCTURES: StructureConfig[] = [{ id: "port-1", type: "port", name: "Harbour", x_km: 192, y_km: 150, enabled: true }];
+
+function exposure(): AIExposureFinding {
+  return {
+    subject: "Harbour",
+    subject_ref: "port-1",
+    claim_kind: "observed_simulation_fact",
+    statement: "Structure 'Harbour' (port) reports exposure status impacted — potentially exposed.",
+    evidence_ids: ["E4"],
+    severity_hint: "HIGH",
+  };
+}
+
+function citation(): AIEvidenceItem {
+  return {
+    evidence_id: "RAG-test-fixture-tsunami-preparedness-0",
+    source_id: "test-fixture-tsunami-preparedness",
+    authority: "TEST_FIXTURE",
+    title: "TEST_FIXTURE Tsunami Preparedness Guidance",
+    trust_level: "TIER_1",
+    section: "Evacuation",
+    page: null,
+    relevance_score: 0.62,
+    text_snippet: "Evacuate on foot where possible.",
+  };
+}
+
+function brief(frameIndex: number, exposures: AIExposureFinding[], options: { cited?: boolean } = {}): CommandBrief {
+  return {
+    scenario_id: "scn",
+    simulation_run_id: "3f6b1c22-0000-0000-0000-000000000000",
+    frame_index: frameIndex,
+    generated_at: "2026-09-12T00:00:00Z",
+    situation: `Demo scenario, frame ${frameIndex}.`,
+    current_hazard: "Current frame reports phase offshore (simplified demonstration model).",
+    hazard_progression: [{ statement: `Current frame ${frameIndex}: phase=offshore`, evidence_ids: ["E3"] }],
+    key_exposures: exposures,
+    priorities: exposures.map((e) => ({ level: e.severity_hint, subject: e.subject, rationale: "port reports exposure status impacted.", evidence_ids: ["E4"] })),
+    precautions: [],
+    recommended_actions: exposures.map(() => ({
+      action: "Consider suspending vessel movements at Harbour.",
+      priority: "HIGH" as const,
+      prerequisites: ["Harbour master concurrence"],
+      risks: ["Economic disruption"],
+      resources: "RESOURCE_DATA_UNAVAILABLE",
+      requires_human_approval: true as const,
+      evidence_ids: ["E4"],
+      citations: options.cited ? [citation().evidence_id] : [],
+    })),
+    resource_status: "RESOURCE_DATA_UNAVAILABLE",
+    agent_runs: [
+      { agent: "context_collector", label: "Context Collector", status: "COMPLETED", summary: "8 evidence item(s)", duration_ms: 2 },
+      { agent: "hazard_agent", label: "Hazard Analyst", status: "COMPLETED", summary: "trend approaching", duration_ms: 1 },
+      { agent: "damage_agent", label: "Damage / Impact Analyst", status: "FAILED", summary: "provider outage", duration_ms: 1 },
+      { agent: "risk_agent", label: "Risk / Vulnerability Analyst", status: "UNAVAILABLE", summary: "no inventory", duration_ms: 0 },
+    ],
+    evidence_references: [],
+    evidence_citations: options.cited ? [citation()] : [],
+    claim_mappings: [],
+    data_limitations: [{ code: "NOT_CONFIGURED", subject: "regulatory_evidence", detail: "Evidence retriever not configured." }],
+    uncertainties: [],
+    human_review_required: true,
+    validation_notes: [],
+    disclaimer: "Generated from SIMPLIFIED DEMONSTRATION MODEL output.",
+  };
+}
+
+describe("IntelligencePanel", () => {
+  it("shows an explicit empty state before any analysis, never a fabricated one", () => {
+    render(<IntelligencePanel brief={null} structures={STRUCTURES} frameIndex={0} briefIsBehind={false} status="idle" provider={null} />);
+    expect(screen.getByText("No analysis yet")).toBeInTheDocument();
+    expect(screen.getByText(/recorded frames only/i)).toBeInTheDocument();
+  });
+
+  it("moves a subject from unexposed to potentially exposed as the frame advances", () => {
+    const view = render(<IntelligencePanel brief={brief(1, [])} structures={STRUCTURES} frameIndex={1} briefIsBehind={false} status="ready" provider="local" />);
+    expect(screen.getByText(/Nothing exposed at this frame/i)).toBeInTheDocument();
+    expect(screen.queryByText("Harbour")).not.toBeInTheDocument();
+
+    view.rerender(<IntelligencePanel brief={brief(2, [exposure()])} structures={STRUCTURES} frameIndex={2} briefIsBehind={false} status="ready" provider="local" />);
+    // Once in the exposure list, once in the ranked priorities.
+    expect(screen.getAllByText("Harbour")).toHaveLength(2);
+    // Located on the map by its placed coordinates, and labelled as exposure
+    // — never as damage.
+    expect(screen.getByText("192, 150 km")).toBeInTheDocument();
+    expect(screen.getByText(/Potentially exposed · not damage/i)).toBeInTheDocument();
+    expect(screen.getByText(/exposure, not damage · human approval required/i)).toBeInTheDocument();
+    // The full statement is available without occupying a scanning line.
+    expect(screen.getByTitle(/reports exposure status impacted — potentially exposed/i)).toBeInTheDocument();
+  });
+
+  it("summarises at a glance and keeps the detail one click away", () => {
+    render(<IntelligencePanel brief={brief(2, [exposure()])} structures={STRUCTURES} frameIndex={2} briefIsBehind={false} status="ready" provider="local" />);
+    // The three numbers that answer "how bad, where, what now".
+    expect(screen.getByText("Exposed")).toBeInTheDocument();
+    expect(screen.getByText("Top priority")).toBeInTheDocument();
+    expect(screen.getByText("Actions")).toBeInTheDocument();
+    // Evidence ids, run id and the disclaimer live in the audit block.
+    expect(screen.getByText(/Audit · evidence, limitations, full findings/i)).toBeInTheDocument();
+    expect(screen.getAllByText("RESOURCE_DATA_UNAVAILABLE").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/SIMPLIFIED DEMONSTRATION MODEL/i).length).toBeGreaterThan(0);
+  });
+
+  it("says how many findings it held back rather than truncating silently", () => {
+    const many = Array.from({ length: 7 }, (_, i) => ({ ...exposure(), subject: `Subject ${i}`, subject_ref: `id-${i}` }));
+    render(<IntelligencePanel brief={brief(2, many)} structures={STRUCTURES} frameIndex={2} briefIsBehind={false} status="ready" provider="local" />);
+    expect(screen.getAllByText(/\+3 more in the audit below/).length).toBeGreaterThan(0);
+  });
+
+  it("says which frame the brief describes when the playhead has moved on", () => {
+    render(<IntelligencePanel brief={brief(2, [exposure()])} structures={STRUCTURES} frameIndex={7} briefIsBehind provider="local" status="ready" />);
+    expect(screen.getByText(/Showing frame 2; playhead is at frame 7/)).toBeInTheDocument();
+  });
+
+  it("shows a citation badge when an action cites real authoritative evidence", () => {
+    render(<IntelligencePanel brief={brief(2, [exposure()], { cited: true })} structures={STRUCTURES} frameIndex={2} briefIsBehind={false} status="ready" provider="local" />);
+    expect(screen.getByTitle(/TEST_FIXTURE — TEST_FIXTURE Tsunami Preparedness Guidance \(Evacuation\)/)).toBeInTheDocument();
+  });
+
+  it("never shows a citation badge when nothing was actually cited", () => {
+    render(<IntelligencePanel brief={brief(2, [exposure()])} structures={STRUCTURES} frameIndex={2} briefIsBehind={false} status="ready" provider="local" />);
+    expect(screen.queryByTitle(/TEST_FIXTURE/)).not.toBeInTheDocument();
+  });
+
+  it("lists cited sources with trust level and section in the audit block", () => {
+    render(<IntelligencePanel brief={brief(2, [exposure()], { cited: true })} structures={STRUCTURES} frameIndex={2} briefIsBehind={false} status="ready" provider="local" />);
+    expect(screen.getByText("Sources cited")).toBeInTheDocument();
+    expect(screen.getByText(/TIER_1/)).toBeInTheDocument();
+    expect(screen.getByText(/Evacuation/)).toBeInTheDocument();
+  });
+
+  it("falls back to the subject id when a subject is not a placed structure", () => {
+    render(<IntelligencePanel brief={brief(2, [{ ...exposure(), subject_ref: "asset-99" }])} structures={STRUCTURES} frameIndex={2} briefIsBehind={false} status="ready" provider="local" />);
+    // Never an invented coordinate: the row shows the id it does have.
+    expect(screen.getAllByText("asset-99").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/km$/)).not.toBeInTheDocument();
+  });
+});
+
+describe("AgentExecutionHud", () => {
+  it("lists every agent of the pipeline with its reported status", () => {
+    render(
+      <AgentExecutionHud
+        agents={rosterFromBrief(brief(2, []).agent_runs)}
+        status="ready"
+        trigger="scrub"
+        frameIndex={2}
+        error={null}
+        onAnalyseNow={() => {}}
+        disabled={false}
+      />,
+    );
+    expect(screen.getByText("Hazard Analyst")).toBeInTheDocument();
+    expect(screen.getByText("Command Synthesizer")).toBeInTheDocument();
+    // A failed agent and an unavailable one are never dressed up as success,
+    // and an agent the graph skipped reads SKIPPED.
+    expect(screen.getByText("FAILED")).toBeInTheDocument();
+    expect(screen.getByText("UNAVAILABLE")).toBeInTheDocument();
+    expect(screen.getAllByText("SKIPPED").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Frame 2 · timeline scrub/)).toBeInTheDocument();
+  });
+
+  it("groups the chips by the graph's supersteps so the parallel branches read as parallel", () => {
+    const stages = byStage(idleRoster());
+    expect(stages.map((s) => s.id)).toEqual(["collect", "analyse", "evidence", "advise", "assure"]);
+    expect(stages.find((s) => s.id === "analyse")?.runs.map((r) => r.agent)).toEqual(["hazard_agent", "damage_agent", "risk_agent"]);
+    expect(stages.filter((s) => s.parallel).map((s) => s.id)).toEqual(["analyse", "advise"]);
+
+    render(<AgentExecutionHud agents={idleRoster()} status="waiting" trigger="playback" frameIndex={0} error={null} onAnalyseNow={() => {}} disabled={false} />);
+    expect(screen.getByText("Analyse")).toBeInTheDocument();
+    expect(screen.getByText("Advise")).toBeInTheDocument();
+    expect(screen.getAllByText("‖ in tandem")).toHaveLength(2);
+  });
+
+  it("drops a stage whose agents the graph never reported", () => {
+    const stages = byStage([{ agent: "context_collector", label: "Context Collector", status: "COMPLETED", summary: null, duration_ms: 1 }]);
+    expect(stages.map((s) => s.id)).toEqual(["collect"]);
+  });
+
+  it("starts every agent pending and disables manual analysis with no recorded run", () => {
+    render(<AgentExecutionHud agents={idleRoster()} status="idle" trigger={null} frameIndex={null} error={null} onAnalyseNow={() => {}} disabled />);
+    expect(screen.getAllByText("PENDING")).toHaveLength(9);
+    expect(screen.getByText("Frame —")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /analyse now/i })).toBeDisabled();
+    expect(screen.getByText("No recorded run")).toBeInTheDocument();
+  });
+});

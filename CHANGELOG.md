@@ -1,5 +1,422 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-14 — Coastal orientation as a world-model property
+
+**Added/Changed:**
+- `ShoreParams` carries `land_sign` (+1 land east, −1 land west) on both the Python engine and its TypeScript mirror; every land test routes through a signed `land_depth_km`.
+- The shoreline GLSL twin gained a `uLandSign` uniform, so a city's orientation switches without a shader recompile.
+- `TownProfile` requires `ocean_side`; `scripts/build_town_data.py` no longer mirrors the cross-shore axis.
+- Chennai's committed geometry was reflected back to its real chirality (`scripts/migrate_town_orientation.py`).
+- Shared propagation fixtures are generated for both orientations, so `mirror.test.ts` pins each.
+- Pre-merge review (`4ff0bd5`): `forestMaterial.ts` was the one `DEMO_WORLD_GLSL` consumer not setting `uLandSign` — now wired. `buildBuildingPlacements`'s new `shore` param is now passed by both callers (`DenseBuildingLayer.tsx`, `TelemetryPanel.tsx`) so placement and exposure can't disagree; its inland-column bound is now two-sided so a west-facing shore doesn't march unguarded past x=0. `structures.py`'s unused `shore_x` import is dropped. The `propagation.py`/`world.ts` module headers now describe ocean-west/land-east as the default the sign selects, not as fact.
+
+**Why:**
+- East-facing (Bay of Bengal) cities were rendered as mirror images, and their real `heading_deg` did not match the mirrored geometry — a Chennai scenario using the town default heading never made landfall, so no exposure or building tinting ever occurred.
+
+**Files/Modules:**
+- `simulation/core/propagation.py`, `simulation/core/structures.py`
+- `frontend/src/propagation/{world,structures}.ts`, `frontend/src/three/world/demoWorld.ts`
+- `frontend/src/three/{water,terrain}/*Material.ts`, `frontend/src/three/vegetation/forestMaterial.ts`, `frontend/src/three/world/glslTwin.test.ts`, `frontend/src/three/structures/support.ts`, `frontend/src/three/markers/OriginPin.tsx`, `frontend/src/three/urban/{buildingPlacement.ts,DenseBuildingLayer.tsx}`, `frontend/src/features/command-center/components/TelemetryPanel.tsx`
+- `shared/types/index.ts`, `shared/constants/towns/chennai.json`, `shared/fixtures/propagation_cases.json`
+- `scripts/{build_town_data,migrate_town_orientation,generate_propagation_fixtures}.py`
+- `CLAUDE.md` (propagation-field checklist now names all three shader materials)
+
+**Future Context:**
+- The four remaining ADR-009 cities stay commented out pending fit-quality validation, but the east-facing blocker is gone: Puri and Visakhapatnam need only `ocean_side: "east"` in their generated data.
+- Flat-canvas grid ticks, per-type building geometry and the town-bounds camera fit are deliberately not in this change — see `docs/superpowers/specs/2026-09-14-coastline-orientation-design.md` §9–11.
+- A shared GLSL chunk gaining a uniform (`uLandSign`) doesn't guarantee every material consuming that chunk sets it — an unset sampler2D/float uniform reads 0, not "unchanged," so the omission read as a real orientation (land_sign=0) rather than an error. `glslTwin.test.ts` now asserts every consuming material sets every `shoreUniformDefaults()` key, so a future uniform addition fails loudly instead of shipping a silent visual regression.
+
+### 2026-09-14 — Real City mode, phase 1: real Chennai coastline + buildings (ADR-009)
+
+**Added/Changed:**
+- `scenario_config` gains `world_profile: "real_city"` + `city_id` (one of five curated cities, cross-field
+  validated). Selecting one swaps the fictional shoreline/buildings for a real one — physics stays the same
+  simplified model, unchanged from every other scenario.
+- `scripts/build_town_data.py` (new, one-time/rerunnable dev tool, no new dependencies): fetches Natural
+  Earth's 10m coastline for a city bbox, fits it to the existing 3-term-sine `shore_x` shape via
+  `scipy.optimize.curve_fit` (Chennai: 0.52 km RMSE, 134 points), fetches OSM building footprints via
+  Overpass, derives generic class/type/height, writes `shared/constants/towns/<city_id>.json`. Ran for
+  Chennai only this phase — 1,535 real building placements, all verified on land under the fitted shoreline.
+- Every shoreline-position function on both sides of the mirror gained an optional shore-override parameter,
+  defaulting to today's fictional constants: `simulation/core/propagation.py` (`shore_x`, `is_land`,
+  `distance_to_coast_along_heading`, `nearest_shore_distance`, `PropagationParams.shore`, new
+  `shore_params_for_city()`), `simulation/core/structures.py` (`inland_depth_km`, `exposure_for`,
+  `assess_structures`), the four disaster models' `assess_structures` call sites, and their TypeScript
+  mirrors (`propagation/world.ts`, `kinematics.ts`, `structures.ts`, `hazards.ts`). The GLSL shoreline
+  (`DEMO_WORLD_GLSL`) changed from baked shader-source constants to runtime uniforms
+  (`uShoreBase`/`uShoreAmp`/`uShoreFreq`/`uShorePhase`) so a city switch never needs a shader recompile —
+  `waterMaterial.ts`/`terrainMaterial.ts`/`forestMaterial.ts` all initialize them explicitly.
+- `three/urban/realTownPlacements.ts` (new): maps a `TownProfile`'s real buildings through the same
+  instancing/exposure-tint path `DenseBuildingLayer.tsx` already uses for the fictional Dense Coastal
+  Profile — only the placement data source differs.
+- `frontend/src/features/command-center/towns.ts` (new): `import.meta.glob`-based loader, auto-discovers
+  whichever `shared/constants/towns/*.json` files are actually committed, so a partial rollout (today:
+  Chennai only) never breaks the build.
+- `NewTestModal.tsx` gains a "Real City" world option and `CityPicker.tsx` (a decorative, schematic India
+  outline with pins — not GIS data; only cities with committed data are selectable).
+  `TelemetryPanel.tsx` renders the mandatory disclosure label ("Real coastline & building geometry.
+  Simplified demonstration physics — not an operational forecast") and a real building impacted/total count.
+- New tests: `backend/tests/schemas/test_scenario_config.py` (city_id/world_profile cross-validation),
+  `simulation/tests/test_real_city_shore.py` (proves a recorded run's measured distance-to-coast actually
+  differs between the demo world and Chennai — the authoritative engine, not just the frontend, is wired),
+  `frontend/src/three/urban/realTownPlacements.test.ts` (caught a real bug pre-merge: buildings were being
+  grounded against the fictional shoreline instead of Chennai's, fixed).
+
+**Why:**
+- User wants a genuinely real-geometry mode, not just a fictional one; explicitly scoped phase 1 to keep
+  today's simplified physics and validate the pipeline on one city (Chennai, a near-straight coastline —
+  the best sine-fit candidate) before the other four.
+
+**Files/Modules:**
+- `backend/app/schemas/scenario_config.py`, `simulation/core/{propagation,structures}.py`,
+  `simulation/models/*/model.py`, `shared/types/index.ts`, `frontend/src/propagation/*.ts`,
+  `frontend/src/three/{world/demoWorld.ts,water/*,terrain/*,structures/*,urban/*,markers/OriginPin.tsx}`,
+  `frontend/src/features/command-center/{towns.ts,hooks/useScenarioSession.ts,
+  components/{NewTestModal.tsx,CityPicker.tsx,TelemetryPanel.tsx,TopBar.tsx}}`,
+  `scripts/build_town_data.py`, `shared/constants/towns/chennai.json`.
+
+**Future Context:**
+- Mumbai/Puri/Visakhapatnam/Kochi are commented into `build_town_data.py`'s `CITIES` table with real,
+  verifiable centers — running the script for each is the remaining work, gated on their fit-quality
+  passing the same bar Chennai did (a real coastline this simple sine form can approximate).
+- Local dev backend needs `TEST_DATABASE_URL` set for the test suite (pre-existing convention,
+  `docs/development/database.md`) — unrelated to this feature but required to run it green.
+
+### 2026-09-13 — Dense Coastal Profile: flat-canvas world variant with generic dense buildings
+
+**Added/Changed:**
+- `scenario_config.world_profile: "demo" | "dense_coastal" | None` (`backend/app/schemas/scenario_config.py`,
+  `shared/types/index.ts`) — a purely cosmetic 3D-rendering choice, additive/JSONB, no migration.
+- `three/world/demoWorld.ts`: `terrainHeightKm`/`DEMO_WORLD_GLSL` gain a `flat` branch that returns a
+  constant on the land side only — the sea-floor branch and the `landDepthKm`/`shoreX` land/sea boundary are
+  untouched, so hazard physics is identical between profiles (verified via a real `/ai/analyze` + recorded
+  run end-to-end run, not just unit tests).
+- New `three/urban/{buildingPlacement.ts,DenseBuildingLayer.tsx}`: a fictional, deterministic, procedurally
+  placed instanced-building field (mirrors `three/vegetation/forestPlacement.ts`'s technique exactly),
+  exposure-tinted Clear/Amber/Red via the exact same `exposureFor()`/`statusFor()`/`STATUS_COLOR` named
+  structures already use — no second exposure model. Forest is suppressed (not thinned) under this profile.
+- `SceneRoot.tsx`, `ShorelineTerrain.tsx`, `WaterSurface.tsx`, `StructureLayer.tsx`/`StructureModel.tsx`,
+  `support.ts` thread the profile/`flat` flag through so named structures ground correctly on either
+  terrain.
+- UI: a world-profile toggle in `NewTestModal.tsx` (creation time) and `TopBar.tsx` ("Dense Coastal
+  Profile" / "Reset to Demo World", disabled during replay); `TelemetryPanel.tsx` gains a real, computed
+  "Structures impacted · N / M" tile for the dense building field, illustrative-labeled.
+- RAG: added 3 real TIER_1 sources — NDMA tsunami risk management, IMD's four-stage cyclone warning system,
+  NDMA flood management guidelines (`rag/sources/{tsunami,cyclone,flood}/`) — under the **existing**
+  category taxonomy, alongside NOAA/FEMA. No `rag/`/`agents/`/backend RAG code changes were needed;
+  retrieval is disaster-type-scoped, not gated by which terrain profile is active.
+
+**Why:**
+- User requested a "real-world Indian coastal town digital twin" (named cities, real coordinates, real OSM
+  building data). That directly conflicts with CLAUDE.md §25/§27 (no real-world place name/coordinate in a
+  preset/scene, world stays an illustrative demo) — flagged, and the user chose to build the real feature as
+  a generic/fictional preset instead (AskUserQuestion). Real NDMA/IMD content stays legitimate to cite
+  (citing a real authority's real guidance is not the same as naming the scene after a real place).
+
+**Files/Modules:**
+- `backend/app/schemas/scenario_config.py`, `shared/types/index.ts`,
+  `frontend/src/three/{world/demoWorld.ts,water/{waterMaterial.ts,WaterSurface.tsx},
+  terrain/ShorelineTerrain.tsx,structures/{support.ts,StructureModel.tsx,StructureLayer.tsx},
+  urban/{buildingPlacement.ts,DenseBuildingLayer.tsx},core/SceneRoot.tsx}`,
+  `frontend/src/features/command-center/{hooks/useScenarioSession.ts,CommandCenterPage.tsx,
+  components/{NewTestModal.tsx,TopBar.tsx,TelemetryPanel.tsx}}`, `rag/sources/{tsunami,cyclone,flood}/*.md`.
+
+**Future Context:**
+- A multi-stage loading overlay (per the original spec) was deliberately **not** built — the real work
+  (procedural building placement + instance upload) is sub-frame/synchronous, and padding it with an
+  artificial minimum duration would itself be fabricated pacing (CLAUDE.md §27). Revisit only if a genuinely
+  slow async step is added later.
+- Only tsunami/cyclone/flood have real NDMA/IMD content; oil-spill/pollution/search-rescue/general remain
+  NOAA/FEMA-only until real Indian-authority sources are identified for those categories too.
+
+### 2026-09-12 — Remove Resource Agent (permanently UNAVAILABLE, added no value)
+
+**Added/Changed:**
+- Removed `resource_agent` entirely: the graph node (`agents/graph/workflow/graph.py`), its module
+  (`agents/agents/resource/`), the `ResourceAssessment` schema and `AquaShieldAgentState.resource_assessment`
+  field, its `AGENT_LABELS`/`AGENT_ROSTER`/`AGENT_STAGES` entries, and the frontend HUD "Resource" stage.
+  Precaution/Response now feed the Safety Validator directly instead of fanning through the resource node.
+- `RecommendedAction.resources` and `CommandBrief.resource_status` are unaffected — they already read
+  `RESOURCE_DATA_UNAVAILABLE` as a fixed value, independent of any dedicated node.
+- `PROMPT_VERSION` bumped to `2026-09-12.4`; `AGENT_VERSIONS["resource_agent"]` kept so an `ai_requests` row
+  recorded before the removal still resolves.
+
+**Why:**
+- No verified resource inventory exists (CLAUDE.md §26a), so the node could never report anything but
+  UNAVAILABLE — a permanent placeholder chip in the HUD with no value until a real inventory is built. User
+  asked for it removed rather than left visible for no benefit; can be re-added as a real agent once a
+  resource-inventory data source exists (see docs/agents/ai-layer.md's "Resource Agent removed" section for
+  what that would take).
+
+**Files/Modules:**
+- `agents/graph/workflow/graph.py`, `agents/agents/resource/` (deleted), `agents/schemas/{state,outputs}.py`,
+  `agents/agents/command/synthesis.py`, `agents/prompts/versions.py`,
+  `frontend/src/features/command-center/ai/agentRoster.ts`, plus updated tests in `agents/tests/`,
+  `backend/tests/api/test_ai_analysis.py`, `frontend/.../IntelligencePanel.test.tsx`.
+
+**Future Context:**
+- The graph is a 9-node graph again (was 10 with `evidence_retrieval` + `resource_agent` both present).
+  docs/agents/ai-layer.md and architecture.md §30 updated to match.
+
+### 2026-09-12 — RAG goes live with real sources; command-center recording/agent/warning legibility fixes
+
+**Added/Changed:**
+- `rag/sources/`: 5 real, identified TIER_1 authoritative sources ingested (NOAA/NWS tsunami safety, FEMA
+  flood safety, NOAA/NHC hurricane hazards, NOAA/OR&R oil spill response, FEMA NIMS/ICS overview) — the
+  registry is no longer empty; `RAG_PROVIDER=chroma` switched on in local dev (`backend/.env`, gitignored,
+  never the code default — CLAUDE.md §26b still documents `none` as the shipped default until an operator
+  ingests real sources for their own environment).
+- Fixed `rag/metadata/discovery.py`: `rag/sources/README.md` was picked up as a "source" by `python -m rag
+  validate`/`ingest` (any `.md` file matched); excluded by name, since it carries no frontmatter and isn't a
+  source.
+- New convention: a disposable `TEST_DATABASE_URL`-pointed database for the backend test suite, documented in
+  `docs/development/database.md` — real ingested `RagSource` rows (or any other real dev data) in the shared
+  dev database were breaking tests that assert an empty table on a fresh install. Two tests that assert the
+  `RAG_PROVIDER=none` default posture now pin it explicitly for their own duration
+  (`tests/api/test_rag.py::not_configured`, `tests/api/test_ai_analysis.py::rag_not_configured`) rather than
+  relying on the ambient environment having no override.
+- `RunsPanel.tsx`/`useScenarioSession.ts`: "Record run" creates and synchronously executes a deterministic
+  `SimulationRun` (CLAUDE.md §26 — intentional, not a live frame-by-frame capture), but gave no feedback while
+  that request was in flight and silently jumped into replay on completion, reading as broken/instant. Added
+  an indeterminate progress bar while recording and a real, measured (`performance.now()`-timed) "Run
+  recorded — N frames in T ms" confirmation afterward.
+- `AgentExecutionHud.tsx`: a `RUNNING` agent was visually identical to every other row except a 1.5px dot —
+  now gets a highlighted row, a bold label, a ping animation, and a loud "Working…" pill instead of the same
+  9px mono status text every other state shares.
+- `IntelligencePanel.tsx`: `data_limitations` (agent-reported warnings) were buried inside the collapsed audit
+  `<details>` at the panel's dimmest text tier. Promoted to a "Warnings" tile in the always-visible summary
+  row and a severity-colored, always-visible list (same MAX_ROWS/Overflow pattern as exposures/priorities);
+  removed the now-duplicate copy from inside the audit block.
+
+**Why:**
+- User-reported: RAG had no real content to ground agent answers in; "Record run" felt instant/broken;
+  agent-in-progress state was too subtle to notice; warnings were too easy to miss.
+
+**Files/Modules:**
+- `rag/sources/{tsunami,flood,cyclone,oil-spill,general}/*.md`, `rag/metadata/discovery.py`,
+  `backend/.env.example`, `docs/development/database.md`, `backend/tests/api/{test_rag,test_ai_analysis}.py`,
+  `frontend/src/features/command-center/{components/RunsPanel.tsx,components/AgentExecutionHud.tsx,
+  components/IntelligencePanel.tsx,hooks/useScenarioSession.ts,CommandCenterPage.tsx}`.
+
+**Future Context:**
+- Local dev Postgres now has a sibling `aquashield_test` database; anyone running the backend suite should
+  export `TEST_DATABASE_URL` to it (see `docs/development/database.md`) rather than the dev-data-bearing
+  `aquashield` database.
+- Only 5 of 8 `rag/sources/` categories have real content (tsunami, flood, cyclone, oil-spill, general);
+  pollution/search-rescue/environmental remain empty until real authoritative sources are identified for them.
+
+### 2026-09-12 — Disaster-aware RAG pipeline: ingestion, hybrid retrieval, evidence-gated citations (Prompt 16)
+
+**Added/Changed:**
+- `rag/` implemented end to end: `parsing/` (md frontmatter, txt/pdf + sidecar `.meta.json`), `chunking/`
+  (500-1000 "tokens", section/page-aware, never spans a section change), `embeddings/`
+  (`DeterministicHashEmbedding` — no network, no credits, the default), `vectorstore/` (`ChromaVectorStore`,
+  cosine distance, `aquashield_evidence` collection), `retrieval/` (`HybridRetriever`, role-scoped query
+  builder, disaster-type metadata filter, `RAG_RELEVANCE_THRESHOLD`), `ingestion/pipeline.py` (framework-free
+  parse→chunk→embed→upsert), `rag/schemas/models.py` (`SourceMetadata`, `Chunk`, `EvidenceItem`,
+  `EvidencePack`, `ClaimMapping`, `RetrievalQuery`). `rag/__main__.py` CLI: `ingest`/`validate`/`list-sources`
+  (argparse subcommands — `python -m rag.list-sources` isn't valid Python, documented deviation).
+- `agents/`: new graph node `evidence_retrieval` between Tier 1 and Tier 2, producing one role-scoped
+  `EvidencePack` each for Precaution/Response. `agents/tools/retrieval/evidence_retriever.py` rewritten as
+  the sole `agents/` ↔ `rag/` boundary (`EvidenceRetriever.retrieve(RetrievalQuery) -> EvidencePack`,
+  `build_evidence_retriever("none"|"chroma")`). `SafetyValidator.validate_citations` keeps only citation ids
+  that literally exist in the pack an agent was given. `CommandBrief` gains `evidence_citations` and
+  `claim_mappings`; `RecommendedAction` gains `citations`. `PROMPT_VERSION` bumped to `2026-09-12.3`.
+- Backend: `rag_sources` / `rag_ingestion_log` tables (migration `1bc3c8e45abe`, idempotent checksum-based
+  registry), `RagIngestionService`, `RagRetrievalService` (cached retriever), routes `POST /rag/retrieve`,
+  `GET /rag/sources`, `GET /rag/sources/{source_id}`, `GET /rag/health`. Settings `RAG_PROVIDER` (default
+  `none`), `RAG_EMBEDDING_PROVIDER`, `RAG_RELEVANCE_THRESHOLD`, `RAG_VECTORSTORE_DIR`. RAG milestone events
+  (`RAG_RETRIEVAL_STARTED`, `RAG_RETRIEVAL_COMPLETED`, `AGENT_EVIDENCE_ATTACHED`) ride the existing `/ws/ai`
+  bus.
+- Frontend: `AIEvidenceItem`, `AIClaimMapping`, extended `CommandBrief`/`AIRecommendedAction`/`AIEvent` in
+  `shared/types`. `IntelligencePanel` shows a citation badge on a cited action (authority/section/page
+  tooltip) and lists cited sources with trust level in the audit block.
+- `rag/tests/fixtures/` — three `TEST_FIXTURE`-labelled sources (tsunami, cyclone, a cross-cutting "general"
+  one), never under `rag/sources/`.
+- New dependency: `pypdf==6.18.1` (PDF text extraction, pure Python).
+- Tests: `rag/tests/` 25, `agents/tests/test_rag_integration.py` 8 (incl. one real end-to-end run against
+  the actual ChromaDB pipeline), `backend/tests/test_rag_ingestion_service.py` 7,
+  `backend/tests/api/test_rag.py` 11, plus one extended `test_ai_analysis.py` end-to-end citation test.
+  Backend suite 181 passing against real PostgreSQL/PostGIS; agents suite 30; frontend suite 51.
+
+**Why:**
+- Prompt 16 — recommendations need to cite the authoritative guidance they're based on, not just
+  deterministic simulation facts, while preserving every existing guarantee: retrieved text is evidence a
+  citation must be verifiable against, never an instruction, and a low-confidence or absent retrieval must
+  say so (`INSUFFICIENT_EVIDENCE`/`UNAVAILABLE`) rather than fabricate a source.
+- `RAG_PROVIDER=none` default keeps every Prompt 14/15 test and behaviour unchanged — RAG is additive, not a
+  breaking change to the AI layer's existing contract.
+
+**Files/Modules:**
+- `rag/**` (new package), `agents/tools/retrieval/evidence_retriever.py`,
+  `agents/agents/command/synthesis.py`, `agents/graph/workflow/graph.py`, `agents/schemas/{outputs,brief,
+  state}.py`, `agents/agents/tactical/{precaution_agent,response_agent}.py`, `agents/prompts/versions.py`,
+  `agents/llm/local_rules.py`
+- `backend/app/db/models/rag_source.py`, `backend/app/repositories/rag_source_repository.py`,
+  `backend/app/services/{rag_ingestion_service,rag_retrieval_service,ai_analysis_service}.py`,
+  `backend/app/api/routes/rag.py`, `backend/app/schemas/rag.py`, `backend/app/config/settings.py`,
+  `backend/app/main.py`, `backend/alembic/versions/1bc3c8e45abe_rag_sources_registry.py`
+- `frontend/src/features/command-center/components/IntelligencePanel.tsx`, `shared/types/index.ts`
+- `architecture.md` §10/§30/§30b/ADR-008, `CLAUDE.md` §23/§26b, `docs/rag/pipeline.md` (new),
+  `docs/agents/ai-layer.md`, `requirements.txt`, `.env.example`, `backend/.env.example`
+
+**Future Context:**
+- `DeterministicHashEmbedding` is a bag-of-hashed-words vector, not semantic — good enough for deterministic,
+  offline-testable ranking; a hosted embeddings provider is a documented gap (Anthropic has no embeddings
+  API), the seam is `rag/embeddings/provider.py::build_embedding_provider`.
+- `rag/sources/` stays empty until a real authoritative source is identified and approved — do not add
+  placeholder content there; test/demo material stays under `rag/tests/fixtures/`.
+- The disaster-type metadata filter scans stored `disaster_types` combinations
+  (`ChromaVectorStore._candidate_disaster_keys`) rather than a native list-membership query — fine at a
+  curated library's scale, revisit if source count grows into the thousands.
+- `RagIngestionService.REPO_ROOT` assumes a monorepo checkout; a source ingested from outside the repo still
+  works (falls back to an absolute `file_path`) but won't be repo-relative in the registry.
+
+### 2026-09-12 — Structures actually fail when hit; Intelligence panel condensed
+
+**Added/Changed:**
+- `three/structures/collapse.ts` — failure now spans the `impacted` and `severe` bands (`IMPACTED_SHARE`
+  0.72) with a front-loaded ramp, short overlapping piece delays and a crumble (pieces lose height as they
+  go). Pieces topple downstream of the hazard's heading, in the model's own frame, instead of in random
+  directions. Stress/lean moved to the `at_risk` band.
+- `IntelligencePanel` rewritten for density: a three-number summary row (exposed / top priority / actions),
+  top-4 rows per section with an explicit "+n more" line, statements and prerequisites moved to tooltips,
+  and evidence ids, run metadata, uncertainties, validator notes and the full disclaimer moved into a
+  collapsed audit block.
+- Tests: `collapse.test.ts` pins the demo tsunami (~0.47) and cyclone (~0.66) exposure peaks to visible
+  failure, plus monotonicity; `IntelligencePanel.test.tsx` covers the summary row, the held-back count and
+  the id fallback. Frontend suite 48 passing.
+
+**Why:**
+- Buildings never collapsed. Failure started above `EXPOSURE_IMPACTED` (0.7), but demo hazards peak
+  mid-`impacted` — a tsunami around 0.47, a cyclone around 0.66 — so the ramp was unreachable in practice
+  and structures stood untouched inside the footprint, which reads as "the hazard missed".
+- The brief was a wall of prose in a 320 px rail. An operator scanning it needs the counts, the top
+  subjects and the proposed actions; evidence ids and prerequisites are what they check afterwards.
+
+**Files/Modules:**
+- `frontend/src/three/structures/{collapse.ts,collapse.test.ts,StructureModel.tsx}`
+- `frontend/src/features/command-center/components/{IntelligencePanel.tsx,IntelligencePanel.test.tsx}`
+- `architecture.md` §28a, `docs/development/command-center.md`, `CLAUDE.md` §27
+
+**Future Context:**
+- The exposure bands, not this module, decide what is drawn. If the propagation rules ever produce higher
+  exposures, retune `IMPACTED_SHARE` rather than adding a threshold here.
+- The panel's `MAX_ROWS` is the density dial. Raising it trades scanability for completeness; the audit
+  block already holds everything.
+
+### 2026-09-12 — World scenery: instanced forest, ground-fitted structures, illustrative structural response
+
+**Added/Changed:**
+- `frontend/src/three/vegetation/` — ~4,000 instanced trees (conifer, broadleaf, palm fringe) over the land
+  plate: `worldNoise.ts` (JS twin of the terrain shader's fbm), `forestPlacement.ts` (pure, deterministic,
+  GPU-free), `treeGeometry.ts`, `forestMaterial.ts` (vertex-shader wind sway + inundated-canopy response,
+  one module-level uniform block), `ForestLayer.tsx` (six draw calls, clearings around placed structures).
+  Mounted in `SceneRoot`.
+- `three/structures/support.ts` — `footprintGround` samples two rings of `terrainHeightKm` so a structure
+  sits on the highest ground under its footprint with a foundation reaching past the lowest, instead of
+  floating on its downhill corner from a single centre sample.
+- `three/structures/collapse.ts` + `models/index.tsx` `FailingPiece` — models lean from `at_risk` and come
+  apart piece by piece inside `severe`, settling into a debris field. Thresholds imported from
+  `propagation/structures.ts`; pure function of the current exposure, so scrubbing the timeline back stands
+  the structure up; oil spills never collapse anything.
+- `StructuresPanel` states the caveat in the UI: the structural response illustrates the exposure band and is
+  not a damage, collapse or casualty estimate.
+- Tests: `forestPlacement.test.ts` (6) and `collapse.test.ts` (5). Frontend suite 45 passing.
+
+**Why:**
+- The land plate read as flat painted colour and the structures floated on the slope; the scene needed real
+  relief cues and structures that meet the ground.
+- Showing the exposure band ON the model is far more legible than four status colours — but AQUASHIELD has no
+  damage model, so it had to be built as an explicitly-labelled illustration that reverses with the timeline
+  (CLAUDE.md §25/§26a), not as a destruction animation.
+
+**Files/Modules:**
+- `frontend/src/three/vegetation/*`, `frontend/src/three/structures/{collapse.ts,support.ts,StructureModel.tsx,models/index.tsx}`,
+  `frontend/src/three/core/SceneRoot.tsx`, `frontend/src/features/command-center/components/StructuresPanel.tsx`
+- `architecture.md` §28a, `docs/development/command-center.md`, `CLAUDE.md` §23/§27
+
+**Future Context:**
+- The JS/GLSL noise twin is the fragile part: the GLSL hash fracts only the FINAL product. An earlier twin
+  also fract'ed the intermediate, dropping the noise mean from ~0.5 to ~0.25 and leaving 93 trees on a 300 km
+  world — which looks like a design choice, not a bug. `forestPlacement.test.ts` guards the distribution.
+- Shaders still have no automated render test. They were verified to compile in headless Chrome with
+  SwiftShader via a throwaway page; the technique is written up in docs/development/command-center.md.
+- Tree scale is exaggerated like everything else in this world (a tree is ~1-2 km tall next to a 3 km town
+  block). Do not "correct" it to real scale — it would be invisible.
+
+### 2026-09-12 — HUD rail layout fix + agent pipeline grouped by superstep
+
+**Added/Changed:**
+- `HudPanel` gains `shrink-0`. The HUD rails are flex columns, so every panel was being squashed to fit and
+  its body clipped mid-line — telemetry readouts cut in half, the agent list showing only its first rows —
+  which read as panels overlapping. Panels now keep their natural height and the rail scrolls.
+- `AgentExecutionHud` groups its chips by the graph's supersteps (`AGENT_STAGES` / `byStage`), marking the
+  Analyse and Advise stages `‖ in tandem`, so the parallel branches are legible as parallel.
+- `AgentExecutionHud` moved to the left rail (tests, parameters, pipeline); the right rail keeps telemetry,
+  structures, recorded runs and intelligence. Balances the two rails so neither scrolls far.
+- `IntelligencePanel` inner scroll capped at 38vh (was 46vh).
+
+**Why:**
+- The clipping was a pre-existing flex bug that only became obvious once the rail carried five panels.
+- "Working in tandem" is a property of the graph; the HUD now shows it structurally instead of relying on
+  timings that the local deterministic provider finishes in single-digit milliseconds.
+
+**Files/Modules:**
+- `frontend/src/features/command-center/components/{HudPanel,AgentExecutionHud,IntelligencePanel}.tsx`,
+  `.../ai/agentRoster.ts`, `.../CommandCenterPage.tsx`
+
+**Future Context:**
+- `shrink-0` on `HudPanel` is load-bearing for every rail, not just the AI panels — don't remove it to "fix"
+  a tall panel; cap that panel's own body instead.
+
+### 2026-09-12 — Frame-synchronised multi-agent analysis in the command center (Prompt 15)
+
+**Added/Changed:**
+- `agents/`: graph expanded from 3 to 9 nodes — Context Collector → (Hazard ‖ Damage ‖ Risk) →
+  (Precaution ‖ Response) → Resource → Safety Validator → Command Synthesizer. Conditional routing skips the
+  analysis tiers when no analysable frame exists; a failing agent is recorded `FAILED` + `AGENT_FAILED`
+  limitation and the graph continues. New closed schemas (`HazardAssessment`, `DamageAssessment`,
+  `RiskAssessment`, `PrecautionSet`, `ResponsePlan`, `ResourceAssessment`), `AgentRun` records, and
+  `CommandBrief.precautions` / `resource_status` / `agent_runs`. `GraphDeps.emit` streams milestones.
+  `PROMPT_VERSION` bumped to `2026-09-12.2`.
+- Backend: `POST /ai/analyze-frame` (scenario_version_id + request_type), `409 AI_ANALYSIS_STALE` guard,
+  per-owner in-process `AIEventBus`, `/ws/ai` milestone socket (token query param, same verifier),
+  migration `9a1f63c05d72` adding `ai_requests.scenario_version_id` and `ai_requests.request_type`.
+- Frontend: `ai/analysisScheduler.ts` (playback throttle 5 s, scrub debounce 600 ms, immediate on
+  pause/complete/manual, frame cache, stale/superseded discard), `ai/useAIOrchestrator.ts`,
+  `ai/useAIEvents.ts`, `ai/agentRoster.ts`, `components/AgentExecutionHud.tsx`,
+  `components/IntelligencePanel.tsx`, mounted in the command center's right rail.
+  `components/CommandBriefPanel.tsx` removed (superseded).
+- Shared contracts: `AIAgentRun`, `AIAgentExecutionStatus`, `AIRequestType`, `AIEvent`, extended
+  `CommandBrief` / `AIRequestOut`.
+- Tests: agents 22 (was 17), backend 162 passing against PostgreSQL/PostGIS (new stale, frame-isolation,
+  agent-run and WebSocket tests; new `tests/test_ai_events.py`), frontend 45 (new scheduler and panel suites).
+
+**Why:**
+- Prompt 15 — the operator needs the agents working while the timeline plays, without a graph run per frame
+  (UI stalls, LLM cost) and without ever seeing an answer about a frame or configuration they have left.
+- Splitting the two analysts into six specialised agents makes each output independently validatable and lets
+  one agent fail without losing the brief.
+
+**Files/Modules:**
+- `agents/agents/{hazard,vulnerability,tactical,resource,command}/*`, `agents/graph/workflow/graph.py`,
+  `agents/schemas/{outputs,brief,state}.py`, `agents/llm/local_rules.py`, `agents/prompts/versions.py`
+- `backend/app/services/{ai_events,ai_analysis_service}.py`, `backend/app/api/websocket/ai_events.py`,
+  `backend/app/api/routes/ai.py`, `backend/app/schemas/ai.py`, `backend/app/db/models/ai_request.py`,
+  `backend/alembic/versions/9a1f63c05d72_ai_request_frame_sync.py`
+- `frontend/src/features/command-center/ai/*`, `.../components/{AgentExecutionHud,IntelligencePanel}.tsx`,
+  `.../CommandCenterPage.tsx`, `shared/types/index.ts`
+- `architecture.md` §30/§30a, `docs/agents/ai-layer.md`, `CLAUDE.md` §23/§26a
+
+**Future Context:**
+- `AIEventBus` is in-process: a multi-worker deployment needs a real broker before `/ws/ai` is reliable.
+- The Resource Agent is a live seam, not a stub to delete: flip `resource_agent.has_resource_inventory` when a
+  verified inventory data source exists, and it starts reporting instead of `RESOURCE_DATA_UNAVAILABLE`.
+- `EvidenceRetriever` still returns `NOT_CONFIGURED` — RAG remains out of scope.
+- Execution is still synchronous; the scheduler is what keeps that acceptable. If a hosted provider makes a
+  run slow enough to block a worker, move execution to a job queue rather than loosening the throttle.
+
 ### 2026-09-12 — Read-only multi-agent AI intelligence layer (Prompt 14)
 
 **Added/Changed:**

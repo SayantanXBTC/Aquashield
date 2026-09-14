@@ -26,9 +26,24 @@ def _out(request: AIRequest) -> AIRequestOut:
 
 @router.post("/analyze", response_model=AIRequestOut, status_code=201)
 def analyze(data: AIAnalyzeRequest, service: AIServiceDep) -> AIRequestOut:
-    """Runs the 3-agent analysis graph synchronously against one recorded
-    frame and returns the audit record (poll /result for the brief). Read-
-    only over simulation data; the only write is the ai_requests row."""
+    """Runs the analysis graph synchronously against one recorded frame and
+    returns the audit record (poll /result for the brief). Read-only over
+    simulation data; the only write is the ai_requests row."""
+    return _out(service.analyze(data))
+
+
+@router.post("/analyze-frame", response_model=AIRequestOut, status_code=201)
+def analyze_frame(data: AIAnalyzeRequest, service: AIServiceDep) -> AIRequestOut:
+    """The command center's frame-synchronised entry point (Prompt 15).
+
+    Identical work to POST /analyze, but the caller is expected to send the
+    `scenario_version_id` it is displaying and the `request_type` that
+    triggered it (playback | scrub | paused | complete | manual). A version
+    that no longer matches the run is refused as stale (409) instead of
+    answered about a configuration the operator has moved on from.
+
+    Milestones stream on the `/ws/ai` socket while this call is in flight."""
+
     return _out(service.analyze(data))
 
 

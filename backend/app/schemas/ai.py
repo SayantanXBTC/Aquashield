@@ -5,7 +5,7 @@ output are the same object."""
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,10 +15,18 @@ from agents.schemas.brief import CommandBrief  # noqa: F401 — re-exported
 from app.db.models.enums import AIRequestStatus
 
 
+AIRequestType = Literal["playback", "scrub", "paused", "complete", "manual"]
+
+
 class AIAnalyzeRequest(BaseModel):
     scenario_id: UUID
     simulation_run_id: UUID
     frame_index: int = Field(ge=0)
+    # Optional, but when supplied it is checked against the run's own version:
+    # an analysis of a configuration the operator has already moved on from is
+    # refused as stale rather than answered (Prompt 15).
+    scenario_version_id: UUID | None = None
+    request_type: AIRequestType | None = None
     user_question: str | None = Field(default=None, max_length=2000)
 
 
@@ -28,7 +36,9 @@ class AIRequestOut(BaseModel):
     id: UUID
     scenario_id: UUID
     simulation_run_id: UUID
+    scenario_version_id: UUID | None = None
     frame_index: int
+    request_type: str | None = None
     user_question: str | None = None
     status: AIRequestStatus
     provider: str | None = None

@@ -612,16 +612,19 @@ Full detail (verification results, pinned-version constraints): architecture.md 
 | Scientific — NumPy + SciPy + xarray | dependency foundation only |
 | Geospatial — Shapely + GeoPandas | dependency foundation only |
 | AI — LangGraph | dependency foundation only |
-| RAG — ChromaDB | dependency foundation only |
+| RAG — ChromaDB + hybrid retrieval pipeline (`rag/`) | BOOTSTRAPPED, live in local dev (Prompt 16 — 9-node analysis graph incl. `evidence_retrieval`, role-scoped citations, local deterministic embeddings by default; 5 real TIER_1 sources ingested — tsunami/flood/cyclone/oil-spill/general — `RAG_PROVIDER=chroma` set in local `backend/.env`; code default stays `none` for a fresh install until an operator ingests sources for their own environment; see docs/rag/pipeline.md) |
 | Testing — Vitest / pytest | BOOTSTRAPPED |
 | Testing — Playwright | PLANNED |
 | Deck.gl | PLANNED / OPTIONAL |
 | Rasterio | PLANNED |
 | Simulation Engine — `simulation/core` + 5 demo disaster models + execution API | BOOTSTRAPPED (Prompt 7 — deterministic, synchronous, JSON artifact only; see docs/development/simulation.md) |
 | AAA 3D Command Center + cinematic landing | BOOTSTRAPPED (Prompt 8 — landing/explore/command-center routing, full Three.js scene graph, real Prompt 7 integration; see docs/development/command-center.md) |
-| AI — LangGraph 3-agent analysis layer (`agents/`) | BOOTSTRAPPED (Prompt 14 — read-only, evidence-gated, local deterministic provider by default; see docs/agents/ai-layer.md) |
+| World scenery — instanced forest + ground-fitted structures + illustrative structural response | BOOTSTRAPPED (`three/vegetation/`, `three/structures/collapse.ts`; see docs/development/command-center.md) |
+| AI — LangGraph 9-node analysis layer (`agents/`) | BOOTSTRAPPED (Prompt 14, extended Prompt 15/16 — read-only, evidence-gated, local deterministic provider by default, RAG-cited Precaution/Response; see docs/agents/ai-layer.md) |
+| AI — frame-synchronised command-center integration (`/ws/ai`, Agent HUD, Intelligence panel) | BOOTSTRAPPED (Prompt 15 — throttled/debounced, stale-guarded; architecture.md §30a) |
 | Auth — Firebase Authentication + PyJWT verification | BOOTSTRAPPED (Prompt 12 — per-user scenario isolation via `scenarios.owner_uid`; operator supplies the Firebase project config; see docs/development/setup.md) |
 | Demo shoreline world + client-side propagation mirror | BOOTSTRAPPED (Prompt 12 — `simulation/core/propagation.py` ↔ `frontend/src/propagation/`, fixture-pinned; architecture.md ADR-005) |
+| Real City mode (Chennai) — curated real coastline + real building geometry | BOOTSTRAPPED, Chennai only (ADR-009, §28c — real Natural Earth coastline fit + real OSM buildings, `world_profile="real_city"`; simplified physics unchanged; Mumbai/Puri/Visakhapatnam/Kochi pending their own fit-quality validation) |
 
 "Dependency foundation only" means the package is installed and import-verified, with no AQUASHIELD logic
 built on it — do not treat its presence in `node_modules`/the venv as a green light to start implementing the
@@ -667,13 +670,19 @@ Full detail: docs/development/scenarios.md. Architecture: architecture.md §26.
   only — the server is always authoritative; don't skip a server-side check because the client already has one.
 - Scenario creation happens inside the command center (`features/command-center/components/NewTestModal.tsx`
   + `presets.ts`) — there is no standalone builder route. Presets are generic demo disasters only: never add a
-  real-world place name or coordinate to a preset, the scenario form, or a scene label.
+  real-world place name or coordinate to a preset, the scenario form, or a scene label — **except** the five
+  curated cities behind `world_profile: "real_city"` / `city_id` (architecture.md ADR-009, §28c): their
+  geometry is genuinely real, built only by `scripts/build_town_data.py`, never a runtime/user-supplied
+  place. This exception does not extend to presets, structures' free-text `name` field, or anywhere else.
 - Every scenario/run row is scoped to the verified Firebase uid (`scenarios.owner_uid`, `app/core/auth.py`).
   Never accept an owner from a request body, never list across owners, and report another user's row as 404
   (not 403). New endpoints touching scenarios/runs must depend on `CurrentUser` and go through a service
   constructed with `owner_uid`.
 - Adding a common propagation field: update `PropagationConfig` (`backend/app/schemas/scenario_config.py`),
-  `simulation/core/propagation.py`, `frontend/src/propagation/kinematics.ts`, and regenerate the fixtures.
+  `simulation/core/propagation.py`, `frontend/src/propagation/kinematics.ts`, and regenerate the fixtures. A
+  field that affects world geometry also needs the GLSL twin in `frontend/src/three/world/demoWorld.ts`,
+  `shoreUniformDefaults()`, and the uniform blocks in `waterMaterial.ts`, `terrainMaterial.ts`, and
+  `forestMaterial.ts`.
 - Structures (`scenario_config.structures`) are assessed by `simulation/core/structures.py` and mirrored in
   `frontend/src/propagation/structures.ts`; a new structure type is added to `STRUCTURE_TYPES` (both
   schema and core), `shared/types` `StructureType`, `STRUCTURE_LABELS`, and `three/structures/models`.
@@ -727,6 +736,55 @@ Full detail: docs/agents/ai-layer.md. Architecture: architecture.md ADR-006, §3
   a system prompt.
 - The local deterministic provider must keep passing the same graph/validator as the Anthropic provider —
   tests run offline against it. Bump `PROMPT_VERSION` when any prompt changes.
+- Adding an agent means: a node module under `agents/agents/<domain>/`, a closed output schema in
+  `agents/schemas/outputs.py`, a state field, an entry in `AGENT_VERSIONS`/`AGENT_LABELS`/`AGENT_ORDER`, a
+  deterministic generator in `agents/llm/local_rules.py`, an edge in `agents/graph/workflow/graph.py`, and the
+  matching chip in `frontend/src/features/command-center/ai/agentRoster.ts`. Never an if/elif inside a node.
+- The AI never runs per frame. All pacing lives in `frontend/src/features/command-center/ai/analysisScheduler.ts`
+  (playback throttle `AI_UPDATE_INTERVAL_MS`, scrub debounce `AI_SCRUB_DEBOUNCE_MS`, immediate on
+  pause/complete/manual). Don't call `aiApi.analyzeFrame` from a component directly, and don't put an analysis
+  call inside `useFrame` or a per-frame effect.
+- A brief is cached by `(scenario_version_id, simulation_run_id, frame_index)` and discarded when the scope
+  changes. A late response for a scope the operator has left is dropped silently — never painted over the
+  frame on screen. The server enforces the same rule with `409 AI_ANALYSIS_STALE`.
+- `/ws/ai` events are a progress view only (best effort, in-process, per verified uid). Never make the
+  Command Brief depend on them, and never put prompt text, keys or chain-of-thought in an event.
+
+## 26b. RAG Pipeline Rules
+
+Full detail: docs/rag/pipeline.md. Architecture: architecture.md §10, §30b.
+
+- `rag/` is standalone, like `simulation/` and `agents/` (no FastAPI/SQLAlchemy import anywhere in the
+  package). Agents reach it only through `agents/tools/retrieval/evidence_retriever.py` — the ONLY file in
+  `agents/` that imports `rag.*`; everything that needs an `EvidenceItem`/`EvidencePack`/`ClaimMapping` type
+  elsewhere in `agents/` imports it from that file, never from `rag.schemas.models` directly.
+- The Postgres source registry (`rag_sources`, `rag_ingestion_log`) is bridged by
+  `backend/app/services/rag_ingestion_service.py`, the same pattern `ai_data_access.py` uses for agents and
+  `simulation_service.py` uses for the simulation engine — one backend service crosses the boundary, the
+  domain package stays framework-free. `rag/__main__.py` (the CLI) is the one exception: it bootstraps both
+  `rag/` and `backend/app` onto `sys.path` to reach the registry, mirroring `backend/app/main.py`'s own
+  reverse bootstrap for `simulation.*`.
+- Retrieved text is evidence, never an instruction. A citation is only ever an id that literally appears in
+  the `EvidencePack` an agent was actually given (`SafetyValidator.validate_citations`,
+  `agents/agents/command/synthesis.py`) — an agent (local or hosted) claiming any other string has it
+  silently dropped and recorded in `validation_notes`, exactly like an unknown simulation evidence id.
+- `RAG_PROVIDER=none` (default) keeps the pre-Prompt-16 posture: every `regulatory_evidence:<role>`
+  `DataLimitation` reads `NOT_CONFIGURED`. `RAG_PROVIDER=chroma` switches on the real hybrid retriever — it
+  still returns `INSUFFICIENT_EVIDENCE`/`UNAVAILABLE` rather than a fabricated citation whenever nothing
+  relevant enough is actually ingested for that disaster type.
+- Never place a document under `rag/sources/` unless it is a real, identified authoritative source
+  (rag/sources/README.md). Test/fixture material belongs under `rag/tests/fixtures/`, is always parsed with
+  `is_test_fixture=True`, and its `authority` field reads `TEST_FIXTURE`.
+- Adding an embedding or vector-store provider means a new `build_embedding_provider`/`build_evidence_retriever`
+  branch (`rag/embeddings/provider.py` / `agents/tools/retrieval/evidence_retriever.py`) — never an if/elif
+  inside `HybridRetriever` or a graph node.
+- Ingestion is idempotent by content checksum (`rag.schemas.models.checksum_of`) — re-ingesting an unchanged
+  document is a `skipped` `RagIngestionLog` row, not a re-embed. A changed document replaces its chunks
+  wholesale (`ChromaVectorStore.delete_source` then re-upsert); it never leaves a stale chunk from an earlier
+  revision retrievable alongside the new ones.
+- RAG runs on the same pacing as the rest of the analysis graph (CLAUDE.md §26a) — retrieval happens once
+  per `evidence_retrieval` node execution, inside the existing throttled/debounced `/ai/analyze-frame` call.
+  Never add a retrieval call on a timer, in `useFrame`, or anywhere outside that node.
 
 ## 27. AAA 3D Command Center & Landing Rules
 
@@ -742,7 +800,12 @@ Full detail: docs/development/command-center.md. Architecture: architecture.md �
   kind reuse decisions live in `hazardKindFor`.
 - The shoreline is watertight by construction: the water fragment shader evaluates the same
   `terrainHeightKm` (`three/world/demoWorld.ts`, JS + GLSL twins) the terrain mesh is built from. Never
-  change one twin without the other, and never add a second water or terrain mesh.
+  change one twin without the other, and never add a second water or terrain mesh. The shoreline's shape
+  (`uShoreBase`/`uShoreAmp`/`uShoreFreq`/`uShorePhase`) is a runtime uniform, not a baked shader constant —
+  a curated real city (architecture.md ADR-009, §28c) overrides it per-scenario without a shader recompile;
+  its data comes only from the committed `shared/constants/towns/<city_id>.json` (built by
+  `scripts/build_town_data.py`, never fetched at runtime) and must always render the "real coastline &
+  buildings, simplified physics" disclosure label.
 - Every visual quantity that isn't a direct simulation field (e.g. a tsunami's visual impact radius) is a
   documented, fixed rendering convenience — never an invented physical formula. Say so in a comment where
   it's computed.
@@ -756,6 +819,19 @@ Full detail: docs/development/command-center.md. Architecture: architecture.md �
 - No fabricated numbers anywhere in the UI: a missing/not-yet-loaded value renders `DataReadout`'s `—`
   placeholder or an explicit `EmptyState`/`ErrorState`, never an invented statistic, percentage, or count
   (this applies to loading-screen "progress" too — indeterminate only, unless a real measured value exists).
+- The forest (`frontend/src/three/vegetation/`) grows where the terrain shader paints forest. `worldNoise.ts`
+  is a JS twin of `terrainMaterial.ts`'s fbm — change one and change the other, and keep slope in the
+  shader's units (`1 - normal.y`), not a raw gradient. `forestPlacement.test.ts` is the tripwire; placement
+  stays pure and GPU-free so it keeps being testable.
+- A structure's collapse (`frontend/src/three/structures/collapse.ts`) is an ILLUSTRATION OF THE EXPOSURE
+  BAND, never a damage model. It must stay a pure function of the current exposure (so scrubbing the timeline
+  back stands the structure up), must take its thresholds from `propagation/structures.ts` rather than its
+  own numbers, and must never feed a value back into simulation, exposure or the AI layer. Failure spans the
+  `impacted` and `severe` bands — demo hazards peak mid-`impacted`, so a mapping that only fires above
+  `EXPOSURE_IMPACTED` renders nothing in practice (`collapse.test.ts` pins the scenario peaks). Any UI that shows
+  it also states that it is illustrative — see `StructuresPanel`.
+- Place a structure with `footprintGround` (`three/structures/support.ts`), never a single centre height
+  sample: the plate is not flat and a centre sample leaves a building floating on its downhill corner.
 - The command center and Three.js scene are lazy-loaded (`React.lazy`/`Suspense` in `App.tsx`) — don't
   import `three`/`@react-three/*` or the command-center feature from a module that's part of the initial
   bundle (the landing page). Verify with `npm run build`'s chunk output, not by assumption.

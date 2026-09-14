@@ -6,7 +6,7 @@ to exercise."""
 import pytest
 
 from app.db.models.enums import DisasterType
-from app.schemas.scenario_config import validate_scenario_config
+from app.schemas.scenario_config import is_config_populated, validate_scenario_config
 
 VALID_CONFIG_BY_TYPE = {
     DisasterType.FLOOD: {"rainfall_mm_24h": 150, "river_level_m": 5.0},
@@ -60,3 +60,60 @@ def test_common_time_window_validated_for_every_disaster_type(disaster_type: Dis
 def test_none_config_is_treated_as_empty_object() -> None:
     result = validate_scenario_config(DisasterType.FLOOD, None)
     assert result == {}
+
+
+# --- world_profile: a purely cosmetic 3D-rendering choice, never a real
+# place (CLAUDE.md §25/§27) ---------------------------------------------
+
+
+def test_world_profile_dense_coastal_round_trips() -> None:
+    result = validate_scenario_config(DisasterType.TSUNAMI, {"world_profile": "dense_coastal"})
+    assert result["world_profile"] == "dense_coastal"
+
+
+def test_world_profile_rejects_an_unknown_value() -> None:
+    # Never a real place name — only the two known internal profile ids.
+    with pytest.raises(ValueError):
+        validate_scenario_config(DisasterType.TSUNAMI, {"world_profile": "chennai"})
+
+
+def test_omitting_world_profile_leaves_is_config_populated_unaffected() -> None:
+    # Regression guard: world_profile must default to None, not "demo" — a
+    # non-None default would make model_dump(exclude_none=True) emit the key
+    # on every validated config, silently flipping is_config_populated() for
+    # every scenario that never touches this field.
+    without = validate_scenario_config(DisasterType.TSUNAMI, {"magnitude": 7.8, "initial_wave_height_m": 3.5})
+    assert "world_profile" not in without
+    assert is_config_populated(DisasterType.TSUNAMI, without) is True
+
+    empty = validate_scenario_config(DisasterType.TSUNAMI, {})
+    assert "world_profile" not in empty
+    assert is_config_populated(DisasterType.TSUNAMI, empty) is False
+
+
+# --- city_id / world_profile="real_city": a curated real coastline/building
+# exception (architecture.md ADR-009) — geometry only, physics unchanged ---
+
+
+def test_real_city_round_trips_with_matching_city_id() -> None:
+    result = validate_scenario_config(DisasterType.TSUNAMI, {"world_profile": "real_city", "city_id": "chennai"})
+    assert result["world_profile"] == "real_city"
+    assert result["city_id"] == "chennai"
+
+
+def test_city_id_rejects_an_unknown_value() -> None:
+    # Never an arbitrary place — only the five curated, committed cities.
+    with pytest.raises(ValueError):
+        validate_scenario_config(DisasterType.TSUNAMI, {"world_profile": "real_city", "city_id": "atlantis"})
+
+
+def test_city_id_without_real_city_profile_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        validate_scenario_config(DisasterType.TSUNAMI, {"world_profile": "dense_coastal", "city_id": "chennai"})
+    with pytest.raises(ValueError):
+        validate_scenario_config(DisasterType.TSUNAMI, {"city_id": "chennai"})
+
+
+def test_real_city_profile_without_city_id_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        validate_scenario_config(DisasterType.TSUNAMI, {"world_profile": "real_city"})
