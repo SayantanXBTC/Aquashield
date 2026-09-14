@@ -22,8 +22,10 @@ Disaster models layer their own (documented, illustrative) formulas on top.
 
 from __future__ import annotations
 
+import base64
 import json
 import math
+import struct
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -61,6 +63,39 @@ _TOWNS_DIR = _REPO_ROOT / "shared" / "constants" / "towns"
 
 
 @dataclass(frozen=True)
+class LandField:
+    """A rasterised signed-distance-to-coast field for a curated real city
+    (the `land_field` block in `shared/constants/towns/<city>.json`) — where
+    it covers, it is authoritative over the sine curve. `data` is the raw
+    decoded bytes (resolution*resolution int16 little-endian, row-major from
+    the SW corner, x fastest); kept as `bytes` rather than unpacked into a
+    list so the dataclass stays hashable and the one-time base64 decode in
+    `shore_params_for_city` is the only decode that ever happens — sampling
+    reads two bytes directly out of the buffer."""
+
+    origin_x_km: float
+    origin_y_km: float
+    size_km: float
+    resolution: int
+    scale_km: float
+    data: bytes
+
+    def sample(self, x_km: float, y_km: float) -> float | None:
+        """Signed land depth in km at (x, y), or None outside the field's
+        coverage (caller falls back to the sine curve). Nearest-neighbour,
+        identical to the TS/GLSL twins — see CLAUDE.md's contract."""
+        u = (x_km - self.origin_x_km) / self.size_km
+        v = (y_km - self.origin_y_km) / self.size_km
+        if u < 0.0 or u >= 1.0 or v < 0.0 or v >= 1.0:
+            return None
+        col = min(max(int(math.floor(u * self.resolution)), 0), self.resolution - 1)
+        row = min(max(int(math.floor(v * self.resolution)), 0), self.resolution - 1)
+        index = row * self.resolution + col
+        raw = struct.unpack_from("<h", self.data, index * 2)[0]
+        return raw * self.scale_km
+
+
+@dataclass(frozen=True)
 class ShoreParams:
     """The shoreline's shape and which side of it is land — the fictional
     demo constants by default, or a curated real city's fitted curve
@@ -71,11 +106,16 @@ class ShoreParams:
     curve and the ocean west of it (a west-facing coast, e.g. the Arabian
     Sea); -1 is the reverse (an east-facing coast, e.g. the Bay of Bengal).
     It is the ONLY thing that distinguishes the two — every land test in the
-    engine is `land_sign * (x - shore_x(y))`."""
+    engine is `land_sign * (x - shore_x(y))`.
+
+    `land_field`, when present, is a rasterised true coastline that takes
+    priority over the sine curve wherever it covers (a peninsula/lagoon the
+    curve structurally cannot express) — see `land_depth_km`."""
 
     base_x_km: float = SHORE_BASE_X_KM
     terms: tuple[tuple[float, float, float], ...] = SHORE_TERMS
     land_sign: float = 1.0
+    land_field: LandField | None = None
 
 
 DEFAULT_SHORE = ShoreParams()
@@ -103,8 +143,43 @@ def shore_params_for_city(city_id: str) -> ShoreParams:
         ) from exc
     if ocean_side not in ("east", "west"):
         raise SimulationConfigError(f"Town data at {path} has ocean_side={ocean_side!r}; expected 'east' or 'west'.")
+    land_field = _decode_land_field(data.get("land_field"), path)
     # Ocean west means land lies east of the curve, and vice versa.
-    return ShoreParams(base_x_km=base_x_km, terms=terms, land_sign=1.0 if ocean_side == "west" else -1.0)
+    return ShoreParams(
+        base_x_km=base_x_km,
+        terms=terms,
+        land_sign=1.0 if ocean_side == "west" else -1.0,
+        land_field=land_field,
+    )
+
+
+def _decode_land_field(raw: dict[str, Any] | None, path: Path) -> LandField | None:
+    """Decodes the optional `land_field` block once at load time. Absent in
+    a town without one (or an older town JSON) — every caller falls back to
+    the sine curve in that case, so returning None here is the entire
+    backward-compatibility story."""
+    if raw is None:
+        return None
+    try:
+        resolution = int(raw["resolution"])
+        data = base64.b64decode(raw["data"])
+        field = LandField(
+            origin_x_km=float(raw["origin_x_km"]),
+            origin_y_km=float(raw["origin_y_km"]),
+            size_km=float(raw["size_km"]),
+            resolution=resolution,
+            scale_km=float(raw["scale_km"]),
+            data=data,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise SimulationConfigError(f"Town data at {path} has a malformed land_field: {exc}") from exc
+    expected_bytes = resolution * resolution * 2
+    if len(data) != expected_bytes:
+        raise SimulationConfigError(
+            f"Town data at {path} land_field.data decodes to {len(data)} bytes, expected {expected_bytes} "
+            f"for resolution={resolution}."
+        )
+    return field
 
 
 def shore_x(y_km: float, shore: ShoreParams = DEFAULT_SHORE) -> float:
@@ -118,7 +193,15 @@ def shore_x(y_km: float, shore: ShoreParams = DEFAULT_SHORE) -> float:
 def land_depth_km(x_km: float, y_km: float, shore: ShoreParams = DEFAULT_SHORE) -> float:
     """Signed distance inland from the shoreline in km; negative offshore.
     Carries the coast's orientation, so this is the single place the
-    east/west facing distinction lives."""
+    east/west facing distinction lives.
+
+    A curated real city's `land_field` (ADR-009) is authoritative wherever
+    it covers the point; outside its coverage (or when there is no field at
+    all) the analytic sine curve is the far-field fallback."""
+    if shore.land_field is not None:
+        sampled = shore.land_field.sample(x_km, y_km)
+        if sampled is not None:
+            return sampled
     return shore.land_sign * (x_km - shore_x(y_km, shore))
 
 

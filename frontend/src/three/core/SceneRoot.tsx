@@ -10,6 +10,7 @@ import { DenseBuildingLayer } from "@/three/urban/DenseBuildingLayer";
 import { ForestLayer } from "@/three/vegetation/ForestLayer";
 import { WaterSurface } from "@/three/water/WaterSurface";
 import { kmToScene, kmToSceneUnits } from "@/three/world/demoWorld";
+import { buildLandFieldTexture } from "@/three/world/landField";
 import type { HazardKind, HazardSnapshot } from "@/propagation/hazards";
 import { DEFAULT_SHORE, headingVector, shoreParamsForTown, type ShoreParams } from "@/propagation/world";
 import { CameraController } from "./CameraController";
@@ -82,6 +83,15 @@ export function SceneRoot({
     [worldProfile, town],
   );
 
+  // The curated city's rasterised coast field (ADR-009) as a GPU texture —
+  // built once per `shore.landField` and disposed on change/unmount so
+  // WaterSurface and ShorelineTerrain always share the exact same texture
+  // object (the single biggest risk here: only one of the two seeing the
+  // field would tear the coastline).
+  const landField = shore.landField;
+  const landFieldTexture = useMemo(() => (landField ? buildLandFieldTexture(landField) : undefined), [landField]);
+  useEffect(() => () => landFieldTexture?.dispose(), [landFieldTexture]);
+
   useEffect(() => {
     if (!Visualizer) clearHazardChannel();
     return () => clearHazardChannel();
@@ -151,8 +161,8 @@ export function SceneRoot({
       <LightingSystem />
       <CameraController focus={focus} frameRadius={frameRadius} entrance={entrance} onEntranceComplete={onEntranceComplete} />
 
-      <WaterSurface worldProfile={worldProfile} shore={shore} />
-      <ShorelineTerrain worldProfile={worldProfile} shore={shore} />
+      <WaterSurface worldProfile={worldProfile} shore={shore} landFieldTexture={landFieldTexture} />
+      <ShorelineTerrain worldProfile={worldProfile} shore={shore} landFieldTexture={landFieldTexture} />
       {dense ? (
         // Dense Coastal Profile / real city: a generic (or real-footprint)
         // instanced building field replaces the forest

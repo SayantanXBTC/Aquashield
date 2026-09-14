@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { BufferAttribute, PlaneGeometry } from "three";
+import { BufferAttribute, PlaneGeometry, type DataTexture } from "three";
 import type { WorldProfile } from "@shared/types";
 import { DEFAULT_SHORE, type ShoreParams } from "@/propagation/world";
 import { useDiagnostics } from "../diagnostics/diagnosticStore";
@@ -24,12 +24,18 @@ export function ShorelineTerrain({
   segments = 420,
   worldProfile,
   shore = DEFAULT_SHORE,
+  landFieldTexture,
 }: {
   segments?: number;
   worldProfile?: WorldProfile;
   /** The fictional demo curve by default, or a curated real city's fitted
    * curve (ADR-009) — must match WaterSurface's `shore` exactly. */
   shore?: ShoreParams;
+  /** The curated city's rasterised coast field texture (ADR-009,
+   * three/world/landField.ts), built and disposed by SceneRoot — must be
+   * the exact same texture WaterSurface was given, or the shoreline tears
+   * between land and water. */
+  landFieldTexture?: DataTexture;
 }) {
   const flat = worldProfile === "dense_coastal" || worldProfile === "real_city";
   const geometry = useMemo(() => {
@@ -92,7 +98,7 @@ export function ShorelineTerrain({
   }, [segments, flat, shore]);
 
   const { enabled, terrainMode } = useDiagnostics();
-  const material = useMemo(() => createTerrainMaterial(flat, shore), [flat, shore]);
+  const material = useMemo(() => createTerrainMaterial(flat, shore, landFieldTexture), [flat, shore, landFieldTexture]);
   useEffect(() => () => material.dispose(), [material]);
 
   return (

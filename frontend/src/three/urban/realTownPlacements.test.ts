@@ -20,9 +20,20 @@ describe("real town placements", () => {
   });
 
   it("keeps every building on land under its own fitted shoreline", () => {
+    // A curated city's coastline is a rasterised signed-distance field, and a
+    // building is stored as its centroid. A seafront footprint can therefore
+    // sample a cell centre marginally seaward. Two cells covers quantisation
+    // plus centroid offset; anything beyond that is a real misplacement.
+    const field = SHORE.landField;
+    const toleranceKm = field ? (2 * field.sizeKm) / field.resolution : 0;
     for (const b of all) {
-      expect(landDepthKm(b.xKm, b.yKm, SHORE)).toBeGreaterThan(0);
+      expect(landDepthKm(b.xKm, b.yKm, SHORE)).toBeGreaterThan(-toleranceKm);
     }
+  });
+
+  it("places all but a negligible share strictly inland", () => {
+    const offshore = all.filter((b) => landDepthKm(b.xKm, b.yKm, SHORE) <= 0);
+    expect(offshore.length / all.length).toBeLessThan(0.001);
   });
 
   it("grounds every building on the flat real-city terrain surface exactly", () => {

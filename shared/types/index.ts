@@ -593,6 +593,23 @@ export interface TownShoreTerm {
   phase: number;
 }
 
+/** A rasterised signed-distance-to-coast field, authoritative over the sine
+ * curve wherever it covers — the only way to express a peninsula/lagoon a
+ * single `x = f(y)` curve structurally cannot. `data` is base64 of
+ * `resolution*resolution` int16 little-endian samples, row-major from the SW
+ * corner `(origin_x_km, origin_y_km)`, x varying fastest; each sample *
+ * `scale_km` is signed land depth in km (positive inland, negative
+ * offshore). Optional: a town without one falls back to `shore_terms`
+ * everywhere. */
+export interface TownLandField {
+  origin_x_km: number;
+  origin_y_km: number;
+  size_km: number;
+  resolution: number;
+  scale_km: number;
+  data: string;
+}
+
 export interface TownPlacement {
   xKm: number;
   yKm: number;
@@ -616,6 +633,10 @@ export interface TownProfile {
   /** Real coastal facing, compass degrees — a per-city default for the
    * existing, already-general `PropagationConfig.heading_deg`. */
   heading_deg: number;
+  /** Present once the real coastline has been rasterised for this city;
+   * absent (older/ungenerated town JSON) means the sine curve above is used
+   * everywhere, unchanged from before this field existed. */
+  land_field?: TownLandField;
   buildings: TownPlacement[];
   fit_quality: { rmse_km: number; sample_count: number };
   data_provenance: {

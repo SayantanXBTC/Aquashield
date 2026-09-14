@@ -110,7 +110,18 @@ export function shoreUniformDefaults(shore: ShoreParams = DEFAULT_SHORE): {
 /** GLSL chunk: `shoreX(yKm)`, `landDepthKm(xKm, yKm)`, `terrainHeightKm(xKm,
  * yKm)`, and `sceneToKm(vec2)`. The shoreline shape comes from uniforms
  * (`uShoreBase`/`uShoreAmp`/`uShoreFreq`/`uShorePhase`) — see
- * `shoreUniformDefaults()` for how a consuming material initializes them. */
+ * `shoreUniformDefaults()` for how a consuming material initializes them.
+ *
+ * `landDepthKm` prefers the curated real city's rasterised coast field
+ * (`uLandFieldTex`, architecture.md ADR-009) wherever it covers the sample —
+ * the ONLY way this contract can express a peninsula or lagoon, which the
+ * single-valued `shoreX(yKm)` curve cannot. Outside its coverage (or when
+ * `uLandFieldEnabled` is 0, the demo world's case) it falls back to the sine
+ * curve unchanged — see `landFieldUniformDefaults()` in `./landField.ts` for
+ * how a consuming material initializes these. NEAREST, texel-centred
+ * sampling only, so the GPU lookup agrees with the unfiltered CPU twins
+ * (`frontend/src/propagation/world.ts`, `simulation/core/propagation.py`)
+ * to the last bit. */
 export const DEMO_WORLD_GLSL = /* glsl */ `
   const float WORLD_KM = ${f(WORLD_KM)};
   const float WORLD_HALF = ${f(HALF)};
@@ -121,6 +132,11 @@ export const DEMO_WORLD_GLSL = /* glsl */ `
   uniform vec3 uShoreFreq;
   uniform vec3 uShorePhase;
   uniform float uLandSign;
+  uniform float uLandFieldEnabled;
+  uniform vec2 uLandFieldOrigin;
+  uniform float uLandFieldSizeKm;
+  uniform float uLandFieldResolution;
+  uniform sampler2D uLandFieldTex;
 
   vec2 sceneToKm(vec2 sceneXZ) {
     return vec2(sceneXZ.x / SCENE_PER_KM + WORLD_HALF, -sceneXZ.y / SCENE_PER_KM + WORLD_HALF);
@@ -133,7 +149,19 @@ export const DEMO_WORLD_GLSL = /* glsl */ `
       + uShoreAmp.z * sin(6.28318530718 * uShoreFreq.z * yKm / WORLD_KM + uShorePhase.z);
   }
 
-  float landDepthKm(float xKm, float yKm) { return uLandSign * (xKm - shoreX(yKm)); }
+  float landDepthKm(float xKm, float yKm) {
+    if (uLandFieldEnabled > 0.5) {
+      float u = (xKm - uLandFieldOrigin.x) / uLandFieldSizeKm;
+      float v = (yKm - uLandFieldOrigin.y) / uLandFieldSizeKm;
+      if (u >= 0.0 && u < 1.0 && v >= 0.0 && v < 1.0) {
+        float col = clamp(floor(u * uLandFieldResolution), 0.0, uLandFieldResolution - 1.0);
+        float row = clamp(floor(v * uLandFieldResolution), 0.0, uLandFieldResolution - 1.0);
+        vec2 texel = (vec2(col, row) + 0.5) / uLandFieldResolution;
+        return texture2D(uLandFieldTex, texel).r;
+      }
+    }
+    return uLandSign * (xKm - shoreX(yKm));
+  }
 
   float worldNoise(float x, float y) {
     return 2.2 * sin(0.021 * x + 0.9 * sin(0.017 * y))

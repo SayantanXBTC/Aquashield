@@ -1,6 +1,7 @@
-import { MeshStandardMaterial, Vector3, type WebGLProgramParametersWithUniforms } from "three";
+import { MeshStandardMaterial, Vector2, Vector3, type DataTexture, type WebGLProgramParametersWithUniforms } from "three";
 import { DEFAULT_SHORE, type ShoreParams } from "@/propagation/world";
 import { DEMO_WORLD_GLSL, shoreUniformDefaults } from "../world/demoWorld";
+import { LAND_FIELD_DUMMY_TEXTURE, landFieldUniformDefaults } from "../world/landField";
 
 /**
  * VISUAL DEMONSTRATION — the land plate's surface. A MeshStandardMaterial
@@ -23,9 +24,16 @@ import { DEMO_WORLD_GLSL, shoreUniformDefaults } from "../world/demoWorld";
  * below never calls `terrainHeightKm` directly — it calls `landDepthKm`,
  * which reads the same `shoreX()` GLSL uniforms, so an unset shore would
  * silently break coastal colouring for every scene, not just real cities.
+ *
+ * `landFieldTexture` is the curated city's rasterised coast field
+ * (architecture.md ADR-009, three/world/landField.ts) — the caller
+ * (ShorelineTerrain, via SceneRoot) owns building/disposing it; this
+ * material only binds whatever it's given, or the shared dummy texture when
+ * there isn't one, so the sampler is never left unbound.
  */
-export function createTerrainMaterial(flat = false, shore: ShoreParams = DEFAULT_SHORE): MeshStandardMaterial {
+export function createTerrainMaterial(flat = false, shore: ShoreParams = DEFAULT_SHORE, landFieldTexture?: DataTexture): MeshStandardMaterial {
   const shoreUniforms = shoreUniformDefaults(shore);
+  const landFieldUniforms = landFieldUniformDefaults(shore.landField);
   const material = new MeshStandardMaterial({ color: "#ffffff", roughness: 0.92, metalness: 0.02 });
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     shader.uniforms.uFlatTerrain = { value: flat ? 1 : 0 };
@@ -34,6 +42,11 @@ export function createTerrainMaterial(flat = false, shore: ShoreParams = DEFAULT
     shader.uniforms.uShoreFreq = { value: new Vector3(...shoreUniforms.uShoreFreq) };
     shader.uniforms.uShorePhase = { value: new Vector3(...shoreUniforms.uShorePhase) };
     shader.uniforms.uLandSign = { value: shoreUniforms.uLandSign };
+    shader.uniforms.uLandFieldEnabled = { value: landFieldUniforms.uLandFieldEnabled };
+    shader.uniforms.uLandFieldOrigin = { value: new Vector2(...landFieldUniforms.uLandFieldOrigin) };
+    shader.uniforms.uLandFieldSizeKm = { value: landFieldUniforms.uLandFieldSizeKm };
+    shader.uniforms.uLandFieldResolution = { value: landFieldUniforms.uLandFieldResolution };
+    shader.uniforms.uLandFieldTex = { value: landFieldTexture ?? LAND_FIELD_DUMMY_TEXTURE };
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
