@@ -149,7 +149,16 @@ network access for a deterministic transform, apply the exact algebraic equivale
 - `shore_base_x_km' = 300 − shore_base_x_km`
 - negate each shore term's `amp` (the sine terms mirror about the base)
 - `ocean_side: "east"`, hence `land_sign = −1`
-- `rotY' = π − rotY`, since a reflection about the x axis reverses footprint orientation
+- `rotY` is left untouched
+
+**Correction (implementation):** an earlier draft of this transform additionally applied `rotY' = π − rotY`,
+reasoning that a reflection about the x axis reverses footprint orientation. That was tried and removed: the
+old pipeline's only mirroring was `dx_km = -dx_km` inside `to_local_km`, applied to positions only. `rot_y` is
+computed separately, at `scripts/build_town_data.py:231`, from the raw lon/lat minimum-rotated-rectangle axis
+— entirely outside `to_local_km` — and was therefore never mirrored. The committed bearings are already true
+real-world bearings, so un-mirroring the positions must leave `rotY` untouched; rotating it by `π − rotY`
+would have stored the mirror image of every real bearing instead. See
+`scripts/migrate_town_orientation.py`'s inline comment for the shipped rationale.
 
 The transform is exact: `shore_x'(y) = 300 − shore_x(y)`, so `land_sign · (x' − shore_x'(y)) = −((300 − x) −
 (300 − shore_x(y))) = x − shore_x(y)`, which is the pre-transform inland depth. Every building's land status

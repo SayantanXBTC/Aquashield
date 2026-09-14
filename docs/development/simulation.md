@@ -7,7 +7,8 @@
 
 `simulation/core/propagation.py` defines the one world every v2 demo model runs in: a 300 km square,
 ocean west of `shore_x(y)` (base 196 km + three sine terms, constants in `shared/constants/demo_world.json`),
-land east. `PropagationParams.from_config` reads the common block (with per-model defaults for speed and
+land east — the fictional world's default orientation; `land_sign` (below) generalizes this per scenario
+for Real City mode. `PropagationParams.from_config` reads the common block (with per-model defaults for speed and
 spread), `distance_to_coast_along_heading` marches the heading line to the first land point (0.5 km steps +
 bisection), and `front_state(params, minutes, stop_at_coast)` advances the front and reports remaining
 distance, ETA, arrival, minutes since arrival. Every frame's `hazard_state` carries the disaster-agnostic keys
@@ -127,6 +128,31 @@ are always recoverable.
 **Caveat:** if `scenario_config` omits `start_time`, `build_clock` falls back to wall-clock "now" —
 deliberately not reproducible, since nothing was actually pinned. Determinism is a property of the input,
 not a guarantee that an unpinned run repeats itself.
+
+## Shoreline orientation (`ShoreParams.land_sign`)
+
+Coastal orientation is a property of the world model, not of data preparation. `ShoreParams` carries
+`land_sign`: `+1` when land lies east of the `shore_x(y)` curve (the fictional world's default, and a
+west-facing real coast such as the Arabian Sea), `-1` when land lies west (an east-facing real coast such as
+the Bay of Bengal). Every land test — `is_land`, `distance_to_coast_along_heading`, `nearest_shore_distance`,
+`structures.py`'s `inland_depth_km`/`exposure_for` — routes through a single signed `land_depth_km`, so
+neither the engine nor a disaster model branches on orientation itself. `frontend/src/propagation/world.ts`
+mirrors this exactly (`landSign`), and the GLSL twin in `frontend/src/three/world/demoWorld.ts` carries it as
+a `uLandSign` uniform, not a baked shader constant, so switching a scenario's city never recompiles a shader.
+
+`shore_params_for_city()` derives `land_sign` from a town file's required `ocean_side` field (`"west"` → `+1`,
+`"east"` → `-1`, per architecture.md ADR-009/§28c). A town file without `ocean_side` is a `SimulationConfigError`,
+the same treatment already given a missing `shore_base_x_km` — the loader never guesses an orientation.
+
+Chennai's committed geometry (`shared/constants/towns/chennai.json`) predates this convention and was fetched
+under an earlier pipeline that mirrored the cross-shore axis in `scripts/build_town_data.py` to force an
+east-facing city to satisfy the engine's old hard-coded "land is east" rule. That mirroring rendered the city
+reversed and left `heading_deg` — a real compass bearing, never mirrored — pointing away from the mirrored
+land. `scripts/migrate_town_orientation.py chennai` is a one-shot migration of that already-fetched file to
+the `ocean_side` convention (reflects `shore_base_x_km`, each shore term's `amp`, and every building's `xKm`
+about the 300 km world's midline; leaves `rotY` untouched, since it was never mirrored in the first place).
+It is not a data source — `scripts/build_town_data.py` is, and it now emits the unmirrored orientation
+directly, so re-running it with network access reproduces the migrated file rather than contradicting it.
 
 ## Disaster models (`simulation/models/<type>/model.py`)
 

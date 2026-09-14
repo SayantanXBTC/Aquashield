@@ -352,6 +352,17 @@ physics stays geometrically consistent with what renders — this took real code
 Phase 1 ships Chennai only; the other four cities are commented into the script's `CITIES` table with real,
 verifiable centers, pending their own fit-quality validation before being committed.
 
+Update (2026-09-14): coastal orientation is now a property of the world model, not of data preparation.
+`simulation/core/propagation.py`'s `ShoreParams` gained `land_sign` (+1 land east of the shoreline curve,
+−1 land west), and every land test on both sides of the mirror routes through a signed `land_depth_km`.
+Phase 1's original approach instead mirrored the cross-shore axis in `build_town_data.py` so an east-facing
+city (Chennai, Bay of Bengal) would still satisfy the engine's hard-coded "land is east" rule — this rendered
+the city as a mirror image, and left `TownProfile.heading_deg` (a real compass bearing) pointing away from
+the now-mirrored land, so a scenario using the town's own default heading never made landfall and never
+exposed a structure. Every `TownProfile` now declares `ocean_side`; a missing value is a config error, not a
+guessed orientation. `scripts/migrate_town_orientation.py` reflected Chennai's committed geometry back to its
+real chirality one time; it is a migration of already-fetched data, not a data source.
+
 ## 14. Data Sources
 
 All external environmental/geospatial data providers are **PLANNED / TO BE DECIDED**. No data provider is selected or assumed at this stage.
@@ -1002,6 +1013,9 @@ UI: a third "Real City" option in `NewTestModal.tsx`'s world radiogroup opens `C
 decorative, schematic India outline with pins — not GIS data — only cities with committed data are
 selectable); `TelemetryPanel.tsx` renders the mandatory ADR-009 disclosure label and a real, computed
 impacted/total building count using the same `exposureFor()`/`statusFor()` functions.
+
+Orientation convention: `ShoreParams.land_sign` is +1 when land lies east of the shoreline curve and −1 when
+it lies west — the only difference between a west-facing and an east-facing city's geometry.
 
 ## 29. Authenticated Interactive Console (Prompt 12)
 

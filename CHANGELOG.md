@@ -1,5 +1,28 @@
 # AQUASHIELD — Development Changelog
 
+### 2026-09-14 — Coastal orientation as a world-model property
+
+**Added/Changed:**
+- `ShoreParams` carries `land_sign` (+1 land east, −1 land west) on both the Python engine and its TypeScript mirror; every land test routes through a signed `land_depth_km`.
+- The shoreline GLSL twin gained a `uLandSign` uniform, so a city's orientation switches without a shader recompile.
+- `TownProfile` requires `ocean_side`; `scripts/build_town_data.py` no longer mirrors the cross-shore axis.
+- Chennai's committed geometry was reflected back to its real chirality (`scripts/migrate_town_orientation.py`).
+- Shared propagation fixtures are generated for both orientations, so `mirror.test.ts` pins each.
+
+**Why:**
+- East-facing (Bay of Bengal) cities were rendered as mirror images, and their real `heading_deg` did not match the mirrored geometry — a Chennai scenario using the town default heading never made landfall, so no exposure or building tinting ever occurred.
+
+**Files/Modules:**
+- `simulation/core/propagation.py`, `simulation/core/structures.py`
+- `frontend/src/propagation/{world,structures}.ts`, `frontend/src/three/world/demoWorld.ts`
+- `frontend/src/three/{water,terrain}/*Material.ts`, `frontend/src/three/structures/support.ts`, `frontend/src/three/markers/OriginPin.tsx`, `frontend/src/three/urban/buildingPlacement.ts`
+- `shared/types/index.ts`, `shared/constants/towns/chennai.json`, `shared/fixtures/propagation_cases.json`
+- `scripts/{build_town_data,migrate_town_orientation,generate_propagation_fixtures}.py`
+
+**Future Context:**
+- The four remaining ADR-009 cities stay commented out pending fit-quality validation, but the east-facing blocker is gone: Puri and Visakhapatnam need only `ocean_side: "east"` in their generated data.
+- Flat-canvas grid ticks, per-type building geometry and the town-bounds camera fit are deliberately not in this change — see `docs/superpowers/specs/2026-09-14-coastline-orientation-design.md` §9–11.
+
 ### 2026-09-14 — Real City mode, phase 1: real Chennai coastline + buildings (ADR-009)
 
 **Added/Changed:**
