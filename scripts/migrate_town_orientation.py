@@ -15,7 +15,6 @@ same file.
 from __future__ import annotations
 
 import json
-import math
 import sys
 from pathlib import Path
 
@@ -37,8 +36,15 @@ def reflect(city_id: str) -> None:
 
     data["shore_base_x_km"] = round(WORLD_KM - data["shore_base_x_km"], 3)
     data["shore_terms"] = [{**t, "amp": round(-t["amp"], 4)} for t in data["shore_terms"]]
+    # rotY is deliberately left untouched: build_town_data.py's only mirroring was
+    # `dx_km = -dx_km` inside to_local_km, applied to positions. rot_y is computed
+    # separately from the raw lon/lat minimum rotated rectangle
+    # (np.arctan2(...) on rect.exterior.coords) and was never mirrored, so the
+    # committed values are already true bearings. Reflecting xKm makes the file
+    # internally consistent; reflecting rotY too would store the mirror image of
+    # every real bearing instead.
     data["buildings"] = [
-        {**b, "xKm": round(WORLD_KM - b["xKm"], 3), "rotY": round((math.pi - b["rotY"]) % (2 * math.pi), 4)}
+        {**b, "xKm": round(WORLD_KM - b["xKm"], 3)}
         for b in data["buildings"]
     ]
     data["ocean_side"] = "east"
