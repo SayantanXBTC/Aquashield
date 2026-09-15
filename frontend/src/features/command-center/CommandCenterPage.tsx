@@ -76,6 +76,9 @@ export function CommandCenterPage() {
 
   const handleOriginDrag = useCallback((x: number, y: number) => session.setParams({ originXKm: x, originYKm: y }), [session]);
   const handleOriginDragEnd = useCallback(() => session.commitParams(), [session]);
+  // The real_map profile has no draggable pin (MapLibre owns pointer events),
+  // so a click on the map places the origin and commits in one gesture.
+  const handleOriginPick = useCallback((x: number, y: number) => session.setAndCommitParams({ originXKm: x, originYKm: y }), [session]);
   const handleEntranceComplete = useCallback(() => setHudVisible(true), []);
   const handleStructureDrag = useCallback((id: string, x: number, y: number) => session.moveStructure(id, x, y), [session]);
   const handleStructureDragEnd = useCallback(() => session.commitStructures(), [session]);
@@ -109,6 +112,9 @@ export function CommandCenterPage() {
             coastDistanceKm={session.coastDistanceKm}
             getSnapshot={session.getSnapshot}
             anchor={session.anchor}
+            onOriginPick={handleOriginPick}
+            originLocked={replaying || !session.params}
+            onCoastMeasured={session.setMeasuredCoastKm}
           />
         </Suspense>
       ) : (
@@ -167,6 +173,7 @@ export function CommandCenterPage() {
               onChange={session.setParams}
               onCommit={session.commitParams}
               onDurationChange={session.setDurationHours}
+              originGesture={session.worldProfile === "real_map" ? "click" : "drag"}
             />
             {session.worldProfile === "real_map" ? (
               // Keyed by scenario so switching tests remounts fresh local

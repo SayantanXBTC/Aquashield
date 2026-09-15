@@ -13,6 +13,9 @@ interface ParameterPanelProps {
   onChange: (update: Partial<PropagationParams>) => void;
   onCommit: () => void;
   onDurationChange: (hours: number) => void;
+  /** The real_map profile has no draggable pin — MapLibre owns pointer
+   * events there, so the origin is placed by clicking the map. */
+  originGesture?: "drag" | "click";
 }
 
 /** Slider ranges per hazard kind — UI bounds only; the backend accepts
@@ -49,7 +52,7 @@ function formatMinutes(minutes: number): string {
  * speed seen from the other side (distance to coast along the heading ÷
  * speed), so moving it rewrites speed — one parameter, two handles.
  */
-export function ParameterPanel({ kind, params, durationHours, coastDistanceKm, locked, onChange, onCommit, onDurationChange }: ParameterPanelProps) {
+export function ParameterPanel({ kind, params, durationHours, coastDistanceKm, locked, onChange, onCommit, onDurationChange, originGesture = "drag" }: ParameterPanelProps) {
   const speedRange = kind ? SPEED_RANGE[kind] : { min: 1, max: 100, step: 1 };
   const arrivalMinutes = params && coastDistanceKm !== null && coastDistanceKm > 0 ? (coastDistanceKm / params.speedKmh) * 60 : null;
   const arrivalMin = coastDistanceKm ? Math.max(1, Math.ceil((coastDistanceKm / speedRange.max) * 60)) : 1;
@@ -150,7 +153,11 @@ export function ParameterPanel({ kind, params, durationHours, coastDistanceKm, l
             onChange={onDurationChange}
             onCommit={() => undefined}
           />
-          <p className="text-ink-faint text-[10px] leading-relaxed">Drag the origin pin on the water to move the start point.</p>
+          <p className="text-ink-faint text-[10px] leading-relaxed">
+            {originGesture === "click"
+              ? "Click the map on open water to move the start point. Drag to pan, scroll to zoom."
+              : "Drag the origin pin on the water to move the start point."}
+          </p>
         </>
       )}
     </HudPanel>

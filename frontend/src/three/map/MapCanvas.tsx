@@ -1,6 +1,6 @@
 import { createElement, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Map as MaplibreMap } from "maplibre-gl";
+import { Map as MaplibreMap, NavigationControl, ScaleControl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { HazardKind, HazardSnapshot } from "@/propagation/hazards";
 import { headingVector } from "@/propagation/world";
@@ -9,8 +9,18 @@ import { getDisasterVisualizer } from "@/three/disasters/registry";
 import { clearHazardChannel } from "@/three/hazard/hazardChannel";
 import { HeadingGuide } from "@/three/markers/HeadingGuide";
 import { OriginPin } from "@/three/markers/OriginPin";
-import type { GeoAnchor } from "./geoAnchor";
+import { lngLatToKm, type GeoAnchor } from "./geoAnchor";
+import { measureCoastDistanceKm, type CoastMeasurement } from "./mapCoast";
 import { buildModelMatrix, createMapMatrixTap, type MapMatrixRef } from "./threeMapLayer";
+
+/** Why the real coast could not be measured, in the operator's terms. A
+ * measurement that cannot be made is said plainly — never a number from the
+ * synthetic coastline standing in for the real one. */
+const COAST_NOTE: Partial<Record<CoastMeasurement["reason"], string>> = {
+  off_screen: "Coast not measurable — zoom out until the origin and the shoreline are both on screen",
+  no_land_in_range: "No land within 300 km along this heading",
+  no_water_layer: "Basemap water layer unavailable — coast cannot be measured",
+};
 
 const OPENFREEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 const MATRIX_TAP_LAYER_ID = "aquashield-matrix-tap";
@@ -105,6 +115,14 @@ function MapHazardContent({ kind, originKm, headingDeg, coastDistanceKm, getSnap
 
 export interface MapCanvasProps extends MapHazardContentProps {
   anchor: GeoAnchor;
+  /** Clicking the map moves the hazard origin there (the km-frame pin cannot
+   * be dragged on this profile — pointer events belong to MapLibre's pan). */
+  onOriginPick?: (xKm: number, yKm: number) => void;
+  /** Locks origin picking during replay, exactly as the pin locks elsewhere. */
+  originLocked?: boolean;
+  /** Distance to the REAL coast, measured off the basemap's water polygons,
+   * or null when the path runs outside what the map has rendered. */
+  onCoastMeasured?: (km: number | null) => void;
 }
 
 /**
@@ -122,10 +140,42 @@ export interface MapCanvasProps extends MapHazardContentProps {
  * absolute, so in normal flow the element collapses to zero height and
  * MapLibre silently falls back to a 300px canvas and never finishes loading.
  */
-export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnapshot, anchor }: MapCanvasProps) {
+export function MapCanvas({
+  kind,
+  originKm,
+  headingDeg,
+  coastDistanceKm,
+  getSnapshot,
+  anchor,
+  onOriginPick,
+  originLocked = false,
+  onCoastMeasured,
+}: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const matrixRef = useRef<ArrayLike<number> | null>(null);
+  const mapRef = useRef<MaplibreMap | null>(null);
+  const measureRef = useRef<(() => void) | null>(null);
+  const [mapReady, setMapReady] = useState(false);
   const [contextLost, setContextLost] = useState(false);
+  const [coastReason, setCoastReason] = useState<CoastMeasurement["reason"] | null>(null);
+
+  // Callbacks and the values the measurement reads live in refs: the map is
+  // built once per anchor, and re-running that effect for a slider change
+  // would tear down and rebuild the whole basemap.
+  const originRef = useRef(originKm);
+  const headingRef = useRef(headingDeg);
+  const anchorRef = useRef(anchor);
+  const pickRef = useRef(onOriginPick);
+  const lockedRef = useRef(originLocked);
+  const measuredRef = useRef(onCoastMeasured);
+  useEffect(() => {
+    originRef.current = originKm;
+    headingRef.current = headingDeg;
+    anchorRef.current = anchor;
+    pickRef.current = onOriginPick;
+    lockedRef.current = originLocked;
+    measuredRef.current = onCoastMeasured;
+  }, [originKm, headingDeg, anchor, onOriginPick, originLocked, onCoastMeasured]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -139,6 +189,12 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
       pitch: 60,
       bearing: -20,
     });
+    mapRef.current = map;
+
+    // Pan, scroll-zoom, rotate and pitch are MapLibre's defaults; the
+    // control gives them a visible affordance and a way back to north.
+    map.addControl(new NavigationControl({ visualizePitch: true }), "bottom-right");
+    map.addControl(new ScaleControl({ unit: "metric" }), "bottom-right");
 
     // A lost context is silent on MapLibre's own error channel — the map just
     // stops painting — and browsers cap how many live contexts a page may
@@ -179,19 +235,50 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
       if (!map.getLayer(MATRIX_TAP_LAYER_ID)) {
         map.addLayer(createMapMatrixTap(MATRIX_TAP_LAYER_ID, matrixRef));
       }
+      setMapReady(true);
     });
+
+    // Clicking open water moves the hazard origin. MapLibre fires "click"
+    // only when the pointer did not drag, so this never fights a pan.
+    map.on("click", (ev) => {
+      if (lockedRef.current || !pickRef.current) return;
+      const [xKm, yKm] = lngLatToKm(ev.lngLat.lng, ev.lngLat.lat, anchorRef.current);
+      pickRef.current(xKm, yKm);
+    });
+
+    // Re-measure whenever the rendered view settles: the measurement can only
+    // read tiles that are actually on screen, so panning or zooming changes
+    // what is answerable.
+    const remeasure = () => {
+      const result = measureCoastDistanceKm(map, anchorRef.current, originRef.current, headingRef.current);
+      setCoastReason(result.reason);
+      measuredRef.current?.(result.distanceKm);
+    };
+    map.on("idle", remeasure);
+    measureRef.current = remeasure;
 
     return () => {
       matrixRef.current = null;
+      mapRef.current = null;
+      measureRef.current = null;
+      setMapReady(false);
       observer.disconnect();
       canvas.removeEventListener("webglcontextlost", onLost);
       canvas.removeEventListener("webglcontextrestored", onRestored);
       map.remove();
     };
     // The anchor is baked into the model matrix; changing it recreates the
-    // map rather than rescaling that matrix in place.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // map rather than rescaling that matrix in place. Everything else the
+    // effect reads goes through a ref for exactly that reason.
   }, [anchor.lat, anchor.lon]);
+
+  // Moving the pin or turning the heading changes the path being measured,
+  // and neither moves the map, so "idle" would not fire on its own.
+  const [originXKm, originYKm] = originKm;
+  useEffect(() => {
+    if (!mapReady) return;
+    measureRef.current?.();
+  }, [mapReady, originXKm, originYKm, headingDeg]);
 
   return (
     <div className="absolute inset-0">
@@ -226,8 +313,13 @@ export function MapCanvas({ kind, originKm, headingDeg, coastDistanceKm, getSnap
           WebGL context lost — reload the page to restore the map.
         </div>
       ) : null}
+      {coastReason && COAST_NOTE[coastReason] ? (
+        <div className="pointer-events-none absolute bottom-12 left-3 max-w-sm rounded-[6px] border border-amber-400/40 bg-[rgba(24,16,4,0.85)] px-3 py-1.5 text-[11px] text-amber-200 backdrop-blur-xl">
+          {COAST_NOTE[coastReason]}
+        </div>
+      ) : null}
       <div className="pointer-events-none absolute bottom-3 left-3 rounded-[6px] border border-white/[0.08] bg-[rgba(9,14,20,0.72)] px-3 py-1.5 text-[10px] tracking-[0.08em] text-white/70 backdrop-blur-xl">
-        Real basemap — simplified demonstration hazard model, not an operational forecast
+        Real basemap and coastline — simplified demonstration hazard model, not an operational forecast
       </div>
     </div>
   );

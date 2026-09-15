@@ -288,6 +288,22 @@ export function useScenarioSession(clock: PlaybackClock) {
     if (paramsRef.current) scheduleSave(paramsRef.current, durationHours);
   }, [scheduleSave, durationHours]);
 
+  /** Set and persist in one gesture, for an edit with no separate "drop" —
+   * a map click on the real_map profile. `commitParams` reads `paramsRef`,
+   * which only catches up a render later, so calling the two in sequence
+   * would save the previous value. */
+  const setAndCommitParams = useCallback(
+    (update: Partial<PropagationParams>) => {
+      const prev = paramsRef.current;
+      if (!prev) return;
+      const next = { ...prev, ...update };
+      setReplayRunId(null);
+      setParamsState(next);
+      scheduleSave(next, durationHours);
+    },
+    [scheduleSave, durationHours],
+  );
+
   const setDurationHours = useCallback(
     (hours: number) => {
       const clamped = Math.max(0.5, Math.min(72, hours));
@@ -502,32 +518,58 @@ export function useScenarioSession(clock: PlaybackClock) {
 
   // --- the per-frame snapshot accessor -----------------------------------
 
-  const coastDistanceKm = useMemo(
-    () => (params ? distanceToCoastAlongHeading(params.originXKm, params.originYKm, params.headingDeg, shore) : null),
-    [params, shore],
-  );
+  // "real_map" measures its shoreline off the basemap's water polygons
+  // (three/map/mapCoast.ts) and reports it here; every other profile marches
+  // the analytic demo curve. null while the map has not measured yet, or
+  // when the path runs outside the rendered viewport — the HUD shows its
+  // own "—" for that rather than a number from the wrong coastline.
+  const [measuredCoastKm, setMeasuredCoastKm] = useState<number | null>(null);
+  const realMap = worldProfile === "real_map";
+
+  const coastDistanceKm = useMemo(() => {
+    if (!params) return null;
+    if (realMap) return measuredCoastKm;
+    return distanceToCoastAlongHeading(params.originXKm, params.originYKm, params.headingDeg, shore);
+  }, [params, shore, realMap, measuredCoastKm]);
 
   const snapshotCache = useRef<{ key: string; elapsed: number; snapshot: HazardSnapshot | null }>({ key: "", elapsed: -1, snapshot: null });
-  const frameSource = useRef<{ kind: HazardKind | null; params: PropagationParams | null; frames: TimelineFrame[]; replay: boolean; structures: StructureConfig[]; shore: ShoreParams }>({
+  const frameSource = useRef<{
+    kind: HazardKind | null;
+    params: PropagationParams | null;
+    frames: TimelineFrame[];
+    replay: boolean;
+    structures: StructureConfig[];
+    shore: ShoreParams;
+    coastOverrideKm: number | null;
+  }>({
     kind: null,
     params: null,
     frames: [],
     replay: false,
     structures: [],
     shore: DEFAULT_SHORE,
+    coastOverrideKm: null,
   });
   useEffect(() => {
-    frameSource.current = { kind, params, frames: replayFrames, replay: replayRunId !== null && replayFrames.length > 0, structures, shore };
-  }, [kind, params, replayFrames, replayRunId, structures, shore]);
+    frameSource.current = {
+      kind,
+      params,
+      frames: replayFrames,
+      replay: replayRunId !== null && replayFrames.length > 0,
+      structures,
+      shore,
+      coastOverrideKm: realMap ? measuredCoastKm : null,
+    };
+  }, [kind, params, replayFrames, replayRunId, structures, shore, realMap, measuredCoastKm]);
 
   const getSnapshot = useCallback((): HazardSnapshot | null => {
-    const { kind: k, params: p, frames, replay, structures: placed, shore: activeShore } = frameSource.current;
+    const { kind: k, params: p, frames, replay, structures: placed, shore: activeShore, coastOverrideKm } = frameSource.current;
     if (!k || !p) return null;
     const elapsed = clock.elapsedMinutes;
     const structureKey = placed.map((s) => `${s.id}:${s.x_km.toFixed(2)},${s.y_km.toFixed(2)},${s.enabled ? 1 : 0}`).join("|");
     const key = replay
       ? `replay:${frames.length}`
-      : `live:${p.originXKm},${p.originYKm},${p.headingDeg},${p.speedKmh},${p.intensity},${p.spreadRadiusKm},${p.dispersionRate}|${structureKey}|shore:${activeShore.baseXKm}`;
+      : `live:${p.originXKm},${p.originYKm},${p.headingDeg},${p.speedKmh},${p.intensity},${p.spreadRadiusKm},${p.dispersionRate}|${structureKey}|shore:${activeShore.baseXKm}|coast:${coastOverrideKm ?? "curve"}`;
     const cache = snapshotCache.current;
     if (cache.key === key && cache.elapsed === elapsed) return cache.snapshot;
     let snapshot: HazardSnapshot | null;
@@ -540,7 +582,7 @@ export function useScenarioSession(clock: PlaybackClock) {
       // structures that existed when it was recorded — never re-derived.
       snapshot.impacts = state.infrastructure_impacts ?? [];
     } else {
-      snapshot = computeHazard(k, p, elapsed, activeShore);
+      snapshot = computeHazard(k, p, elapsed, activeShore, coastOverrideKm);
       snapshot.impacts = assessStructures(placed, geometryFromSnapshot(snapshot), activeShore);
     }
     snapshotCache.current = { key, elapsed, snapshot };
@@ -562,6 +604,7 @@ export function useScenarioSession(clock: PlaybackClock) {
     params,
     setParams,
     commitParams,
+    setAndCommitParams,
     durationHours,
     setDurationHours,
     worldProfile,
@@ -571,6 +614,9 @@ export function useScenarioSession(clock: PlaybackClock) {
     saveStatus,
     saveError,
     coastDistanceKm,
+    /** "real_map" only: the distance the basemap measured to the real coast,
+     * or null when it could not be measured (see three/map/mapCoast.ts). */
+    setMeasuredCoastKm,
 
     structures,
     showStructures,

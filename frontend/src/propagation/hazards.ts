@@ -92,11 +92,20 @@ export function paramsFor(kind: HazardKind, config: Record<string, unknown>): Pr
   return paramsFromConfig(config, MODEL_DEFAULTS[kind]);
 }
 
-export function computeHazard(kind: HazardKind, params: PropagationParams, elapsedMinutes: number, shore: ShoreParams = DEFAULT_SHORE): HazardSnapshot {
+/** `coastOverrideKm` is the "real_map" profile's measured distance to the
+ * real coast (three/map/mapCoast.ts); `null` keeps the analytic demo
+ * shoreline, which is what the synthetic world and every fixture use. */
+export function computeHazard(
+  kind: HazardKind,
+  params: PropagationParams,
+  elapsedMinutes: number,
+  shore: ShoreParams = DEFAULT_SHORE,
+  coastOverrideKm: number | null = null,
+): HazardSnapshot {
   const hours = Math.max(0, elapsedMinutes) / 60;
   switch (kind) {
     case "tsunami": {
-      const front = frontState(params, elapsedMinutes, true, shore);
+      const front = frontState(params, elapsedMinutes, true, shore, coastOverrideKm);
       const initialWaveHeight = 0.5 + 9.5 * params.intensity;
       const waveHeightM = Math.max(0.05, initialWaveHeight * (1 - 0.35 * front.arrivalProgress));
       const ramp = front.arrived ? Math.min(1, front.minutesSinceArrival / 30) : 0;
@@ -118,7 +127,7 @@ export function computeHazard(kind: HazardKind, params: PropagationParams, elaps
       };
     }
     case "cyclone": {
-      const front = frontState(params, elapsedMinutes, false, shore);
+      const front = frontState(params, elapsedMinutes, false, shore, coastOverrideKm);
       const peakWind = 35 + 125 * params.intensity;
       const decay = Math.exp(-0.6 * params.dispersionRate * (front.minutesSinceArrival / 60));
       const windSpeedKt = peakWind * decay;
@@ -136,7 +145,7 @@ export function computeHazard(kind: HazardKind, params: PropagationParams, elaps
       };
     }
     case "oil_spill": {
-      const front = frontState(params, elapsedMinutes, true, shore);
+      const front = frontState(params, elapsedMinutes, true, shore, coastOverrideKm);
       const growth = 1 - Math.exp(-(0.4 + 1.6 * params.dispersionRate) * hours);
       const slickRadiusKm = 0.3 + params.spreadRadiusKm * growth;
       const concentrationIndex = Math.exp(-0.35 * params.dispersionRate * hours) * (0.35 + 0.65 * params.intensity);
@@ -155,7 +164,7 @@ export function computeHazard(kind: HazardKind, params: PropagationParams, elaps
       };
     }
     case "coastal_flood": {
-      const front = frontState(params, elapsedMinutes, true, shore);
+      const front = frontState(params, elapsedMinutes, true, shore, coastOverrideKm);
       const peakLevelM = 0.5 + 5.5 * params.intensity;
       const since = front.minutesSinceArrival;
       let level: number;
