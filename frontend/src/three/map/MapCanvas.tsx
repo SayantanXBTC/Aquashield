@@ -362,7 +362,13 @@ export function MapCanvas({
           canvas to the 300px default and paints a map nobody can see. An
           inline style outranks both classes. */}
       <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
-            <div className="pointer-events-none absolute inset-0">
+            {/* R3F writes `pointer-events: auto` as an INLINE style on its canvas
+          (react-three-fiber sets it whenever no `eventSource` is given), and
+          an inline style outranks the wrapper's `pointer-events-none` class.
+          The canvas then sits over the whole viewport and eats every drag,
+          scroll and click meant for the map. Only an `!important` rule
+          outranks an inline style, so the child selector carries one. */}
+      <div className="pointer-events-none absolute inset-0 [&_canvas]:!pointer-events-none">
         <Canvas
           dpr={[1, 2]}
           gl={{ alpha: true, antialias: true, powerPreference: "high-performance" }}
