@@ -7,10 +7,10 @@ import { headingVector } from "@/propagation/world";
 import { LightingSystem } from "@/three/core/LightingSystem";
 import { getDisasterVisualizer } from "@/three/disasters/registry";
 import { clearHazardChannel } from "@/three/hazard/hazardChannel";
-import { HeadingGuide } from "@/three/markers/HeadingGuide";
 import { kmToLngLat, lngLatToKm, type GeoAnchor } from "./geoAnchor";
 import { measureCoastDistanceKm, type CoastMeasurement } from "./mapCoast";
 import { MapHazardFootprint } from "./MapHazardFootprint";
+import { applyBuildingExposure, BUILDING_BASE_COLOR } from "./mapExposure";
 import { buildModelMatrix, createMapMatrixTap, type MapMatrixRef } from "./threeMapLayer";
 
 /** Why the real coast could not be measured, in the operator's terms. A
@@ -21,11 +21,6 @@ const COAST_NOTE: Partial<Record<CoastMeasurement["reason"], string>> = {
   no_land_in_range: "No land within 300 km along this heading",
   no_water_layer: "Basemap water layer unavailable — coast cannot be measured",
 };
-
-/** Markers are authored for the 300 km demo world; a city view is ~2 km
- * across. Scaling the marker group keeps them readable instead of filling
- * the screen. */
-const REAL_MAP_MARKER_SCALE = 0.02;
 
 const OPENFREEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 const MATRIX_TAP_LAYER_ID = "aquashield-matrix-tap";
@@ -82,7 +77,7 @@ function TransparentClear() {
   return null;
 }
 
-function MapHazardContent({ kind, originKm, headingDeg, coastDistanceKm, getSnapshot }: MapHazardContentProps) {
+function MapHazardContent({ kind, originKm, getSnapshot }: MapHazardContentProps) {
   const Visualizer = getDisasterVisualizer(kind);
 
   useEffect(() => {
@@ -90,30 +85,16 @@ function MapHazardContent({ kind, originKm, headingDeg, coastDistanceKm, getSnap
     return () => clearHazardChannel();
   }, [Visualizer]);
 
-  const landfallKm = useMemo<[number, number] | null>(() => {
-    if (coastDistanceKm === null) return null;
-    const [dx, dy] = headingVector(headingDeg);
-    return [originKm[0] + dx * coastDistanceKm, originKm[1] + dy * coastDistanceKm];
-  }, [originKm, headingDeg, coastDistanceKm]);
-
-  const fallbackEndKm = useMemo<[number, number]>(() => {
-    const [dx, dy] = headingVector(headingDeg);
-    return [originKm[0] + dx * 120, originKm[1] + dy * 120];
-  }, [originKm, headingDeg]);
-
   return (
     <Suspense fallback={null}>
       <LightingSystem />
       {/* No EnvironmentSystem/Sky: its dome is an opaque backdrop that would
           paint over the basemap showing through this transparent canvas. */}
-      {/* The origin pin and landfall marker are modelled for the 300 km demo
-          world — the pin alone is an 8 km tall, 6.4 km wide cylinder. Over a
-          city that is a skyscraper-sized slab across the whole view, so this
-          profile draws the same markers at city scale. Purely a rendering
-          choice; nothing about the hazard changes. */}
-      <group scale={REAL_MAP_MARKER_SCALE}>
-        <HeadingGuide originKm={originKm} landfallKm={landfallKm} fallbackEndKm={fallbackEndKm} />
-      </group>
+      {/* No HeadingGuide here. Its markers are modelled for the 300 km demo
+          world (the origin pin alone is an 8 km tall cylinder), and scaling
+          the group down scaled their POSITIONS too, collapsing every marker
+          toward the anchor. Origin and landfall are MapLibre markers on the
+          map itself instead — real DOM, correctly placed, and draggable. */}
       {/* The hazard's own swept area. Every other profile draws a tsunami
           crest in the water shader; there is no water mesh here, so without
           this the hazard is invisible on the basemap. */}
@@ -169,6 +150,9 @@ export function MapCanvas({
   const mapRef = useRef<MaplibreMap | null>(null);
   const measureRef = useRef<(() => void) | null>(null);
   const markerRef = useRef<Marker | null>(null);
+  const landfallRef = useRef<Marker | null>(null);
+  const exposureTimerRef = useRef<number | undefined>(undefined);
+  const snapshotRef = useRef(getSnapshot);
   // Last values pushed upward, so an unchanged measurement stays local.
   const lastReason = useRef<CoastMeasurement["reason"] | null>(null);
   const lastDistance = useRef<number | null | undefined>(undefined);
@@ -193,7 +177,8 @@ export function MapCanvas({
     pickRef.current = onOriginPick;
     lockedRef.current = originLocked;
     measuredRef.current = onCoastMeasured;
-  }, [originKm, headingDeg, anchor, onOriginPick, originLocked, onCoastMeasured]);
+    snapshotRef.current = getSnapshot;
+  }, [originKm, headingDeg, anchor, onOriginPick, originLocked, onCoastMeasured, getSnapshot]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -243,7 +228,7 @@ export function MapCanvas({
           "source-layer": "building",
           minzoom: 13,
           paint: {
-            "fill-extrusion-color": "#9aa5b1",
+            "fill-extrusion-color": BUILDING_BASE_COLOR,
             "fill-extrusion-height": ["coalesce", ["get", "render_height"], ["get", "height"], 6],
             "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], ["get", "min_height"], 0],
             "fill-extrusion-opacity": 0.85,
@@ -287,6 +272,39 @@ export function MapCanvas({
       pickRef.current?.(xKm, yKm);
     });
     markerRef.current = marker;
+
+    // Landfall: where the front meets the coast along the heading. Hidden
+    // until there is a measured coast to put it on.
+    const landfallEl = document.createElement("div");
+    landfallEl.setAttribute("aria-label", "Landfall");
+    landfallEl.style.cssText = [
+      "width:14px",
+      "height:14px",
+      "border-radius:9999px",
+      "border:2px solid rgba(239,68,68,0.95)",
+      "background:rgba(239,68,68,0.28)",
+      "box-shadow:0 0 0 5px rgba(239,68,68,0.16)",
+    ].join(";");
+    const landfallMarker = new Marker({ element: landfallEl }).setLngLat([originLng, originLat]).addTo(map);
+    landfallEl.style.display = "none";
+    landfallRef.current = landfallMarker;
+
+    // Buildings take the hazard's exposure bands. Throttled, not per frame:
+    // setPaintProperty reparses the expression, and the hazard's reach only
+    // changes at human speed.
+    const exposureTimer = window.setInterval(() => {
+      const snapshot = snapshotRef.current?.();
+      if (!snapshot) return;
+      const [dx, dy] = headingVector(snapshot.params.headingDeg);
+      const travelled = snapshot.front.traveledKm;
+      const [frontLng, frontLat] = kmToLngLat(
+        snapshot.params.originXKm + dx * travelled,
+        snapshot.params.originYKm + dy * travelled,
+        anchorRef.current,
+      );
+      applyBuildingExposure(map, BUILDINGS_LAYER_ID, [frontLng, frontLat], snapshot.radiusKm);
+    }, 200);
+    exposureTimerRef.current = exposureTimer;
 
     // Re-measure when the view settles: the measurement can only read tiles
     // that are on screen, so panning or zooming changes what is answerable.
@@ -335,6 +353,9 @@ export function MapCanvas({
       matrixRef.current = null;
       markerRef.current?.remove();
       markerRef.current = null;
+      landfallRef.current?.remove();
+      landfallRef.current = null;
+      window.clearInterval(exposureTimerRef.current);
       mapRef.current = null;
       measureRef.current = null;
       window.clearTimeout(pending);
@@ -363,7 +384,19 @@ export function MapCanvas({
     const [lng, lat] = kmToLngLat(originXKm, originYKm, anchor);
     const at = marker.getLngLat();
     if (Math.abs(at.lng - lng) > 1e-9 || Math.abs(at.lat - lat) > 1e-9) marker.setLngLat([lng, lat]);
-  }, [mapReady, originXKm, originYKm, headingDeg, originLocked, anchor]);
+
+    const landfall = landfallRef.current;
+    if (!landfall) return;
+    const element = landfall.getElement();
+    if (coastDistanceKm === null || coastDistanceKm <= 0) {
+      element.style.display = "none";
+      return;
+    }
+    const [dx, dy] = headingVector(headingDeg);
+    const [landfallLng, landfallLat] = kmToLngLat(originXKm + dx * coastDistanceKm, originYKm + dy * coastDistanceKm, anchor);
+    landfall.setLngLat([landfallLng, landfallLat]);
+    element.style.display = "";
+  }, [mapReady, originXKm, originYKm, headingDeg, originLocked, anchor, coastDistanceKm]);
 
   return (
     <div className="absolute inset-0">
