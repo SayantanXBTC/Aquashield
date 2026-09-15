@@ -367,8 +367,13 @@ export function MapCanvas({
           an inline style outranks the wrapper's `pointer-events-none` class.
           The canvas then sits over the whole viewport and eats every drag,
           scroll and click meant for the map. Only an `!important` rule
-          outranks an inline style, so the child selector carries one. */}
-      <div className="pointer-events-none absolute inset-0 [&_canvas]:!pointer-events-none">
+          outranks an inline style, so the child selector carries one — and it
+          has to cover every descendant, not just the canvas: R3F wraps the
+          canvas in its own inline-styled divs, and the probe caught one of
+          those taking the clicks after the canvas was excluded. Nothing in
+          this subtree needs pointer events; the origin pin is disabled here
+          because MapLibre owns the gestures. */}
+      <div className="pointer-events-none absolute inset-0 [&_*]:!pointer-events-none">
         <Canvas
           dpr={[1, 2]}
           gl={{ alpha: true, antialias: true, powerPreference: "high-performance" }}
