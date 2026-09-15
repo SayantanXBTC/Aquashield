@@ -162,6 +162,41 @@ export function MapCanvas({
   const [contextLost, setContextLost] = useState(false);
   const [coastReason, setCoastReason] = useState<CoastMeasurement["reason"] | null>(null);
 
+  // TEMPORARY probe: is the main thread alive, and what element is actually
+  // on top? A stalled tick means the page is frozen; a live tick with no
+  // pointer events means something is swallowing them.
+  const [probe, setProbe] = useState("");
+  useEffect(() => {
+    let frames = 0;
+    let raf = 0;
+    let lastDown = "none";
+    let lastWheel = 0;
+    const onDown = (ev: PointerEvent) => {
+      const el = ev.target as HTMLElement;
+      lastDown = `${el.tagName.toLowerCase()}.${(el.className || "").toString().split(" ").slice(0, 2).join(".")}`;
+    };
+    const onWheel = () => {
+      lastWheel += 1;
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("wheel", onWheel, true);
+    const tick = () => {
+      frames += 1;
+      if (frames % 30 === 0) {
+        const hit = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2) as HTMLElement | null;
+        const hitName = hit ? `${hit.tagName.toLowerCase()}.${(hit.className || "").toString().split(" ").slice(0, 2).join(".")}` : "none";
+        setProbe(`tick ${frames} | top-at-centre ${hitName} | lastPointerDown ${lastDown} | wheels ${lastWheel}`);
+      }
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("wheel", onWheel, true);
+    };
+  }, []);
+
   // Callbacks and the values the measurement reads live in refs: the map is
   // built once per anchor, and re-running that effect for a slider change
   // would tear down and rebuild the whole basemap.
@@ -350,6 +385,10 @@ export function MapCanvas({
           WebGL context lost — reload the page to restore the map.
         </div>
       ) : null}
+      {/* TEMPORARY probe — removed once input works. */}
+      <div className="pointer-events-none absolute top-1/3 left-1/2 -translate-x-1/2 rounded-[6px] border border-cyan-400/40 bg-[rgba(4,12,18,0.92)] px-3 py-2 font-mono text-[11px] text-cyan-200">
+        {probe || "probing…"}
+      </div>
       {coastReason && COAST_NOTE[coastReason] ? (
         <div className="pointer-events-none absolute bottom-12 left-3 max-w-sm rounded-[6px] border border-amber-400/40 bg-[rgba(24,16,4,0.85)] px-3 py-1.5 text-[11px] text-amber-200 backdrop-blur-xl">
           {COAST_NOTE[coastReason]}
