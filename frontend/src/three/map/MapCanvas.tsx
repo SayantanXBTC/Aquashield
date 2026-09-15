@@ -1,6 +1,6 @@
 import { createElement, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Map as MaplibreMap, NavigationControl, ScaleControl } from "maplibre-gl";
+import { Map as MaplibreMap, Marker, NavigationControl, ScaleControl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { HazardKind, HazardSnapshot } from "@/propagation/hazards";
 import { headingVector } from "@/propagation/world";
@@ -8,8 +8,7 @@ import { LightingSystem } from "@/three/core/LightingSystem";
 import { getDisasterVisualizer } from "@/three/disasters/registry";
 import { clearHazardChannel } from "@/three/hazard/hazardChannel";
 import { HeadingGuide } from "@/three/markers/HeadingGuide";
-import { OriginPin } from "@/three/markers/OriginPin";
-import { lngLatToKm, type GeoAnchor } from "./geoAnchor";
+import { kmToLngLat, lngLatToKm, type GeoAnchor } from "./geoAnchor";
 import { measureCoastDistanceKm, type CoastMeasurement } from "./mapCoast";
 import { MapHazardFootprint } from "./MapHazardFootprint";
 import { buildModelMatrix, createMapMatrixTap, type MapMatrixRef } from "./threeMapLayer";
@@ -114,9 +113,6 @@ function MapHazardContent({ kind, originKm, headingDeg, coastDistanceKm, getSnap
           choice; nothing about the hazard changes. */}
       <group scale={REAL_MAP_MARKER_SCALE}>
         <HeadingGuide originKm={originKm} landfallKm={landfallKm} fallbackEndKm={fallbackEndKm} />
-        {/* The overlay canvas takes no pointer events (they belong to
-            MapLibre's pan/rotate), so the pin orients rather than drags. */}
-        <OriginPin originKm={originKm} onDrag={() => {}} onDragEnd={() => {}} disabled />
       </group>
       {/* The hazard's own swept area. Every other profile draws a tsunami
           crest in the water shader; there is no water mesh here, so without
@@ -172,6 +168,7 @@ export function MapCanvas({
   const matrixRef = useRef<ArrayLike<number> | null>(null);
   const mapRef = useRef<MaplibreMap | null>(null);
   const measureRef = useRef<(() => void) | null>(null);
+  const markerRef = useRef<Marker | null>(null);
   // Last values pushed upward, so an unchanged measurement stays local.
   const lastReason = useRef<CoastMeasurement["reason"] | null>(null);
   const lastDistance = useRef<number | null | undefined>(undefined);
@@ -268,6 +265,29 @@ export function MapCanvas({
       pickRef.current(xKm, yKm);
     });
 
+    // The origin is a real MapLibre marker, so it grabs and drags exactly
+    // like the demo world's pin. A Three.js pin cannot: the overlay takes no
+    // pointer events, and giving it any would fight the map's own pan.
+    const markerEl = document.createElement("div");
+    markerEl.setAttribute("aria-label", "Hazard origin");
+    markerEl.style.cssText = [
+      "width:18px",
+      "height:18px",
+      "border-radius:9999px",
+      "background:rgba(34,211,238,0.9)",
+      "border:2px solid rgba(255,255,255,0.9)",
+      "box-shadow:0 0 0 6px rgba(34,211,238,0.22)",
+      "cursor:grab",
+    ].join(";");
+    const [originLng, originLat] = kmToLngLat(originRef.current[0], originRef.current[1], anchorRef.current);
+    const marker = new Marker({ element: markerEl, draggable: !lockedRef.current }).setLngLat([originLng, originLat]).addTo(map);
+    marker.on("dragend", () => {
+      const { lng, lat } = marker.getLngLat();
+      const [xKm, yKm] = lngLatToKm(lng, lat, anchorRef.current);
+      pickRef.current?.(xKm, yKm);
+    });
+    markerRef.current = marker;
+
     // Re-measure when the view settles: the measurement can only read tiles
     // that are on screen, so panning or zooming changes what is answerable.
     //
@@ -313,6 +333,8 @@ export function MapCanvas({
 
     return () => {
       matrixRef.current = null;
+      markerRef.current?.remove();
+      markerRef.current = null;
       mapRef.current = null;
       measureRef.current = null;
       window.clearTimeout(pending);
@@ -328,12 +350,20 @@ export function MapCanvas({
   }, [anchor.lat, anchor.lon]);
 
   // Moving the pin or turning the heading changes the path being measured,
-  // and neither moves the map, so "idle" would not fire on its own.
+  // and neither moves the map, so "moveend" would not fire on its own.
   const [originXKm, originYKm] = originKm;
   useEffect(() => {
     if (!mapReady) return;
     measureRef.current?.();
-  }, [mapReady, originXKm, originYKm, headingDeg]);
+    const marker = markerRef.current;
+    if (!marker) return;
+    marker.setDraggable(!originLocked);
+    // The marker is the source of its own drags; only follow the session
+    // when the change came from somewhere else (a preset, a replay exit).
+    const [lng, lat] = kmToLngLat(originXKm, originYKm, anchor);
+    const at = marker.getLngLat();
+    if (Math.abs(at.lng - lng) > 1e-9 || Math.abs(at.lat - lat) > 1e-9) marker.setLngLat([lng, lat]);
+  }, [mapReady, originXKm, originYKm, headingDeg, originLocked, anchor]);
 
   return (
     <div className="absolute inset-0">

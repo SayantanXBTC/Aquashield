@@ -24,16 +24,33 @@ const KM_TO_M = 1000;
 
 /**
  * Scene content is Y-up (x=east, y=up, z=south — three/world/demoWorld.ts's
- * convention). MapLibre's 3D frame treats its third mercator axis as
- * altitude, with x=east and y=south planar. A 90 degree rotation about X
- * aligns the two; nothing in the existing scene graph changes.
+ * convention). MapLibre's mercator frame is x=east, y=SOUTH, z=altitude. So
+ * the scene's y and z axes simply swap:
+ *
+ *   mercator.x = scene.x     (east)
+ *   mercator.y = scene.z     (south)
+ *   mercator.z = scene.y     (up)
+ *
+ * That swap is a REFLECTION, not a rotation — its determinant is -1 — so no
+ * rotation can express it. A 90 degree rotation about X was used here first
+ * and sends scene.z to NORTH instead of south, mirroring the whole scene
+ * about the anchor's latitude: click 1 km north of the anchor and the origin
+ * lands 1 km south of it, twice as far from the pointer as you meant, with
+ * the error growing the further you click from the anchor.
  */
 export function buildModelMatrix(anchor: GeoAnchor): THREE.Matrix4 {
   const anchorMercator = MercatorCoordinate.fromLngLat({ lng: anchor.lon, lat: anchor.lat }, 0);
   const kmScale = anchorMercator.meterInMercatorCoordinateUnits() * KM_TO_M;
+  // Columns are the images of the scene's x, y and z axes, in that order.
+  const axisSwap = new THREE.Matrix4().set(
+    1, 0, 0, 0,
+    0, 0, 1, 0,
+    0, 1, 0, 0,
+    0, 0, 0, 1,
+  );
   return new THREE.Matrix4()
     .makeTranslation(anchorMercator.x, anchorMercator.y, anchorMercator.z)
-    .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))
+    .multiply(axisSwap)
     .multiply(new THREE.Matrix4().makeScale(kmScale, kmScale, kmScale));
 }
 
