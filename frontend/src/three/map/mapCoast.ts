@@ -29,9 +29,14 @@ import { kmToLngLat, type GeoAnchor } from "./geoAnchor";
 /** OpenMapTiles puts every ocean/sea/lake/river polygon in one source layer. */
 const WATER_SOURCE_LAYER = "water";
 
-const DEFAULT_STEP_KM = 0.5;
+const DEFAULT_STEP_KM = 2;
 const DEFAULT_MAX_KM = 300;
 const BISECT_STEPS = 12;
+/** Hard ceiling on coarse samples per march. Each one is a
+ * `queryRenderedFeatures` against real tile geometry — costly enough that an
+ * unbounded march blocks the main thread for hundreds of milliseconds. The
+ * caller sizes `stepKm` from the visible extent; this is the backstop. */
+const MAX_SAMPLES = 200;
 
 /** Ids of the style's filled water layers. Recomputed per call rather than
  * cached: a style can finish loading, and layers can be added, after the map
@@ -105,8 +110,9 @@ export function measureCoastDistanceKm(
   if (atOrigin) return { distanceKm: 0, reason: "on_land" };
 
   let traveled = 0;
+  const step = Math.max(stepKm, maxKm / MAX_SAMPLES);
   while (traveled < maxKm) {
-    const next = traveled + stepKm;
+    const next = traveled + step;
     const land = isLandAt(next);
     // The path left the rendered area before reaching land: unknown, not
     // "no land". Saying 300 km here would be the same fiction as the sine.

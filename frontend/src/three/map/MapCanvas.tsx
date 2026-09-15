@@ -155,6 +155,9 @@ export function MapCanvas({
   const matrixRef = useRef<ArrayLike<number> | null>(null);
   const mapRef = useRef<MaplibreMap | null>(null);
   const measureRef = useRef<(() => void) | null>(null);
+  // Last values pushed upward, so an unchanged measurement stays local.
+  const lastReason = useRef<CoastMeasurement["reason"] | null>(null);
+  const lastDistance = useRef<number | null | undefined>(undefined);
   const [mapReady, setMapReady] = useState(false);
   const [contextLost, setContextLost] = useState(false);
   const [coastReason, setCoastReason] = useState<CoastMeasurement["reason"] | null>(null);
@@ -236,6 +239,7 @@ export function MapCanvas({
         map.addLayer(createMapMatrixTap(MATRIX_TAP_LAYER_ID, matrixRef));
       }
       setMapReady(true);
+      scheduleMeasure();
     });
 
     // Clicking open water moves the hazard origin. MapLibre fires "click"
@@ -246,21 +250,54 @@ export function MapCanvas({
       pickRef.current(xKm, yKm);
     });
 
-    // Re-measure whenever the rendered view settles: the measurement can only
-    // read tiles that are actually on screen, so panning or zooming changes
-    // what is answerable.
+    // Re-measure when the view settles: the measurement can only read tiles
+    // that are on screen, so panning or zooming changes what is answerable.
+    //
+    // NOT on "idle". The matrix tap calls triggerRepaint() every frame to keep
+    // the hazard shaders animating, so the map is never idle for long, and
+    // driving React state from that event turned into a render loop that
+    // pinned the main thread: each march ran hundreds of
+    // queryRenderedFeatures calls, set state, re-rendered, and fired again.
     const remeasure = () => {
-      const result = measureCoastDistanceKm(map, anchorRef.current, originRef.current, headingRef.current);
-      setCoastReason(result.reason);
-      measuredRef.current?.(result.distanceKm);
+      // Size the step to what is visible, so a zoomed-in view bails after a
+      // few samples instead of walking 300 km it cannot classify anyway.
+      const bounds = map.getBounds();
+      const [westKm, southKm] = lngLatToKm(bounds.getWest(), bounds.getSouth(), anchorRef.current);
+      const [eastKm, northKm] = lngLatToKm(bounds.getEast(), bounds.getNorth(), anchorRef.current);
+      const spanKm = Math.hypot(eastKm - westKm, northKm - southKm);
+      const result = measureCoastDistanceKm(
+        map,
+        anchorRef.current,
+        originRef.current,
+        headingRef.current,
+        Math.min(300, spanKm),
+        Math.max(0.25, spanKm / 200),
+      );
+      // Only push a CHANGED value upward. An unchanged one would re-render
+      // the whole command center on every settle for nothing.
+      if (result.reason !== lastReason.current) {
+        lastReason.current = result.reason;
+        setCoastReason(result.reason);
+      }
+      if (result.distanceKm !== lastDistance.current) {
+        lastDistance.current = result.distanceKm;
+        measuredRef.current?.(result.distanceKm);
+      }
     };
-    map.on("idle", remeasure);
-    measureRef.current = remeasure;
+
+    let pending: number | undefined;
+    const scheduleMeasure = () => {
+      window.clearTimeout(pending);
+      pending = window.setTimeout(remeasure, 300);
+    };
+    map.on("moveend", scheduleMeasure);
+    measureRef.current = scheduleMeasure;
 
     return () => {
       matrixRef.current = null;
       mapRef.current = null;
       measureRef.current = null;
+      window.clearTimeout(pending);
       setMapReady(false);
       observer.disconnect();
       canvas.removeEventListener("webglcontextlost", onLost);
